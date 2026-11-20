@@ -7,6 +7,9 @@ import 'package:shared_preferences/shared_preferences.dart';
 typedef _IntFn = ffi.Int32 Function();
 typedef _BufFn = ffi.Int32 Function(ffi.Pointer<ffi.Uint8>, ffi.Size);
 typedef _StrBufFn = ffi.Int32 Function(ffi.Pointer<ffi.Char>, ffi.Pointer<ffi.Uint8>, ffi.Size);
+typedef _DartIntFn = int Function();
+typedef _DartBufFn = int Function(ffi.Pointer<ffi.Uint8>, int);
+typedef _DartStrBufFn = int Function(ffi.Pointer<ffi.Char>, ffi.Pointer<ffi.Uint8>, int);
 
 /// Rust 底层桥
 class Native {
@@ -32,7 +35,7 @@ class Native {
   static Map<String, dynamic>? _callBuf(String fn, {int cap = 16384}) {
     final l = lib;
     if (l == null) return {'success': false, 'message': loadError ?? 'native library missing'};
-    final f = l.lookupFunction<_BufFn, _BufFn>(fn);
+    final f = l.lookupFunction<_BufFn, _DartBufFn>(fn);
     final buf = ffi.calloc<ffi.Uint8>(cap);
     try {
       final ret = f(buf, cap);
@@ -57,7 +60,7 @@ class Native {
     final l = lib;
     if (l == null) return false;
     try {
-      return l.lookupFunction<_IntFn, _IntFn>('ping')() == 20261119;
+      return l.lookupFunction<_IntFn, _DartIntFn>('ping')() == 20261119;
     } catch (_) {
       return false;
     }
@@ -70,8 +73,7 @@ class Native {
   static Map<String, dynamic> executeCleanup(List<String> paths, {bool dryRun = true}) {
     final l = lib;
     if (l == null) return {'success': false, 'message': loadError ?? 'native library missing'};
-    final f = l.lookupFunction<ffi.Int32 Function(ffi.Pointer<ffi.Char>, ffi.Pointer<ffi.Uint8>, ffi.Size),
-        ffi.Int32 Function(ffi.Pointer<ffi.Char>, ffi.Pointer<ffi.Uint8>, ffi.Size)>('execute_cleanup');
+    final f = l.lookupFunction<ffi.Int32 Function(ffi.Pointer<ffi.Char>, ffi.Pointer<ffi.Uint8>, ffi.Size), int Function(ffi.Pointer<ffi.Char>, ffi.Pointer<ffi.Uint8>, int)>('execute_cleanup');
     final cstr = jsonEncode({'paths': paths, 'dry_run': dryRun}).toNativeUtf8();
     final buf = ffi.calloc<ffi.Uint8>(8192);
     try {
@@ -88,7 +90,7 @@ class Native {
   static Map<String, dynamic> scanFile(String engine, String target) {
     final l = lib;
     if (l == null) return {'success': false, 'message': loadError ?? 'native library missing'};
-    final f = l.lookupFunction<_StrBufFn, _StrBufFn>('scan_file');
+    final f = l.lookupFunction<_StrBufFn, _DartStrBufFn>('scan_file');
     final e = engine.toNativeUtf8();
     final t = target.toNativeUtf8();
     final buf = ffi.calloc<ffi.Uint8>(16384);
@@ -107,8 +109,7 @@ class Native {
   static Map<String, dynamic> launch(String name) {
     final l = lib;
     if (l == null) return {'success': false, 'message': loadError ?? 'native library missing'};
-    final f = l.lookupFunction<ffi.Int32 Function(ffi.Pointer<ffi.Char>, ffi.Pointer<ffi.Uint8>, ffi.Size),
-        ffi.Int32 Function(ffi.Pointer<ffi.Char>, ffi.Pointer<ffi.Uint8>, ffi.Size)>('launch_external');
+    final f = l.lookupFunction<ffi.Int32 Function(ffi.Pointer<ffi.Char>, ffi.Pointer<ffi.Uint8>, ffi.Size), int Function(ffi.Pointer<ffi.Char>, ffi.Pointer<ffi.Uint8>, int)>('launch_external');
     final n = name.toNativeUtf8();
     final buf = ffi.calloc<ffi.Uint8>(4096);
     try {

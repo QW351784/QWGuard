@@ -583,9 +583,10 @@ class _BreathingGlowState extends State<BreathingGlow> with SingleTickerProvider
               ),
             ),
           ),
-        ),
-      ),
-    );
+        );
+      },
+    ),
+  );
   }
 }
 

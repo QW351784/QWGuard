@@ -11,8 +11,7 @@ class Api {
       return {'success': false, 'message': Native.loadError ?? 'native library missing'};
     }
     try {
-      final f = lib.lookupFunction<ffi.Int32 Function(ffi.Pointer<ffi.Uint8>, ffi.Size),
-          ffi.Int32 Function(ffi.Pointer<ffi.Uint8>, ffi.Size)>(fn);
+      final f = lib.lookupFunction<ffi.Int32 Function(ffi.Pointer<ffi.Uint8>, ffi.Size), int Function(ffi.Pointer<ffi.Uint8>, int)>(fn);
       final buf = ffi.calloc<ffi.Uint8>(cap);
       try {
         final ret = f(buf, cap);
@@ -33,9 +32,7 @@ class Api {
       return {'success': false, 'message': Native.loadError ?? 'native library missing'};
     }
     try {
-      final f = lib.lookupFunction<
-          ffi.Int32 Function(ffi.Pointer<ffi.Char>, ffi.Pointer<ffi.Char>, ffi.Pointer<ffi.Uint8>, ffi.Size),
-          ffi.Int32 Function(ffi.Pointer<ffi.Char>, ffi.Pointer<ffi.Char>, ffi.Pointer<ffi.Uint8>, ffi.Size)>(fn);
+      final f = lib.lookupFunction<ffi.Int32 Function(ffi.Pointer<ffi.Char>, ffi.Pointer<ffi.Char>, ffi.Pointer<ffi.Uint8>, ffi.Size), int Function(ffi.Pointer<ffi.Char>, ffi.Pointer<ffi.Char>, ffi.Pointer<ffi.Uint8>, int)>(fn);
       final a = args[0].toNativeUtf8();
       final b = args.length > 1 ? args[1].toNativeUtf8() : ffi.calloc<ffi.Char>(1);
       final buf = ffi.calloc<ffi.Uint8>(cap);
@@ -59,8 +56,7 @@ class Api {
     final lib = Native.lib;
     if (lib == null) return {'success': false};
     try {
-      final f = lib.lookupFunction<ffi.Int32 Function(ffi.Pointer<ffi.Char>, ffi.Pointer<ffi.Uint8>, ffi.Size),
-          ffi.Int32 Function(ffi.Pointer<ffi.Char>, ffi.Pointer<ffi.Uint8>, ffi.Size)>(fn);
+      final f = lib.lookupFunction<ffi.Int32 Function(ffi.Pointer<ffi.Char>, ffi.Pointer<ffi.Uint8>, ffi.Size), int Function(ffi.Pointer<ffi.Char>, ffi.Pointer<ffi.Uint8>, int)>(fn);
       final a = arg.toNativeUtf8();
       final buf = ffi.calloc<ffi.Uint8>(cap);
       try {
@@ -95,9 +91,7 @@ class Api {
     final lib = Native.lib;
     if (lib == null) return {'success': false};
     try {
-      final f = lib.lookupFunction<
-          ffi.Int32 Function(ffi.Pointer<ffi.Char>, ffi.Pointer<ffi.Char>, ffi.Int32, ffi.Pointer<ffi.Uint8>, ffi.Size),
-          ffi.Int32 Function(ffi.Pointer<ffi.Char>, ffi.Pointer<ffi.Char>, ffi.Int32, ffi.Pointer<ffi.Uint8>, ffi.Size)>(
+      final f = lib.lookupFunction<ffi.Int32 Function(ffi.Pointer<ffi.Char>, ffi.Pointer<ffi.Char>, ffi.Int32, ffi.Pointer<ffi.Uint8>, ffi.Size), int Function(ffi.Pointer<ffi.Char>, ffi.Pointer<ffi.Char>, int, ffi.Pointer<ffi.Uint8>, int)>(
           'autostart_set');
       final n = name.toNativeUtf8();
       final e = exe.toNativeUtf8();
@@ -138,11 +132,9 @@ class Api {
       return {'success': false, 'message': Native.loadError ?? 'native library missing'};
     }
     try {
-      final f = lib.lookupFunction<
-          ffi.Int32 Function(ffi.Pointer<ffi.Char>, ffi.Pointer<ffi.Char>, ffi.Pointer<ffi.Char>,
-              ffi.Pointer<ffi.Uint8>, ffi.Size),
-          ffi.Int32 Function(ffi.Pointer<ffi.Char>, ffi.Pointer<ffi.Char>, ffi.Pointer<ffi.Char>,
-              ffi.Pointer<ffi.Uint8>, ffi.Size)>(fn);
+      final f = lib.lookupFunction<ffi.Int32 Function(ffi.Pointer<ffi.Char>, ffi.Pointer<ffi.Char>, ffi.Pointer<ffi.Char>,
+              ffi.Pointer<ffi.Uint8>, ffi.Size), int Function(ffi.Pointer<ffi.Char>, ffi.Pointer<ffi.Char>, ffi.Pointer<ffi.Char>,
+              ffi.Pointer<ffi.Uint8>, int)>(fn);
       final a = args[0].toNativeUtf8();
       final b = args[1].toNativeUtf8();
       final c = args[2].toNativeUtf8();
@@ -206,9 +198,7 @@ class Api {
     final lib = Native.lib;
     if (lib == null) return {'success': false};
     try {
-      final f = lib.lookupFunction<
-          ffi.Int32 Function(ffi.Pointer<ffi.Char>, ffi.Int32, ffi.Int32, ffi.Pointer<ffi.Uint8>, ffi.Size),
-          ffi.Int32 Function(ffi.Pointer<ffi.Char>, ffi.Int32, ffi.Int32, ffi.Pointer<ffi.Uint8>, ffi.Size)>(
+      final f = lib.lookupFunction<ffi.Int32 Function(ffi.Pointer<ffi.Char>, ffi.Int32, ffi.Int32, ffi.Pointer<ffi.Uint8>, ffi.Size), int Function(ffi.Pointer<ffi.Char>, int, int, ffi.Pointer<ffi.Uint8>, int)>(
           'shredder_run');
       final a = jsonEncode(paths).toNativeUtf8();
       final buf = ffi.calloc<ffi.Uint8>(8192);
@@ -238,11 +228,9 @@ class Api {
     final lib = Native.lib;
     if (lib == null) return {'success': false};
     try {
-      final f = lib.lookupFunction<
-          ffi.Int32 Function(ffi.Pointer<ffi.Char>, ffi.Pointer<ffi.Char>, ffi.Int32, ffi.Int32,
-              ffi.Pointer<ffi.Uint8>, ffi.Size),
-          ffi.Int32 Function(ffi.Pointer<ffi.Char>, ffi.Pointer<ffi.Char>, ffi.Int32, ffi.Int32,
-              ffi.Pointer<ffi.Uint8>, ffi.Size)>('install_run');
+      final f = lib.lookupFunction<ffi.Int32 Function(ffi.Pointer<ffi.Char>, ffi.Pointer<ffi.Char>, ffi.Int32, ffi.Int32,
+              ffi.Pointer<ffi.Uint8>, ffi.Size), int Function(ffi.Pointer<ffi.Char>, ffi.Pointer<ffi.Char>, int, int,
+              ffi.Pointer<ffi.Uint8>, int)>('install_run');
       final a = src.toNativeUtf8();
       final b = dst.toNativeUtf8();
       final buf = ffi.calloc<ffi.Uint8>(8192);
@@ -265,9 +253,7 @@ class Api {
     final lib = Native.lib;
     if (lib == null) return {'success': false};
     try {
-      final f = lib.lookupFunction<
-          ffi.Int32 Function(ffi.Pointer<ffi.Char>, ffi.Int32, ffi.Pointer<ffi.Uint8>, ffi.Size),
-          ffi.Int32 Function(ffi.Pointer<ffi.Char>, ffi.Int32, ffi.Pointer<ffi.Uint8>, ffi.Size)>(
+      final f = lib.lookupFunction<ffi.Int32 Function(ffi.Pointer<ffi.Char>, ffi.Int32, ffi.Pointer<ffi.Uint8>, ffi.Size), int Function(ffi.Pointer<ffi.Char>, int, ffi.Pointer<ffi.Uint8>, int)>(
           'uninstall_run');
       final a = appDir.toNativeUtf8();
       final buf = ffi.calloc<ffi.Uint8>(8192);
