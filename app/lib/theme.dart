@@ -242,19 +242,23 @@ class LiquidGlass extends StatelessWidget {
       );
     }
 
-    // 折射只挂在液态玻璃档；云母 / Aero / 纯色不做折射
-    if (glass && Ui.refraction.value) {
+    // 折射和光追都只挂在液态玻璃档；云母 / Aero / 纯色不做
+    final wantRefraction = glass && Ui.refraction.value;
+    final wantRay = glass && Ui.isOn('raytrace');
+    if (wantRefraction || wantRay) {
       box = Stack(
         children: [
           box,
-          Positioned.fill(
-            child: IgnorePointer(
-              child: ClipPath(
-                clipper: clipper,
-                child: _Refraction(radius: radius),
+          if (wantRefraction)
+            Positioned.fill(
+              child: IgnorePointer(
+                child: ClipPath(clipper: clipper, child: _Refraction(radius: radius)),
               ),
             ),
-          ),
+          if (wantRay)
+            Positioned.fill(
+              child: ClipPath(clipper: clipper, child: _RayTrace(radius: radius)),
+            ),
         ],
       );
     }
@@ -752,6 +756,268 @@ class _RefractionPainter extends CustomPainter {
 ///
 /// - 软件内：受设置开关控制，默认关闭
 /// - 安装 / 卸载：`forceOn: true` 强制开启，那边没有开关
+/// 光追反射层：光线打到玻璃表面后的镜面反射、多次内反射、焦散聚光、
+/// 表面微观起伏高光。纯 Canvas 近似，不吃 GPU 光追硬件。
+class _RayTrace extends StatefulWidget {
+  final double radius;
+  const _RayTrace({required this.radius});
+
+  @override
+  State<_RayTrace> createState() => _RayTraceState();
+}
+
+class _RayTraceState extends State<_RayTrace> with SingleTickerProviderStateMixin {
+  late final AnimationController _c = AnimationController(
+    vsync: this,
+    duration: const Duration(seconds: 14),
+  )..repeat();
+
+  @override
+  void dispose() {
+    _c.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return IgnorePointer(
+      child: AnimatedBuilder(
+        animation: _c,
+        builder: (_, __) => CustomPaint(
+          painter: _RayTracePainter(t: _c.value, radius: widget.radius, dark: isDark),
+          size: Size.infinite,
+        ),
+      ),
+    );
+  }
+}
+
+class _RayTracePainter extends CustomPainter {
+  final double t; // 0..1 循环
+  final double radius;
+  final bool dark;
+
+  _RayTracePainter({required this.t, required this.radius, required this.dark});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (size.isEmpty) return;
+    final rrect = RRect.fromRectAndRadius(Offset.zero & size, Radius.circular(radius));
+    final w = size.width;
+    final h = size.height;
+
+    canvas.save();
+    canvas.clipRRect(rrect);
+
+    // ① 多次内反射：同一条反射线按 1/2/3 倍间距重复，透明度逐次衰减
+    //    入射角随 t 缓慢摆动，看起来像光源在动
+    final theta = 0.55 + 0.18 * math.sin(t * math.pi * 2);
+    final dx = math.cos(theta);
+    final dy = math.sin(theta);
+    for (var k = 1; k <= 3; k++) {
+      final p = Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.2
+        ..color = Colors.white.withOpacity((dark ? 0.10 : 0.30) / k);
+      final off = k * 7.0;
+      canvas.drawLine(Offset(off * dx, off * dy), Offset(w - off, h * 0.52 + off * dy), p);
+    }
+
+    // ② 镜面高光扫过：一道窄亮带斜着穿过整块玻璃
+    final s = (t * 2.0) % 1.0;
+    final sx = -w * 0.4 + s * (w * 1.8);
+    canvas.save();
+    canvas.translate(sx, 0);
+    canvas.rotate(-0.35);
+    final rectB = Rect.fromLTWH(-46, -h, 92, h * 3);
+    final band = Paint()
+      ..shader = LinearGradient(
+        begin: Alignment.topCenter,
+        end: Alignment.bottomCenter,
+        colors: [
+          Colors.white.withOpacity(0.0),
+          Colors.white.withOpacity(dark ? 0.11 : 0.30),
+          Colors.white.withOpacity(0.0),
+        ],
+      ).createShader(rectB);
+    canvas.drawRect(rectB, band);
+    canvas.restore();
+
+    // ③ 焦散聚光：光穿过玻璃在角上汇成亮斑，两颗沿椭圆轨道游走
+    for (var i = 0; i < 2; i++) {
+      final p = (t + i * 0.5) % 1.0;
+      final cx = (i == 0 ? 0.12 : 0.88) * w + math.sin(p * math.pi * 2) * w * 0.06;
+      final cy = (i == 0 ? 0.16 : 0.84) * h + math.cos(p * math.pi * 2) * h * 0.05;
+      final r = math.min(w, h) * 0.17;
+      final paint = Paint()
+        ..shader = RadialGradient(
+          colors: [
+            (dark ? const Color(0xFF9BE7FF) : Colors.white).withOpacity(dark ? 0.20 : 0.52),
+            Colors.transparent,
+          ],
+        ).createShader(Rect.fromCircle(center: Offset(cx, cy), radius: r));
+      canvas.drawCircle(Offset(cx, cy), r, paint);
+    }
+
+    // ④ 表面微观起伏：极低透明度斜纹整体平移，模拟玻璃面反射的细碎起伏
+    final hatch = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 0.8
+      ..color = Colors.white.withOpacity(dark ? 0.030 : 0.075);
+    const step = 7.0;
+    final shift = (t * step * 2) % step;
+    for (var x = -h; x < w + h; x += step) {
+      canvas.drawLine(Offset(x + shift, 0), Offset(x + shift - h * 0.6, h), hatch);
+    }
+
+    // ⑤ 菲涅耳边缘：掠射角处反射更强，绕着边框转
+    final edge = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2.4
+      ..shader = SweepGradient(
+        colors: [
+          Colors.white.withOpacity(0.0),
+          Colors.white.withOpacity(dark ? 0.12 : 0.34),
+          Colors.white.withOpacity(0.0),
+          Colors.white.withOpacity(dark ? 0.10 : 0.26),
+          Colors.white.withOpacity(0.0),
+        ],
+        stops: const [0.0, 0.12, 0.45, 0.82, 1.0],
+        transform: GradientRotation(t * math.pi * 2),
+      ).createShader(Offset.zero & size);
+    canvas.drawRRect(rrect, edge);
+
+    canvas.restore();
+  }
+
+  @override
+  bool shouldRepaint(covariant _RayTracePainter old) =>
+      old.t != t || old.dark != dark || old.radius != radius;
+}
+
+/// 水纹层：指针按下 / 划过时在玻璃上溅起同心水波，越往外越淡
+class _Ripple {
+  final Offset pos;
+  final int startMs;
+  final double strength;
+  _Ripple(this.pos, this.startMs, this.strength);
+}
+
+class WaterRipple extends StatefulWidget {
+  final int maxRipples;
+  const WaterRipple({super.key, this.maxRipples = 10});
+
+  @override
+  State<WaterRipple> createState() => _WaterRippleState();
+}
+
+class _WaterRippleState extends State<WaterRipple> with SingleTickerProviderStateMixin {
+  late final AnimationController _c =
+      AnimationController(vsync: this, duration: const Duration(seconds: 3))..repeat();
+  final List<_Ripple> _rs = [];
+  Offset? _last;
+
+  void _spawn(Offset p, double strength) {
+    final now = DateTime.now().microsecondsSinceEpoch;
+    _rs.add(_Ripple(p, now, strength));
+    if (_rs.length > widget.maxRipples) _rs.removeAt(0);
+  }
+
+  @override
+  void dispose() {
+    _c.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (!Ui.isOn('water')) return const SizedBox.shrink();
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return Listener(
+      // translucent：收得到指针事件，但不抢下层控件的点击
+      behavior: HitTestBehavior.translucent,
+      onPointerDown: (e) {
+        _last = e.position;
+        _spawn(e.position, 1.0);
+      },
+      onPointerMove: (e) {
+        final l = _last;
+        if (l == null) {
+          _last = e.position;
+          return;
+        }
+        if ((e.position - l).distance < 34) return;
+        _last = e.position;
+        _spawn(e.position, 0.42);
+      },
+      child: IgnorePointer(
+        child: SizedBox.expand(
+          child: AnimatedBuilder(
+            animation: _c,
+            builder: (_, __) {
+              final now = DateTime.now().microsecondsSinceEpoch;
+              _rs.removeWhere((r) => now - r.startMs > 2400000);
+              return CustomPaint(
+                painter: _RipplePainter(rs: _rs, nowMs: now, dark: isDark),
+                size: Size.infinite,
+              );
+            },
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _RipplePainter extends CustomPainter {
+  final List<_Ripple> rs;
+  final int nowMs;
+  final bool dark;
+
+  _RipplePainter({required this.rs, required this.nowMs, required this.dark});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (size.isEmpty) return;
+    final base = math.min(size.width, size.height);
+    for (final r in rs) {
+      final age = (nowMs - r.startMs) / 1000000.0; // 秒
+      if (age < 0 || age > 2.4) continue;
+      final p = age / 2.4;
+      // 双环：主波 + 落后一点的尾波
+      for (var k = 0; k < 2; k++) {
+        final pk = (p - k * 0.14).clamp(0.0, 1.0).toDouble();
+        if (pk <= 0) continue;
+        final radius = 6 + pk * base * 0.62;
+        final alpha = (1.0 - pk) * (1.0 - pk) * (dark ? 0.34 : 0.62) * r.strength;
+        if (alpha <= 0.004) continue;
+        canvas.drawCircle(
+          r.pos,
+          radius,
+          Paint()
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = (1.8 - k * 0.7) * (1.0 - pk * 0.4)
+            ..color = (dark ? const Color(0xFF9BE7FF) : Colors.white).withOpacity(alpha)
+            ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 1.3),
+        );
+      }
+      // 落点高光，按下去那一下最亮
+      final coreA = (1.0 - p) * (1.0 - p) * (dark ? 0.30 : 0.55) * r.strength;
+      if (coreA > 0.01) {
+        canvas.drawCircle(
+          r.pos,
+          2.2 + (1 - p) * 3.0,
+          Paint()..color = Colors.white.withOpacity(coreA),
+        );
+      }
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _RipplePainter old) => true;
+}
+
 class BreathingGlow extends StatefulWidget {
   final Color color;
   final double size;

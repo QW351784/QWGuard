@@ -2324,6 +2324,8 @@ class _SettingsPageState extends State<SettingsPage> {
     'glass': Icons.auto_awesome_rounded,
     'blur': Icons.blur_linear_rounded,
     'refraction': Icons.water_rounded,
+    'raytrace': Icons.flare_rounded,
+    'water': Icons.tsunami_rounded,
     'sweep': Icons.waves_rounded,
     'particles': Icons.blur_on_rounded,
     'blobs': Icons.circle_outlined,

@@ -16,6 +16,8 @@ class Ui {
     AnimDef('glass', '液态玻璃材质', 'Liquid glass'),
     AnimDef('blur', '实时模糊', 'Live blur'),
     AnimDef('refraction', '光影折射', 'Refraction'),
+    AnimDef('raytrace', '光追反射', 'Ray tracing'),
+    AnimDef('water', '水纹动画', 'Water ripple'),
     AnimDef('sweep', '折射扫光带', 'Light sweep'),
     AnimDef('particles', '粒子特效', 'Particles'),
     AnimDef('blobs', '背景光斑漂浮', 'Floating blobs'),

@@ -425,6 +425,9 @@ class _ShellState extends State<Shell> with WindowListener {
 
           // 悬浮监控窗
           if (Ui.floating.value) const FloatingMonitor(),
+
+          // 水纹层压在最上面：收指针事件但不挡点击
+          const Positioned.fill(child: WaterRipple()),
         ],
       );
 
