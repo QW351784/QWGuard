@@ -207,6 +207,8 @@ class CleanPage extends StatefulWidget {
 }
 
 class _CleanPageState extends State<CleanPage> {
+  final TextEditingController _pathCtrl = TextEditingController();
+  final List<Map<String, dynamic>> _results = [];
   List<Map<String, dynamic>> _items = [];
   final Set<String> _checked = {};
   bool _scanning = false;
@@ -1166,7 +1168,7 @@ class _ToolsPageState extends State<ToolsPage> {
           Center(
             child: Text('新功能陆续推送，敬请期待',
                 style: TextStyle(
-                    fontSize: 11, color: isDark ? Colors.white30 : Colors.black30)),
+                    fontSize: 11, color: isDark ? Colors.white30 : Colors.black.withOpacity(0.3))),
           ),
         ],
       ),
@@ -1767,7 +1769,7 @@ class _SettingsPageState extends State<SettingsPage> {
     await sp.setBool('ui_glass', v);
     if (Platform.isWindows) {
       try {
-        await WindowEffect.setEffect(v ? WindowEffect.mica : WindowEffect.solid);
+        await Window.setEffect(effect: v ? WindowEffect.mica : WindowEffect.solid);
       } catch (_) {}
     }
   }
@@ -2183,7 +2185,7 @@ class _SettingsPageState extends State<SettingsPage> {
         await sp.setBool('ui_glass', v);
         if (Platform.isWindows) {
           try {
-            await WindowEffect.setEffect(v ? WindowEffect.mica : WindowEffect.solid);
+            await Window.setEffect(effect: v ? WindowEffect.mica : WindowEffect.solid);
           } catch (_) {}
         }
       }

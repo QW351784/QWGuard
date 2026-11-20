@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:ffi' as ffi;
+import 'package:ffi/ffi.dart';
 
 import 'bridge.dart';
 
@@ -12,14 +13,14 @@ class Api {
     }
     try {
       final f = lib.lookupFunction<ffi.Int32 Function(ffi.Pointer<ffi.Uint8>, ffi.Size), int Function(ffi.Pointer<ffi.Uint8>, int)>(fn);
-      final buf = ffi.calloc<ffi.Uint8>(cap);
+      final buf = calloc<ffi.Uint8>(cap);
       try {
         final ret = f(buf, cap);
-        final text = ffi.cast<ffi.Pointer<ffi.Char>, buf>().cast<ffi.Utf8>().toDartString();
+        final text = buf.cast<ffi.Char>().cast<Utf8>().toDartString();
         if (text.trim().isEmpty) return {'success': false, 'code': ret};
         return jsonDecode(text) as Map<String, dynamic>;
       } finally {
-        ffi.calloc.free(buf);
+        calloc.free(buf);
       }
     } catch (e) {
       return {'success': false, 'message': e.toString()};
@@ -34,17 +35,17 @@ class Api {
     try {
       final f = lib.lookupFunction<ffi.Int32 Function(ffi.Pointer<ffi.Char>, ffi.Pointer<ffi.Char>, ffi.Pointer<ffi.Uint8>, ffi.Size), int Function(ffi.Pointer<ffi.Char>, ffi.Pointer<ffi.Char>, ffi.Pointer<ffi.Uint8>, int)>(fn);
       final a = args[0].toNativeUtf8();
-      final b = args.length > 1 ? args[1].toNativeUtf8() : ffi.calloc<ffi.Char>(1);
-      final buf = ffi.calloc<ffi.Uint8>(cap);
+      final b = args.length > 1 ? args[1].toNativeUtf8() : calloc<ffi.Char>(1);
+      final buf = calloc<ffi.Uint8>(cap);
       try {
         final ret = f(a.cast(), b.cast(), buf, cap);
-        final text = ffi.cast<ffi.Pointer<ffi.Char>, buf>().cast<ffi.Utf8>().toDartString();
+        final text = buf.cast<ffi.Char>().cast<Utf8>().toDartString();
         if (text.trim().isEmpty) return {'success': false, 'code': ret};
         return jsonDecode(text) as Map<String, dynamic>;
       } finally {
-        ffi.calloc.free(a);
-        ffi.calloc.free(b);
-        ffi.calloc.free(buf);
+        calloc.free(a);
+        calloc.free(b);
+        calloc.free(buf);
       }
     } catch (e) {
       return {'success': false, 'message': e.toString()};
@@ -58,15 +59,15 @@ class Api {
     try {
       final f = lib.lookupFunction<ffi.Int32 Function(ffi.Pointer<ffi.Char>, ffi.Pointer<ffi.Uint8>, ffi.Size), int Function(ffi.Pointer<ffi.Char>, ffi.Pointer<ffi.Uint8>, int)>(fn);
       final a = arg.toNativeUtf8();
-      final buf = ffi.calloc<ffi.Uint8>(cap);
+      final buf = calloc<ffi.Uint8>(cap);
       try {
         final ret = f(a.cast(), buf, cap);
-        final text = ffi.cast<ffi.Pointer<ffi.Char>, buf>().cast<ffi.Utf8>().toDartString();
+        final text = buf.cast<ffi.Char>().cast<Utf8>().toDartString();
         if (text.trim().isEmpty) return {'success': false, 'code': ret};
         return jsonDecode(text) as Map<String, dynamic>;
       } finally {
-        ffi.calloc.free(a);
-        ffi.calloc.free(buf);
+        calloc.free(a);
+        calloc.free(buf);
       }
     } catch (e) {
       return {'success': false, 'message': e.toString()};
@@ -95,16 +96,16 @@ class Api {
           'autostart_set');
       final n = name.toNativeUtf8();
       final e = exe.toNativeUtf8();
-      final buf = ffi.calloc<ffi.Uint8>(4096);
+      final buf = calloc<ffi.Uint8>(4096);
       try {
         final ret = f(n.cast(), e.cast(), on ? 1 : 0, buf, 4096);
-        final text = ffi.cast<ffi.Pointer<ffi.Char>, buf>().cast<ffi.Utf8>().toDartString();
+        final text = buf.cast<ffi.Char>().cast<Utf8>().toDartString();
         if (text.trim().isEmpty) return {'success': false, 'code': ret};
         return jsonDecode(text) as Map<String, dynamic>;
       } finally {
-        ffi.calloc.free(n);
-        ffi.calloc.free(e);
-        ffi.calloc.free(buf);
+        calloc.free(n);
+        calloc.free(e);
+        calloc.free(buf);
       }
     } catch (err) {
       return {'success': false, 'message': err.toString()};
@@ -138,17 +139,17 @@ class Api {
       final a = args[0].toNativeUtf8();
       final b = args[1].toNativeUtf8();
       final c = args[2].toNativeUtf8();
-      final buf = ffi.calloc<ffi.Uint8>(cap);
+      final buf = calloc<ffi.Uint8>(cap);
       try {
         final ret = f(a.cast(), b.cast(), c.cast(), buf, cap);
-        final text = ffi.cast<ffi.Pointer<ffi.Char>, buf).cast<ffi.Utf8>().toDartString();
+        final text = buf.cast<ffi.Char>().cast<Utf8>().toDartString();
         if (text.trim().isEmpty) return {'success': false, 'code': ret};
         return jsonDecode(text) as Map<String, dynamic>;
       } finally {
-        ffi.calloc.free(a);
-        ffi.calloc.free(b);
-        ffi.calloc.free(c);
-        ffi.calloc.free(buf);
+        calloc.free(a);
+        calloc.free(b);
+        calloc.free(c);
+        calloc.free(buf);
       }
     } catch (e) {
       return {'success': false, 'message': e.toString()};
@@ -201,15 +202,15 @@ class Api {
       final f = lib.lookupFunction<ffi.Int32 Function(ffi.Pointer<ffi.Char>, ffi.Int32, ffi.Int32, ffi.Pointer<ffi.Uint8>, ffi.Size), int Function(ffi.Pointer<ffi.Char>, int, int, ffi.Pointer<ffi.Uint8>, int)>(
           'shredder_run');
       final a = jsonEncode(paths).toNativeUtf8();
-      final buf = ffi.calloc<ffi.Uint8>(8192);
+      final buf = calloc<ffi.Uint8>(8192);
       try {
         final ret = f(a.cast(), passes, dryRun ? 1 : 0, buf, 8192);
-        final text = ffi.cast<ffi.Pointer<ffi.Char>, buf).cast<ffi.Utf8>().toDartString();
+        final text = buf.cast<ffi.Char>().cast<Utf8>().toDartString();
         if (text.trim().isEmpty) return {'success': false, 'code': ret};
         return jsonDecode(text) as Map<String, dynamic>;
       } finally {
-        ffi.calloc.free(a);
-        ffi.calloc.free(buf);
+        calloc.free(a);
+        calloc.free(buf);
       }
     } catch (e) {
       return {'success': false, 'message': e.toString()};
@@ -217,6 +218,7 @@ class Api {
   }
 
   static Map<String, dynamic> envCheck() => _buf('env_check');
+  static Map<String, dynamic> osVersion() => _buf('os_version');
   static Map<String, dynamic> isInstalled() => _buf('is_installed');
 
   // ============ 安装 / 卸载 ============
@@ -233,16 +235,16 @@ class Api {
               ffi.Pointer<ffi.Uint8>, int)>('install_run');
       final a = src.toNativeUtf8();
       final b = dst.toNativeUtf8();
-      final buf = ffi.calloc<ffi.Uint8>(8192);
+      final buf = calloc<ffi.Uint8>(8192);
       try {
         final ret = f(a.cast(), b.cast(), desktopIcon ? 1 : 0, autostart ? 1 : 0, buf, 8192);
-        final text = ffi.cast<ffi.Pointer<ffi.Char>, buf).cast<ffi.Utf8>().toDartString();
+        final text = buf.cast<ffi.Char>().cast<Utf8>().toDartString();
         if (text.trim().isEmpty) return {'success': false, 'code': ret};
         return jsonDecode(text) as Map<String, dynamic>;
       } finally {
-        ffi.calloc.free(a);
-        ffi.calloc.free(b);
-        ffi.calloc.free(buf);
+        calloc.free(a);
+        calloc.free(b);
+        calloc.free(buf);
       }
     } catch (e) {
       return {'success': false, 'message': e.toString()};
@@ -256,15 +258,15 @@ class Api {
       final f = lib.lookupFunction<ffi.Int32 Function(ffi.Pointer<ffi.Char>, ffi.Int32, ffi.Pointer<ffi.Uint8>, ffi.Size), int Function(ffi.Pointer<ffi.Char>, int, ffi.Pointer<ffi.Uint8>, int)>(
           'uninstall_run');
       final a = appDir.toNativeUtf8();
-      final buf = ffi.calloc<ffi.Uint8>(8192);
+      final buf = calloc<ffi.Uint8>(8192);
       try {
         final ret = f(a.cast(), keepConfig ? 1 : 0, buf, 8192);
-        final text = ffi.cast<ffi.Pointer<ffi.Char>, buf).cast<ffi.Utf8>().toDartString();
+        final text = buf.cast<ffi.Char>().cast<Utf8>().toDartString();
         if (text.trim().isEmpty) return {'success': false, 'code': ret};
         return jsonDecode(text) as Map<String, dynamic>;
       } finally {
-        ffi.calloc.free(a);
-        ffi.calloc.free(buf);
+        calloc.free(a);
+        calloc.free(buf);
       }
     } catch (e) {
       return {'success': false, 'message': e.toString()};

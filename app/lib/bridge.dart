@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:ffi' as ffi;
+import 'package:ffi/ffi.dart';
 import 'dart:io';
 
 import 'package:shared_preferences/shared_preferences.dart';
@@ -36,15 +37,15 @@ class Native {
     final l = lib;
     if (l == null) return {'success': false, 'message': loadError ?? 'native library missing'};
     final f = l.lookupFunction<_BufFn, _DartBufFn>(fn);
-    final buf = ffi.calloc<ffi.Uint8>(cap);
+    final buf = calloc<ffi.Uint8>(cap);
     try {
       final ret = f(buf, cap);
-      final raw = ffi.cast<ffi.Pointer<ffi.Char>, buf>;
+      final raw = buf.cast<ffi.Char>();
       if (ret < 0 && ret != -1) {
-        final text = raw.cast<ffi.Utf8>().toDartString();
+        final text = raw.cast<Utf8>().toDartString();
         if (text.trim().isNotEmpty) return jsonDecode(text) as Map<String, dynamic>;
       }
-      final text = raw.cast<ffi.Utf8>().toDartString();
+      final text = raw.cast<Utf8>().toDartString();
       if (text.trim().isEmpty) {
         return {'success': false, 'code': ret, 'message': 'empty response'};
       }
@@ -52,7 +53,7 @@ class Native {
     } catch (e) {
       return {'success': false, 'message': e.toString()};
     } finally {
-      ffi.calloc.free(buf);
+      calloc.free(buf);
     }
   }
 
@@ -66,43 +67,45 @@ class Native {
     }
   }
 
-  static Map<String, dynamic> hardware() => _callBuf('get_hardware_info');
+  static Map<String, dynamic> hardware() => _callBuf('get_hardware_info') ?? <String, dynamic>{};
 
-  static Map<String, dynamic> scanCleanup() => _callBuf('scan_cleanup');
+  static Map<String, dynamic> scanCleanup() => _callBuf('scan_cleanup') ?? <String, dynamic>{};
 
   static Map<String, dynamic> executeCleanup(List<String> paths, {bool dryRun = true}) {
     final l = lib;
     if (l == null) return {'success': false, 'message': loadError ?? 'native library missing'};
     final f = l.lookupFunction<ffi.Int32 Function(ffi.Pointer<ffi.Char>, ffi.Pointer<ffi.Uint8>, ffi.Size), int Function(ffi.Pointer<ffi.Char>, ffi.Pointer<ffi.Uint8>, int)>('execute_cleanup');
     final cstr = jsonEncode({'paths': paths, 'dry_run': dryRun}).toNativeUtf8();
-    final buf = ffi.calloc<ffi.Uint8>(8192);
+    final buf = calloc<ffi.Uint8>(8192);
     try {
       final ret = f(cstr.cast(), buf, 8192);
-      final text = ffi.cast<ffi.Pointer<ffi.Char>, buf>().cast<ffi.Utf8>().toDartString();
+      final text = buf.cast<ffi.Char>().cast<Utf8>().toDartString();
       if (text.trim().isEmpty) return {'success': false, 'code': ret};
       return jsonDecode(text) as Map<String, dynamic>;
     } finally {
-      ffi.calloc.free(cstr);
-      ffi.calloc.free(buf);
+      calloc.free(cstr);
+      calloc.free(buf);
     }
   }
 
   static Map<String, dynamic> scanFile(String engine, String target) {
     final l = lib;
     if (l == null) return {'success': false, 'message': loadError ?? 'native library missing'};
-    final f = l.lookupFunction<_StrBufFn, _DartStrBufFn>('scan_file');
+    final f = l.lookupFunction<
+        ffi.Int32 Function(ffi.Pointer<ffi.Char>, ffi.Pointer<ffi.Char>, ffi.Pointer<ffi.Uint8>, ffi.Size),
+        int Function(ffi.Pointer<ffi.Char>, ffi.Pointer<ffi.Char>, ffi.Pointer<ffi.Uint8>, int)>('scan_file');
     final e = engine.toNativeUtf8();
     final t = target.toNativeUtf8();
-    final buf = ffi.calloc<ffi.Uint8>(16384);
+    final buf = calloc<ffi.Uint8>(16384);
     try {
       final ret = f(e.cast(), t.cast(), buf, 16384);
-      final text = ffi.cast<ffi.Pointer<ffi.Char>, buf>().cast<ffi.Utf8>().toDartString();
+      final text = buf.cast<ffi.Char>().cast<Utf8>().toDartString();
       if (text.trim().isEmpty) return {'success': false, 'code': ret};
       return jsonDecode(text) as Map<String, dynamic>;
     } finally {
-      ffi.calloc.free(e);
-      ffi.calloc.free(t);
-      ffi.calloc.free(buf);
+      calloc.free(e);
+      calloc.free(t);
+      calloc.free(buf);
     }
   }
 
@@ -111,15 +114,15 @@ class Native {
     if (l == null) return {'success': false, 'message': loadError ?? 'native library missing'};
     final f = l.lookupFunction<ffi.Int32 Function(ffi.Pointer<ffi.Char>, ffi.Pointer<ffi.Uint8>, ffi.Size), int Function(ffi.Pointer<ffi.Char>, ffi.Pointer<ffi.Uint8>, int)>('launch_external');
     final n = name.toNativeUtf8();
-    final buf = ffi.calloc<ffi.Uint8>(4096);
+    final buf = calloc<ffi.Uint8>(4096);
     try {
       final ret = f(n.cast(), buf, 4096);
-      final text = ffi.cast<ffi.Pointer<ffi.Char>, buf>().cast<ffi.Utf8>().toDartString();
+      final text = buf.cast<ffi.Char>().cast<Utf8>().toDartString();
       if (text.trim().isEmpty) return {'success': false, 'code': ret};
       return jsonDecode(text) as Map<String, dynamic>;
     } finally {
-      ffi.calloc.free(n);
-      ffi.calloc.free(buf);
+      calloc.free(n);
+      calloc.free(buf);
     }
   }
 }

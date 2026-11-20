@@ -48,7 +48,7 @@ Future<void> main(List<String> args) async {
 
   if (Platform.isWindows) {
     try {
-      await WindowEffect.initialize();
+      await Window.initialize();
     } catch (_) {}
 
     try {
@@ -217,8 +217,7 @@ class _ShellState extends State<Shell> with WindowListener {
         builder: (ctx, setS) => QDialog(
           icon: Icons.lock_rounded,
           title: '需要验证身份',
-          body: '执行「$action」需要密码。${err.isEmpty ? '' : '
-$err'}',
+          body: "执行「$action」需要密码。${err.isEmpty ? '' : '\n$err'}",
           okText: '验证',
           cancelText: '取消',
           child: Padding(
@@ -255,9 +254,7 @@ $err'}',
         builder: (_) => QDialog(
           icon: Icons.error_outline_rounded,
           title: '系统版本过低',
-          body: '${os['data']['label']}（内部版本 ${os['data']['build']}）。
-
-${os['data']['tip']}',
+          body: "${os['data']['label']}（内部版本 ${os['data']['build']}）。\n\n${os['data']['tip']}",
           okText: '知道了',
         ),
       );
@@ -316,9 +313,9 @@ ${os['data']['tip']}',
     try {
       if (Ui.glass.value) {
         final dark = Theme.of(context).brightness == Brightness.dark;
-        await WindowEffect.setEffect(WindowEffect.mica, dark: dark);
+        await Window.setEffect(effect: WindowEffect.mica, dark: dark);
       } else {
-        await WindowEffect.setEffect(WindowEffect.solid);
+        await Window.setEffect(effect: WindowEffect.solid);
       }
     } catch (_) {}
   }
