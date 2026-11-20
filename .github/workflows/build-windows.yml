@@ -46,12 +46,20 @@ jobs:
         working-directory: app
         run: flutter build windows --release
 
-      - name: Copy native dll and assets
+      - name: Copy native dll, assets and runtime tools
         shell: pwsh
         run: |
           $rel = 'app\build\windows\x64\runner\Release'
           Copy-Item native\target\release\toolkit_native.dll $rel -Force
           if (Test-Path 'app\assets') { Copy-Item app\assets -Recurse (Join-Path $rel 'assets') -Force }
+          # 运行库补全的两个工具必须跟着 exe 走，否则工具页点开找不到文件
+          if (Test-Path 'vendor\runtime') {
+            Copy-Item 'vendor\runtime' -Destination (Join-Path $rel 'runtime') -Recurse -Force
+            Get-ChildItem (Join-Path $rel 'runtime') | Select-Object Name, Length
+          } else { Write-Warning 'vendor\runtime 不存在' }
+          # 自绘安装器入口：双击这个 bat 就走 system_toolbox.exe --setup
+          $bat = Join-Path $rel 'install.bat'
+          "@echo off`r`nstart `"`" `"%~dp0system_toolbox.exe`" --setup" | Set-Content -Path $bat -Encoding ASCII
           Get-ChildItem $rel | Select-Object Name, Length
 
       - name: Install Inno Setup
@@ -64,11 +72,20 @@ jobs:
           $iscc = 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe'
           if (Test-Path $iscc) { & $iscc installer\setup.iss } else { Write-Warning 'ISCC 不在预期路径' }
 
+      - name: Package portable zip
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          $rel = 'app\build\windows\x64\runner\Release'
+          Compress-Archive -Path "$rel\*" -DestinationPath 'dist\QWGuard-portable.zip' -Force
+          Get-ChildItem dist | Select-Object Name, Length
+
       - name: Upload build
         uses: actions/upload-artifact@v4
         with:
           name: QWGuard-windows-x64
           path: |
             app/build/windows/x64/runner/Release/**
+            dist/*.zip
             dist/*.exe
           if-no-files-found: warn
