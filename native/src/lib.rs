@@ -147,7 +147,7 @@ pub extern "C" fn get_hardware_info(buf: *mut u8, len: usize) -> i32 {
         cpu_name = c.brand().trim().to_string();
     }
     let cores = sys.cpus().len();
-    let load = round1(sys.global_cpu_info().cpu_usage());
+    let load = round1(sys.global_cpu_usage());
 
     let disks: Vec<Disk> = Disks::new_with_refreshed_list()
         .list()

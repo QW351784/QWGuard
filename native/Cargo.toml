@@ -20,9 +20,10 @@ ureq = "2.10"
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.58", features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging"] }
 
+# 性能优先：opt-level 3 而不是体积优先的 z
+# fat LTO + codegen-units=1 让 LLVM 跨模块优化
+# panic=abort 去掉展开逻辑，strip 砍掉符号表
 [profile.release]
-# 性能优先：从 opt-level="z"（体积优先）改成 3（速度优先）
-# codegen-units=1 让 LLVM 能跨模块做全局优化，配合 fat LTO 榨干性能
 opt-level = 3
 lto = "fat"
 codegen-units = 1
