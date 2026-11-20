@@ -326,9 +326,15 @@ class _ShellState extends State<Shell> with WindowListener {
         case MatStyle.auto:
         case MatStyle.mica:
         case MatStyle.glass:
-          await Window.setEffect(effect: WindowEffect.mica, dark: dark);
+          // Win11 用 Mica；Win10 上 Mica 不生效，退回 Acrylic
+          try {
+            await Window.setEffect(effect: WindowEffect.mica, dark: dark);
+          } catch (_) {
+            await Window.setEffect(effect: WindowEffect.acrylic, dark: dark);
+          }
         case MatStyle.aero:
-          await Window.setEffect(effect: WindowEffect.acrylic, dark: dark);
+          // 原生 Aero 玻璃，Win7/Vista 那种
+          await Window.setEffect(effect: WindowEffect.aero, dark: dark);
         case MatStyle.solid:
           await Window.setEffect(effect: WindowEffect.solid);
       }

@@ -228,7 +228,7 @@ class LiquidGlass extends StatelessWidget {
 
     if (blurOn) {
       // 档位不同模糊强度不同：Aero 最重（Win7 那种糊）、云母最轻
-      final sigma = aeroLike
+      final double sigma = aeroLike
           ? (isDark ? 22 : 28)
           : micaLike
               ? (isDark ? 10 : 14)
@@ -391,7 +391,7 @@ class _ParticleLayerState extends State<ParticleLayer> with SingleTickerProvider
     for (var i = 0; i < widget.count; i++) {
       _ps.add(_P(
         angle: rnd.nextDouble() * math.pi * 2,
-        radius: 0.18 + rnd.nextDouble() * 0.82,
+        radius: 0.42 + rnd.nextDouble() * 0.72,
         speed: 0.35 + rnd.nextDouble() * 0.65,
         size: 1.2 + rnd.nextDouble() * 2.6,
         phase: rnd.nextDouble() * math.pi * 2,
