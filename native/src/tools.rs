@@ -112,6 +112,45 @@ fn is_self_file(p: &Path) -> bool {
     false
 }
 
+/// 系统关键位置，禁止粉碎——防止手滑把系统删了
+/// 只在入口判一次（路径数量有限），不跟着递归跑
+fn is_protected(p: &Path) -> bool {
+    if !cfg!(windows) {
+        return false;
+    }
+    let comps: Vec<String> = p
+        .components()
+        .map(|c| c.as_os_str().to_string_lossy().to_uppercase())
+        .collect();
+    // 空路径 / 盘根（C:\）直接拒
+    if comps.len() <= 1 {
+        return true;
+    }
+    let seg = comps[1].as_str();
+    let guarded = matches!(
+        seg,
+        "WINDOWS"
+            | "PROGRAM FILES"
+            | "PROGRAM FILES (X86)"
+            | "PROGRAMDATA"
+            | "$RECYCLE.BIN"
+            | "SYSTEM VOLUME INFORMATION"
+            | "BOOT"
+            | "EFI"
+            | "RECOVERY"
+            | "PERFLOGS"
+            | "ESD"
+    );
+    if guarded {
+        return true;
+    }
+    // C:\Users\xxx 这一层（整个用户配置目录）也不让删
+    if seg == "USERS" && comps.len() <= 3 {
+        return true;
+    }
+    false
+}
+
 /// 尝试解除占用：rename 探测三次，成功就说明句柄已经放开
 fn try_unlock(path: &Path) -> bool {
     for _ in 0..3 {
@@ -228,6 +267,10 @@ pub extern "C" fn shredder_run(paths: *const c_char, passes: i32, dry_run: i32, 
 
     for item in &list {
         let path = PathBuf::from(item);
+        if is_protected(&path) {
+            failed.push(format!("{item}: 系统关键位置，禁止粉碎"));
+            continue;
+        }
         if dry_run != 0 {
             let Ok(meta) = fs::symlink_metadata(&path) else {
                 failed.push(format!("{item}: 不存在"));
