@@ -35,6 +35,8 @@ const DX_NAMES: [&str; 4] = [
     "DirectXRepair.exe",
     "DirectX Repair (Enhanced Edition).exe",
 ];
+/// 微软官方 DirectX Web 安装器：DirectX Repair 不在时的官方兜底，只 288KB
+const DXWEB: &str = "dxwebsetup.exe";
 
 /// 后台修复状态
 static FIXING: AtomicBool = AtomicBool::new(false);
@@ -70,6 +72,15 @@ fn find_tool(names: &[&str]) -> Option<PathBuf> {
         }
     }
     None
+}
+
+/// DirectX 工具：优先 DirectX Repair（离线、能修文件），退回微软官方 dxwebsetup（联网装）
+/// 返回 (路径, 是否官方 web 安装器)
+fn find_dx() -> Option<(PathBuf, bool)> {
+    if let Some(p) = find_tool(&DX_NAMES) {
+        return Some((p, false));
+    }
+    find_tool(&[DXWEB]).map(|p| (p, true))
 }
 
 // ============ 运行库检测 ============
@@ -144,7 +155,7 @@ pub extern "C" fn runtime_scan(buf: *mut u8, len: usize) -> i32 {
             "need_vc": items.iter().any(|i| !i.ok && i.key != "dx9" && i.key != "xinput" && i.key != "d3dcompiler"),
             "need_dx": items.iter().any(|i| !i.ok && matches!(i.key, "dx9" | "xinput" | "d3dcompiler")),
             "vc_tool": find_tool(&[VCREDIST]).map(|p| p.to_string_lossy().to_string()),
-            "dx_tool": find_tool(&DX_NAMES).map(|p| p.to_string_lossy().to_string()),
+            "dx_tool": find_dx().map(|(p, _)| p.to_string_lossy().to_string()),
         }),
     )
 }
@@ -191,7 +202,7 @@ fn verify_tool(path: &Path) -> (bool, String) {
 #[no_mangle]
 pub extern "C" fn runtime_tools(buf: *mut u8, len: usize) -> i32 {
     let vc = find_tool(&[VCREDIST]);
-    let dx = find_tool(&DX_NAMES);
+    let dx = find_dx().map(|(p, _)| p);
 
     let vc_info = vc.as_ref().map(|p| {
         let (good, msg) = verify_tool(p);
@@ -290,13 +301,15 @@ fn run_all(mode: String) {
             // /ai = 静默装全部；AIO 自己会先清掉不合规的旧版
             (p, vec!["/ai"], "VisualCppRedist AIO")
         } else {
-            let Some(p) = find_tool(&DX_NAMES) else { continue };
+            let Some((p, is_web)) = find_dx() else { continue };
             if !verify_tool(&p).0 {
                 *EXIT_CODE.lock().unwrap() = Some(-2);
                 continue;
             }
-            // DirectX Repair 的静默开关
-            (p, vec!["/silent"], "DirectX Repair")
+            // DirectX Repair 走 /silent，微软官方 dxwebsetup 走 /q
+            let label = if is_web { "DirectX 官方安装器" } else { "DirectX Repair" };
+            let args = if is_web { vec!["/q"] } else { vec!["/silent"] };
+            (p, args, label)
         };
 
         *LAST_TOOL.lock().unwrap() = Some(label.to_string());
@@ -326,8 +339,8 @@ pub extern "C" fn runtime_fix(mode: *const c_char, buf: *mut u8, len: usize) -> 
         }
     }
     if m == "dx" || m == "all" {
-        if find_tool(&DX_NAMES).is_none() {
-            return fail(buf, len, -3, "没找到 DirectX Repair，请确认安装完整");
+        if find_dx().is_none() {
+            return fail(buf, len, -3, "没找到 DirectX 修复工具，请确认安装完整");
         }
     }
 
