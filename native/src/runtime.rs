@@ -371,8 +371,9 @@ fn trim_log(path: &Path) {
 }
 
 /// 跑一个子进程并等它结束，输出写日志。返回 exit code
-fn run_tool(exe: &Path, args: &[&str], log_name: &str) -> Result<i32, String> {
-    use std::io::Write as _;
+/// 带超时：安装器卡住就 kill 掉，别把后台线程永久挂死
+fn run_tool(exe: &Path, args: &[&str], log_name: &str, timeout: Duration) -> Result<i32, String> {
+    use std::io::{Read as _, Write as _};
     let lp = log_path();
     trim_log(&lp);
     let mut log = fs::OpenOptions::new()
@@ -390,12 +391,53 @@ fn run_tool(exe: &Path, args: &[&str], log_name: &str) -> Result<i32, String> {
     #[cfg(windows)]
     cmd.creation_flags(CREATE_NO_WINDOW);
 
-    let child = cmd.spawn().map_err(|e| format!("启动失败: {e}"))?;
-    let out = child.wait_with_output().map_err(|e| format!("等待失败: {e}"))?;
+    let mut child = cmd.spawn().map_err(|e| format!("启动失败: {e}"))?;
 
-    let _ = writeln!(log, "{}", String::from_utf8_lossy(&out.stdout));
-    let _ = writeln!(log, "{}", String::from_utf8_lossy(&out.stderr));
-    let code = out.status.code().unwrap_or(-1);
+    // 起两个线程把管道读空，否则输出一多子进程会卡在写管道上
+    let so = child.stdout.take();
+    let se = child.stderr.take();
+    let th_out = so.map(|mut s| {
+        std::thread::spawn(move || {
+            let mut b = Vec::new();
+            let _ = s.read_to_end(&mut b);
+            b
+        })
+    });
+    let th_err = se.map(|mut s| {
+        std::thread::spawn(move || {
+            let mut b = Vec::new();
+            let _ = s.read_to_end(&mut b);
+            b
+        })
+    });
+
+    // 轮询等结果，超时就 kill
+    let t0 = Instant::now();
+    let mut timed_out = false;
+    let status = loop {
+        match child.try_wait() {
+            Ok(Some(st)) => break Some(st),
+            Ok(None) => {
+                if t0.elapsed() > timeout {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    timed_out = true;
+                    break None;
+                }
+                std::thread::sleep(Duration::from_millis(500));
+            }
+            Err(e) => return Err(format!("等待失败: {e}")),
+        }
+    };
+
+    let out = th_out.and_then(|h| h.join().ok()).unwrap_or_default();
+    let err = th_err.and_then(|h| h.join().ok()).unwrap_or_default();
+    let _ = writeln!(log, "{}", String::from_utf8_lossy(&out));
+    let _ = writeln!(log, "{}", String::from_utf8_lossy(&err));
+    if timed_out {
+        let _ = writeln!(log, "超时（{}s）已终止", timeout.as_secs());
+    }
+    let code = status.and_then(|s| s.code()).unwrap_or(-1);
     let _ = writeln!(log, "exit = {code}");
     Ok(code)
 }
@@ -436,7 +478,13 @@ fn run_all(mode: String) {
         };
 
         *LAST_TOOL.lock().unwrap() = Some(label.to_string());
-        let code = run_tool(&exe, &args, label).unwrap_or(-1);
+        // VC++ 全量装慢，给 20 分钟；DirectX 15 分钟，超时就当失败
+        let timeout = if *step == "vc" {
+            Duration::from_secs(20 * 60)
+        } else {
+            Duration::from_secs(15 * 60)
+        };
+        let code = run_tool(&exe, &args, label, timeout).unwrap_or(-1);
         *EXIT_CODE.lock().unwrap() = Some(code);
     }
 

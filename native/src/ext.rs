@@ -362,6 +362,99 @@ pub extern "C" fn usb_check(buf: *mut u8, len: usize) -> i32 {
 
 // ================= 安装目录推荐 =================
 
+// NVMe 型号分档表（只按厂商定位粗分，拿不到真实读写速度）
+// 0 档 = 旗舰 / 高性能，1 档 = 主流，其余 NVMe 记 2 档
+const NVME_T0: &[&str] = &[
+    // 三星
+    "9100 PRO", "990 PRO", "980 PRO", "PM9A3", "PM1743",
+    // 西数 / 闪迪
+    "SN8100", "SN850X", "SN850", "SN8050",
+    // 致态（长江存储）
+    "TIPRO",
+    // 铠侠 / 东芝
+    "EXCERIA PRO", "XG8", "XG7",
+    // Solidigm / SK 海力士
+    "P44 PRO", "P41", "PC801", "PC811",
+    // 美光 / 英睿达
+    "T700", "T705",
+    // 金士顿
+    "KC3000", "FURY RENEGADE",
+    // 威刚
+    "S70", "LEGEND 960",
+    // 浦科特
+    "M10P",
+    // 海盗船
+    "MP600", "MP700",
+    // 雷克沙
+    "NM800",
+    // 希捷
+    "FIRECUDA 530", "酷玩 530",
+    // 微星
+    "SPATIUM M480", "M480",
+    // 影驰
+    "HOF", "名人堂",
+    // HP
+    "FX900",
+    // 联想 / OEM 高端
+    "SL700",
+    // 海康存储 / 大华
+    "C4000", "C970",
+];
+
+const NVME_T1: &[&str] = &[
+    // 三星
+    "PM9A1", "PM9B1", "980", "970 EVO", "970 PRO", "960 EVO", "SM961",
+    // 西数 / 闪迪
+    "SN770", "SN750", "SN740", "SN730", "SN570", "SN560", "SN550", "SN520",
+    // 致态
+    "TIPLUS 7100", "TIPLUS 5000", "TIPLUS 600", "TI600", "PC005",
+    // 铠侠
+    "EXCERIA PLUS", "EXCERIA G2", "BG5", "BG4", "RC10", "RC20",
+    // Solidigm / 海力士
+    "P41 PLUS", "P31", "P11",
+    // 美光 / 英睿达
+    "P5 PLUS", "P3 PLUS", "P3", "P2",
+    // 金士顿
+    "KC2500", "KC2000", "NV2", "NV1", "A2000", "FURY",
+    // 威刚
+    "S50", "S40", "LEGEND 850", "LEGEND 800",
+    // 浦科特
+    "M9P PLUS", "M9PEG", "M8PE", "M8SE",
+    // 海盗船
+    "MP500", "MP510",
+    // 雷克沙
+    "NM790", "NM620", "NM610",
+    // 希捷
+    "酷玩 520", "酷玩 510", "FIRECUDA 520",
+    // 联想
+    "SL7000", "SL500",
+    // 海康存储 / 大华
+    "CC700", "C3000", "C900", "C900 PLUS",
+    // 铭瑄 / 七彩虹 / 台电 / 光威 / 金百达 / 梵想 / 铨兴 / 爱国者 / 长城
+    "终结者", "太极", "CN700", "CN600", "CN500", "幻影", "弈", "天策", "骁将",
+    "KP260", "KP200", "KP230", "S790", "S500 PRO", "S500", "S101", "猎鹰", "铨兴",
+    "P7000", "P2000", "GT70", "GT50",
+    // 影驰
+    "星曜", "擎",
+    // 微星
+    "M470", "M390", "M370",
+    // HP
+    "EX900", "EX950",
+    // 技嘉 / 华硕 / 戴尔 OEM
+    "AORUS", "ROG", "SN530",
+];
+
+fn nvme_perf_score(model: &str) -> u8 {
+    let m = model.to_uppercase();
+    if NVME_T0.iter().any(|k| m.contains(&k.to_uppercase())) {
+        0
+    } else if NVME_T1.iter().any(|k| m.contains(&k.to_uppercase())) {
+        1
+    } else {
+        2
+    }
+}
+
 #[no_mangle]
 pub extern "C" fn recommend_install_dir(buf: *mut u8, len: usize) -> i32 {
     // (路径, 剩余GB, 介质, 型号)
@@ -427,7 +520,6 @@ pub extern "C" fn recommend_install_dir(buf: *mut u8, len: usize) -> i32 {
     // 同档里再按型号粗分性能（旗舰型号排前面），最后非系统盘、剩余空间大的优先
     let rank = |c: &(String, f32, String, String)| -> (u8, u8, u8, f32) {
         let m = c.2.to_uppercase();
-        let model = c.3.to_uppercase();
         let tier = if m.contains("NVME") {
             0u8
         } else if m.contains("SSD") {
@@ -435,21 +527,9 @@ pub extern "C" fn recommend_install_dir(buf: *mut u8, len: usize) -> i32 {
         } else {
             2
         };
-        // 型号只能粗判：一线旗舰 0，主流 1，其余 2（拿不到真实读写速度）
-        let perf = if model.contains("9100")
-            || model.contains("990 PRO")
-            || model.contains("SN8100")
-            || model.contains("SN850X")
-            || model.contains("TIPRO")
-        {
-            0u8
-        } else if model.contains("PRO")
-            || model.contains("EVO")
-            || model.contains("SN850")
-            || model.contains("SN770")
-            || model.contains("7100")
-        {
-            1
+        // 型号只能粗判：旗舰 0，主流 1，其余 2（拿不到真实读写速度）
+        let perf = if tier == 0 {
+            nvme_perf_score(&c.3)
         } else {
             2
         };
@@ -663,22 +743,84 @@ pub extern "C" fn whitelist_list(buf: *mut u8, len: usize) -> i32 {
 
 // ================= 多线程扫描 =================
 
+/// 目标路径所在盘是不是机械盘（决定遍历要不要并行）
+/// 机械盘并发遍历会因寻道抖动变慢，NVMe 有多队列，并发才吃得满
+fn is_mechanical(path: &Path) -> bool {
+    use sysinfo::{DiskKind, Disks};
+    let disks = Disks::new_with_refreshed_list();
+    let mut best: Option<(&Path, DiskKind)> = None;
+    for d in disks.list() {
+        let mp = d.mount_point();
+        if path.starts_with(mp) {
+            let deeper = best
+                .map(|(m, _)| mp.as_os_str().len() > m.as_os_str().len())
+                .unwrap_or(true);
+            if deeper {
+                best = Some((mp, d.kind()));
+            }
+        }
+    }
+    matches!(best.map(|(_, k)| k), Some(DiskKind::HDD))
+}
+
 pub(crate) fn walk(p: &Path, out: &mut Vec<PathBuf>, depth: usize) {
     if depth == 0 {
         return;
     }
-    let Ok(rd) = fs::read_dir(p) else { return };
-    for e in rd.flatten() {
-        let path = e.path();
-        let Ok(meta) = fs::symlink_metadata(&path) else { continue };
-        if meta.file_type().is_symlink() {
-            continue;
-        }
-        if meta.is_file() {
-            out.push(path);
+    // 逐层推进：同一层子目录并行读（NVMe 吃多队列）；机械盘或目录太少时串行
+    let mechanical = is_mechanical(p);
+    let mut frontier: Vec<PathBuf> = vec![p.to_path_buf()];
+    let mut level = 0usize;
+
+    while !frontier.is_empty() && level < depth {
+        if mechanical || frontier.len() < 4 {
+            let mut next = Vec::new();
+            for d in &frontier {
+                let Ok(rd) = fs::read_dir(d) else { continue };
+                for e in rd.flatten() {
+                    let path = e.path();
+                    let Ok(meta) = fs::symlink_metadata(&path) else { continue };
+                    if meta.file_type().is_symlink() {
+                        continue;
+                    }
+                    if meta.is_file() {
+                        out.push(path);
+                    } else {
+                        next.push(path);
+                    }
+                }
+            }
+            frontier = next;
         } else {
-            walk(&path, out, depth - 1);
+            let batch: Vec<(Vec<PathBuf>, Vec<PathBuf>)> = frontier
+                .par_iter()
+                .map(|d| {
+                    let mut files = Vec::new();
+                    let mut dirs = Vec::new();
+                    let Ok(rd) = fs::read_dir(d) else { return (files, dirs) };
+                    for e in rd.flatten() {
+                        let path = e.path();
+                        let Ok(meta) = fs::symlink_metadata(&path) else { continue };
+                        if meta.file_type().is_symlink() {
+                            continue;
+                        }
+                        if meta.is_file() {
+                            files.push(path);
+                        } else {
+                            dirs.push(path);
+                        }
+                    }
+                    (files, dirs)
+                })
+                .collect();
+            let mut next = Vec::new();
+            for (files, dirs) in batch {
+                out.extend(files);
+                next.extend(dirs);
+            }
+            frontier = next;
         }
+        level += 1;
     }
 }
 
