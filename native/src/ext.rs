@@ -364,10 +364,11 @@ pub extern "C" fn usb_check(buf: *mut u8, len: usize) -> i32 {
 
 #[no_mangle]
 pub extern "C" fn recommend_install_dir(buf: *mut u8, len: usize) -> i32 {
-    let mut cands: Vec<(String, f32, String)> = Vec::new();
+    // (路径, 剩余GB, 介质, 型号)
+    let mut cands: Vec<(String, f32, String, String)> = Vec::new();
 
     if cfg!(windows) {
-        let script = r#"Get-Volume | Where-Object {$_.DriveLetter} | ForEach-Object { $v=$_; try { $p=Get-Partition -DriveLetter $v.DriveLetter; $d=Get-PhysicalDisk -DeviceNumber $p.DiskNumber; [pscustomobject]@{Letter=$v.DriveLetter;Free=[double]$v.SizeRemaining;Media=[string]$d.MediaType;Bus=[string]$d.BusType} } catch {} } | ConvertTo-Json -Compress"#;
+        let script = r#"Get-Volume | Where-Object {$_.DriveLetter} | ForEach-Object { $v=$_; try { $p=Get-Partition -DriveLetter $v.DriveLetter; $d=Get-PhysicalDisk -DeviceNumber $p.DiskNumber; [pscustomobject]@{Letter=$v.DriveLetter;Free=[double]$v.SizeRemaining;Media=[string]$d.MediaType;Bus=[string]$d.BusType;Model=[string]$d.FriendlyName} } catch {} } | ConvertTo-Json -Compress"#;
         if let Ok(o) = Command::new("powershell").args(["-NoProfile", "-Command", script]).output() {
             if let Ok(v) = serde_json::from_str::<Value>(&String::from_utf8_lossy(&o.stdout)) {
                 let list = match v { Value::Array(a) => a, other => vec![other] };
@@ -387,7 +388,12 @@ pub extern "C" fn recommend_install_dir(buf: *mut u8, len: usize) -> i32 {
                     } else {
                         media
                     };
-                    cands.push((format!("{letter}:\\"), free as f32, media));
+                    let model = item
+                        .get("Model")
+                        .and_then(|x| x.as_str())
+                        .unwrap_or("")
+                        .to_string();
+                    cands.push((format!("{letter}:\\"), free as f32, media, model));
                 }
             }
         }
@@ -410,16 +416,18 @@ pub extern "C" fn recommend_install_dir(buf: *mut u8, len: usize) -> i32 {
             }
             let free = d.available_space() as f32 / 1073741824.0;
             let media = disk_media(&mp).unwrap_or_else(|| "Unknown".into());
-            cands.push((mp, free, media));
+            let model = d.name().to_string_lossy().to_string();
+            cands.push((mp, free, media, model));
         }
     }
 
     let system_drive = std::env::var("SystemDrive").unwrap_or_else(|_| "C:".into()).to_uppercase();
 
-    // 分档：0 = NVMe 固态，1 = 其他固态，2 = 机械/未知
-    // 同档内：先非系统盘，再比剩余空间（大的优先）
-    let rank = |c: &(String, f32, String)| -> (u8, u8, f32) {
+    // 分四步挑：① NVMe 固态优先 ② 其他固态 ③ 机械盘
+    // 同档里再按型号粗分性能（旗舰型号排前面），最后非系统盘、剩余空间大的优先
+    let rank = |c: &(String, f32, String, String)| -> (u8, u8, u8, f32) {
         let m = c.2.to_uppercase();
+        let model = c.3.to_uppercase();
         let tier = if m.contains("NVME") {
             0u8
         } else if m.contains("SSD") {
@@ -427,9 +435,27 @@ pub extern "C" fn recommend_install_dir(buf: *mut u8, len: usize) -> i32 {
         } else {
             2
         };
+        // 型号只能粗判：一线旗舰 0，主流 1，其余 2（拿不到真实读写速度）
+        let perf = if model.contains("9100")
+            || model.contains("990 PRO")
+            || model.contains("SN8100")
+            || model.contains("SN850X")
+            || model.contains("TIPRO")
+        {
+            0u8
+        } else if model.contains("PRO")
+            || model.contains("EVO")
+            || model.contains("SN850")
+            || model.contains("SN770")
+            || model.contains("7100")
+        {
+            1
+        } else {
+            2
+        };
         let is_sys =
             c.0.to_uppercase().starts_with(&system_drive) || c.0.to_uppercase().starts_with("C:");
-        (tier, if is_sys { 1 } else { 0 }, c.1)
+        (tier, perf, if is_sys { 1 } else { 0 }, c.1)
     };
 
     cands.sort_by(|a, b| {
@@ -437,7 +463,8 @@ pub extern "C" fn recommend_install_dir(buf: *mut u8, len: usize) -> i32 {
         let rb = rank(b);
         ra.0.cmp(&rb.0)
             .then(ra.1.cmp(&rb.1))
-            .then(rb.2.partial_cmp(&ra.2).unwrap_or(std::cmp::Ordering::Equal))
+            .then(ra.2.cmp(&rb.2))
+            .then(rb.3.partial_cmp(&ra.3).unwrap_or(std::cmp::Ordering::Equal))
     });
 
     let best = cands.first();
@@ -445,13 +472,14 @@ pub extern "C" fn recommend_install_dir(buf: *mut u8, len: usize) -> i32 {
     match best {
         Some(b) => {
             let reason = format!(
-                "{}（{}，剩余 {:.1} GB{}）",
+                "{}（{} {}，剩余 {:.1} GB{}）",
                 b.0,
-                if b.2.is_empty() { "磁盘" } else { &b.2 },
+                if b.2.is_empty() { "磁盘" } else { b.2.as_str() },
+                b.3,
                 b.1,
                 if b.0.to_uppercase().starts_with("C:") { "，系统盘" } else { "" }
             );
-            ok(buf, len, "推荐安装位置", json!({"path": b.0, "reason": reason, "candidates": cands.iter().map(|c| json!({"path": c.0, "free_gb": round1(c.1), "media": c.2})).collect::<Vec<_>>() }))
+            ok(buf, len, "推荐安装位置", json!({"path": b.0, "reason": reason, "candidates": cands.iter().map(|c| json!({"path": c.0, "free_gb": round1(c.1), "media": c.2, "model": c.3})).collect::<Vec<_>>() }))
         }
         None => fail(buf, len, -3, "未找到可用磁盘"),
     }
