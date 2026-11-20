@@ -1001,11 +1001,15 @@ class _ToolsPageState extends State<ToolsPage> {
           padding: const EdgeInsets.only(top: 12),
           child: DropTarget(
             onDrop: (detail) {
-              final ps = detail.items
-                  .whereType<DropFileItem>()
-                  .map((f) => f.localPath ?? f.file.path)
-                  .where((p) => p.isNotEmpty)
-                  .toList();
+              final ps = <String>[];
+              for (final it in detail.items) {
+                final p = switch (it) {
+                  DropFileItem() => it.localPath,
+                  DropDirectoryItem() => it.localPath,
+                  _ => null,
+                };
+                if (p != null && p.isNotEmpty) ps.add(p);
+              }
               if (ps.isNotEmpty) ctrl.text = ps.join('\n');
             },
             child: TextField(
