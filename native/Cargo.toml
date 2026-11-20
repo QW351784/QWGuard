@@ -21,8 +21,8 @@ ureq = "2.10"
 windows = { version = "0.58", features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging"] }
 
 [profile.release]
-; 性能优先：从 opt-level="z"（体积优先）改成 3（速度优先）
-; codegen-units=1 让 LLVM 能跨模块做全局优化，配合 fat LTO 榨干性能
+# 性能优先：从 opt-level="z"（体积优先）改成 3（速度优先）
+# codegen-units=1 让 LLVM 能跨模块做全局优化，配合 fat LTO 榨干性能
 opt-level = 3
 lto = "fat"
 codegen-units = 1

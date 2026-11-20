@@ -14,15 +14,22 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Rust toolchain
+      - name: Rust toolchain（最新 stable）
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Flutter
+      - name: Flutter（最新 stable）
         uses: subosito/flutter-action@v2
         with:
           channel: stable
-          flutter-version: '3.24.5'
+          flutter-version: latest
           cache: true
+
+      - name: 版本自检
+        shell: pwsh
+        run: |
+          rustc --version
+          cargo --version
+          flutter --version
 
       - name: Build Rust core
         working-directory: native
