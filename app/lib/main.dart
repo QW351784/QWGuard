@@ -268,15 +268,18 @@ class _ShellState extends State<Shell> with WindowListener {
         if (!mounted) return;
         await showDialog(
           context: context,
+          barrierDismissible: false,
           builder: (_) => QDialog(
             icon: Icons.folder_off_rounded,
-            title: '环境不完整',
-            body: '检测到本程序只是被单独提取出来的文件，没有走安装流程。\n'
+            title: '安装错误',
+            body: '检测到本程序只是被单独提取出来的文件，没有走安装流程，缺少必要组件，无法正常工作。\n'
                 '缺的东西：${(env['data']['issues'] as List?)?.join('、') ?? '未知'}\n\n'
-                '请运行安装程序，把整套文件装到安装目录后再打开。',
-            okText: '知道了',
+                '点确定后本程序会关闭，请先运行安装包完成安装，再从安装目录打开。',
+            okText: '确定',
           ),
         );
+        // 点确认直接关掉，不留下一个跑不起来的空壳
+        exit(0);
       }
     }
   }
@@ -367,7 +370,7 @@ class _ShellState extends State<Shell> with WindowListener {
                 child: AnimatedSwitcher(
                   duration: Ui.dur('pageTransition', 340),
                   switchInCurve: Ui.curve('pageTransition'),
-                  switchOutCurve: Ui.isOn('pageTransition') ? Ui.soft : Curves.linear,
+                  switchOutCurve: Ui.isOn('pageTransition') ? Ui.spring : Curves.linear,
                   transitionBuilder: (child, anim) {
                     if (!Ui.isOn('pageTransition')) return child;
                     final curved = CurvedAnimation(parent: anim, curve: Ui.spring);

@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:desktop_drop/desktop_drop.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_acrylic/flutter_acrylic.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -435,7 +436,7 @@ class _CleanPageState extends State<CleanPage> {
                           final on = _checked.contains(path);
                           return LiquidGlass(
                             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                            radius: 18,
+                            radius: 26,
                             onTap: () => setState(() => on ? _checked.remove(path) : _checked.add(path)),
                             child: Row(children: [
                               Checkbox(value: on, onChanged: (v) => setState(() => v! ? _checked.add(path) : _checked.remove(path))),
@@ -655,7 +656,7 @@ class _ScanPageState extends State<ScanPage> {
           child: ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: 430),
             child: LiquidGlass(
-              radius: 24,
+              radius: 30,
               padding: const EdgeInsets.all(24),
               child: Column(
                 mainAxisSize: MainAxisSize.min,
@@ -854,7 +855,7 @@ class _ScanPageState extends State<ScanPage> {
                           final color = !ok ? Colors.orange : (infected ? const Color(0xFFFF453A) : const Color(0xFF34C759));
                           return LiquidGlass(
                             padding: const EdgeInsets.all(14),
-                            radius: 18,
+                            radius: 26,
                             child: Row(children: [
                               Icon(infected ? Icons.warning_rounded : (ok ? Icons.verified_rounded : Icons.info_rounded),
                                   color: color, size: 22),
@@ -998,10 +999,22 @@ class _ToolsPageState extends State<ToolsPage> {
         cancelText: '取消',
         child: Padding(
           padding: const EdgeInsets.only(top: 12),
-          child: TextField(
-            controller: ctrl,
-            maxLines: 4,
-            decoration: const InputDecoration(hintText: '一行一个路径', isDense: true),
+          child: DropTarget(
+            onDragDone: (detail) {
+              final ps = detail.files
+                  .map((f) => f.path)
+                  .where((p) => p.isNotEmpty)
+                  .toList();
+              if (ps.isNotEmpty) ctrl.text = ps.join('\n');
+            },
+            child: TextField(
+              controller: ctrl,
+              maxLines: 4,
+              decoration: const InputDecoration(
+                hintText: '一行一个路径，也可以直接把文件 / 文件夹拖进来',
+                isDense: true,
+              ),
+            ),
           ),
         ),
         onOk: () => Navigator.of(ctx).pop(true),
@@ -1527,7 +1540,7 @@ class _QuarantinePageState extends State<QuarantinePage> {
                       final id = it['id'].toString();
                       final checked = _sel.contains(id);
                       return LiquidGlass(
-                        radius: 14,
+                        radius: 20,
                         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                         child: Row(children: [
                           Checkbox(
@@ -1646,7 +1659,7 @@ class _WelcomeSheetState extends State<WelcomeSheet> {
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 480),
         child: LiquidGlass(
-          radius: 28,
+          radius: 34,
           padding: const EdgeInsets.fromLTRB(26, 22, 26, 16),
           child: SizedBox(
             height: 560,
@@ -1727,7 +1740,7 @@ class _WelcomeSheetState extends State<WelcomeSheet> {
           Padding(
             padding: const EdgeInsets.only(bottom: 9),
             child: LiquidGlass(
-              radius: 16,
+              radius: 22,
               padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
               onTap: () => setState(() => _material = m.$1),
               child: Row(children: [
@@ -1809,7 +1822,7 @@ class _WelcomeSheetState extends State<WelcomeSheet> {
   Widget _opt(String text, ThemeOption v) {
     final on = _theme == v;
     return LiquidGlass(
-      radius: 16,
+      radius: 22,
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
       onTap: () => setState(() => _theme = v),
       child: Row(children: [
@@ -2330,7 +2343,7 @@ class _SettingsPageState extends State<SettingsPage> {
 
   Widget _switchRow(IconData icon, String title, bool value, ValueChanged<bool> onChanged) {
     return LiquidGlass(
-      radius: 18,
+      radius: 26,
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
       child: SwitchListTile(
         contentPadding: EdgeInsets.zero,
@@ -2346,7 +2359,7 @@ class _SettingsPageState extends State<SettingsPage> {
     return Padding(
       padding: const EdgeInsets.only(bottom: 10),
       child: LiquidGlass(
-        radius: 18,
+        radius: 26,
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
         onTap: onTap,
         child: Row(children: [
@@ -2420,7 +2433,7 @@ class _SettingsPageState extends State<SettingsPage> {
       'integrated': I18n.t('integrated'),
     };
     return LiquidGlass(
-      radius: 18,
+      radius: 26,
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       child: Row(children: [
         const Icon(Icons.videogame_asset_rounded, size: 20, color: Color(0xFF2F7BFF)),
@@ -2442,7 +2455,7 @@ class _SettingsPageState extends State<SettingsPage> {
     return Padding(
       padding: const EdgeInsets.only(bottom: 10),
       child: LiquidGlass(
-        radius: 18,
+        radius: 26,
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
         child: Wrap(
           spacing: 8,
@@ -2469,7 +2482,7 @@ class _SettingsPageState extends State<SettingsPage> {
 
   Widget _langRow() {
     return LiquidGlass(
-      radius: 18,
+      radius: 26,
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       child: Row(children: [
         const Icon(Icons.translate_rounded, size: 20, color: Color(0xFF2F7BFF)),
@@ -2494,7 +2507,7 @@ class _SettingsPageState extends State<SettingsPage> {
   Widget _repoRow() {
     final ctrl = TextEditingController(text: _repo);
     return LiquidGlass(
-      radius: 18,
+      radius: 26,
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       child: Row(children: [
         const Icon(Icons.link_rounded, size: 20, color: Color(0xFF2F7BFF)),

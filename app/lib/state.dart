@@ -24,8 +24,8 @@ class Ui {
     AnimDef('pageTransition', '页面切换动画', 'Page transition'),
     AnimDef('buttonPress', '按钮按压回弹', 'Button press'),
     AnimDef('cardEntrance', '卡片入场动画', 'Card entrance'),
-    // 呼吸型动态光效：软件里默认关闭，安装/卸载时强制开启（那边没有开关）
-    AnimDef('breathing', '呼吸型动态光效', 'Breathing glow', defaultOn: false),
+    // 呼吸型动态光效：软件内默认开启、可以手动关闭；安装/卸载过程中强制开启（那边没有开关）
+    AnimDef('breathing', '呼吸型动态光效', 'Breathing glow', defaultOn: true),
   ];
 
   static final Map<String, ValueNotifier<bool>> _map = {
@@ -49,7 +49,8 @@ class Ui {
   static final material = ValueNotifier<String>('mica');
 
   /// 澎湃 OS 4 回弹曲线
-  static const spring = Cubic(0.34, 1.32, 0.64, 1.0);
+  /// 澎湃 OS 4 的 Q 弹曲线：带明显过冲再回落，按下去像果冻
+  static const spring = Cubic(0.34, 1.56, 0.64, 1.0);
   static const soft = Cubic(0.22, 1.0, 0.36, 1.0);
 
   /// 按开关返回时长：关掉即 0，等于瞬间完成

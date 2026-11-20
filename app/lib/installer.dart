@@ -26,6 +26,8 @@ class _SetupAppState extends State<SetupApp> {
   /// 0 欢迎  1 选项  2 进度  3 完成
   int _step = 0;
   String _dir = 'C:\\Program Files\\QWGuard';
+  /// 首次算出来的推荐路径，用来看当前是不是还被用户改过
+  String _recDir = '';
   bool _desktopIcon = true;
   bool _autostart = false;
   bool _busy = false;
@@ -62,11 +64,39 @@ class _SetupAppState extends State<SetupApp> {
     setState(() {
       _dark = dark;
       _dir = dir;
+      _recDir = dir;
       _ready = true;
     });
   }
 
   double get _progress => _step == 2 ? 1.0 : 0.0;
+
+  /// 高级选项：自定义安装位置（主程序可以改；工具箱里的工具、运行库不允许改）
+  Future<void> _pickDir() async {
+    final ctrl = TextEditingController(text: _dir);
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('自定义安装位置'),
+        content: TextField(
+          controller: ctrl,
+          decoration: const InputDecoration(
+            hintText: r'例如 D:\QWGuard',
+            border: OutlineInputBorder(),
+            isDense: true,
+          ),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('取消')),
+          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('确定')),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    final p = ctrl.text.trim();
+    if (p.isEmpty) return;
+    if (mounted) setState(() => _dir = p);
+  }
 
   Future<void> _doInstall() async {
     setState(() {
@@ -228,21 +258,28 @@ class _SetupAppState extends State<SetupApp> {
         const SizedBox(height: 16),
         const Text('安装位置', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
         const SizedBox(height: 8),
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(12),
-            color: _dark ? Colors.white.withOpacity(0.07) : Colors.black.withOpacity(0.04),
+        InkWell(
+          borderRadius: BorderRadius.circular(12),
+          onTap: _busy ? null : _pickDir,
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(12),
+              color: _dark ? Colors.white.withOpacity(0.07) : Colors.black.withOpacity(0.04),
+            ),
+            child: Row(children: [
+              const Icon(Icons.folder_rounded, size: 18),
+              const SizedBox(width: 10),
+              Expanded(child: Text(_dir, style: const TextStyle(fontSize: 12.5))),
+              Text(_dir == _recDir ? '推荐' : '自定义',
+                  style: TextStyle(fontSize: 11, color: accent)),
+              const SizedBox(width: 8),
+              Text('更改', style: TextStyle(fontSize: 11.5, color: accent)),
+            ]),
           ),
-          child: Row(children: [
-            const Icon(Icons.folder_rounded, size: 18),
-            const SizedBox(width: 10),
-            Expanded(child: Text(_dir, style: const TextStyle(fontSize: 12.5))),
-            Text('推荐', style: TextStyle(fontSize: 11, color: accent)),
-          ]),
         ),
         const SizedBox(height: 6),
-        Text('默认放在推荐盘符下；要换位置的话装完之后在设置里可以迁移。',
+        Text('高级选项：点上面的路径可以自定义安装位置，默认装系统盘的程序目录。',
             style: TextStyle(fontSize: 11, color: _dark ? Colors.white38 : Colors.black45)),
         const SizedBox(height: 18),
         _check('创建桌面快捷方式', _desktopIcon, (v) => setState(() => _desktopIcon = v)),

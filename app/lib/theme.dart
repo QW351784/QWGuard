@@ -74,15 +74,27 @@ class LiquidGlass extends StatelessWidget {
     final glass = forceGlass || Ui.glass.value;
     final blur = glass && Ui.realtimeBlur.value;
 
+    // iPhone 式 R 角：用连续曲率（squircle），四角过渡比纯圆弧更顺
+    final shape = ContinuousRectangleBorder(
+      borderRadius: BorderRadius.circular(radius),
+      side: BorderSide(
+        color: glass
+            ? (isDark ? Colors.white.withOpacity(0.16) : Colors.white.withOpacity(0.75))
+            : (isDark ? Colors.white.withOpacity(0.08) : Colors.black.withOpacity(0.06)),
+        width: 1.1,
+      ),
+    );
+    final clipper = ShapeBorderClipper(shape: shape, textDirection: TextDirection.ltr);
+
     Widget box = Container(
       width: width,
       height: height,
       padding: padding,
-      decoration: BoxDecoration(
+      decoration: ShapeDecoration(
+        shape: shape,
         color: glass
-            ? (isDark ? const Color(0xFF1C2230).withOpacity(0.46) : Colors.white.withOpacity(0.55))
+            ? null
             : (isDark ? const Color(0xFF1B2029) : Colors.white.withOpacity(0.92)),
-        borderRadius: BorderRadius.circular(radius),
         gradient: glass
             ? LinearGradient(
                 begin: Alignment.topLeft,
@@ -92,13 +104,7 @@ class LiquidGlass extends StatelessWidget {
                     : [Colors.white.withOpacity(0.92), Colors.white.withOpacity(0.55), const Color(0xFFDCEBFF).withOpacity(0.60)],
               )
             : null,
-        border: Border.all(
-          color: glass
-              ? (isDark ? Colors.white.withOpacity(0.16) : Colors.white.withOpacity(0.75))
-              : (isDark ? Colors.white.withOpacity(0.08) : Colors.black.withOpacity(0.06)),
-          width: 1.1,
-        ),
-        boxShadow: glass
+        shadows: glass
             ? (isDark
                 ? [
                     BoxShadow(color: Colors.black.withOpacity(0.40), blurRadius: 34, offset: const Offset(0, 14)),
@@ -114,8 +120,8 @@ class LiquidGlass extends StatelessWidget {
     );
 
     if (blur) {
-      box = ClipRRect(
-        borderRadius: BorderRadius.circular(radius),
+      box = ClipPath(
+        clipper: clipper,
         child: BackdropFilter(
           filter: ImageFilter.blur(sigmaX: isDark ? 18 : 24, sigmaY: isDark ? 18 : 24),
           child: box,
@@ -129,8 +135,8 @@ class LiquidGlass extends StatelessWidget {
           box,
           Positioned.fill(
             child: IgnorePointer(
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(radius),
+              child: ClipPath(
+                clipper: clipper,
                 child: _Refraction(radius: radius),
               ),
             ),
@@ -465,13 +471,41 @@ class _RefractionPainter extends CustomPainter {
     for (final (color, off) in offsets) {
       final paint = Paint()
         ..style = PaintingStyle.stroke
-        ..strokeWidth = 1.4
-        ..color = color.withOpacity(dark ? 0.16 : 0.20);
+        ..strokeWidth = 2.0
+        ..color = color.withOpacity(dark ? 0.22 : 0.28);
       canvas.save();
       canvas.translate(off.dx, off.dy);
       canvas.drawRRect(rrect, paint);
       canvas.restore();
     }
+
+    // 1.5 玻璃切面：边缘一圈极细白线，做出玻璃厚度
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(
+        (Offset.zero & size).deflate(0.8),
+        Radius.circular(math.max(radius - 0.8, 1.0)),
+      ),
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.2
+        ..color = Colors.white.withOpacity(dark ? 0.14 : 0.55),
+    );
+
+    // 1.6 厚玻璃内高光：上沿亮、下沿压暗，iOS 27 那种立体感
+    final bodyGlow = LinearGradient(
+      begin: Alignment.topCenter,
+      end: Alignment.bottomCenter,
+      colors: [
+        Colors.white.withOpacity(dark ? 0.16 : 0.40),
+        Colors.white.withOpacity(0.0),
+        Colors.black.withOpacity(dark ? 0.20 : 0.07),
+      ],
+      stops: const [0.0, 0.46, 1.0],
+    ).createShader(Offset.zero & size);
+    canvas.save();
+    canvas.clipRRect(rrect);
+    canvas.drawRect(Offset.zero & size, Paint()..shader = bodyGlow);
+    canvas.restore();
 
     // 2. 沿对角扫过的高光带（可关）
     if (sweep) {

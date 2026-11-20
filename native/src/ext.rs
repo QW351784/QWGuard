@@ -367,7 +367,7 @@ pub extern "C" fn recommend_install_dir(buf: *mut u8, len: usize) -> i32 {
     let mut cands: Vec<(String, f32, String)> = Vec::new();
 
     if cfg!(windows) {
-        let script = r#"Get-Volume | Where-Object {$_.DriveLetter} | ForEach-Object { $v=$_; try { $p=Get-Partition -DriveLetter $v.DriveLetter; $d=Get-PhysicalDisk -DeviceNumber $p.DiskNumber; [pscustomobject]@{Letter=$v.DriveLetter;Free=[double]$v.SizeRemaining;Media=[string]$d.MediaType} } catch {} } | ConvertTo-Json -Compress"#;
+        let script = r#"Get-Volume | Where-Object {$_.DriveLetter} | ForEach-Object { $v=$_; try { $p=Get-Partition -DriveLetter $v.DriveLetter; $d=Get-PhysicalDisk -DeviceNumber $p.DiskNumber; [pscustomobject]@{Letter=$v.DriveLetter;Free=[double]$v.SizeRemaining;Media=[string]$d.MediaType;Bus=[string]$d.BusType} } catch {} } | ConvertTo-Json -Compress"#;
         if let Ok(o) = Command::new("powershell").args(["-NoProfile", "-Command", script]).output() {
             if let Ok(v) = serde_json::from_str::<Value>(&String::from_utf8_lossy(&o.stdout)) {
                 let list = match v { Value::Array(a) => a, other => vec![other] };
@@ -378,6 +378,15 @@ pub extern "C" fn recommend_install_dir(buf: *mut u8, len: usize) -> i32 {
                     }
                     let free = item.get("Free").and_then(|x| x.as_f64()).unwrap_or(0.0) / 1073741824.0;
                     let media = item.get("Media").and_then(|x| x.as_str()).unwrap_or("").to_string();
+                    let bus = item.get("Bus").and_then(|x| x.as_str()).unwrap_or("");
+                    // MediaType 只区分 SSD/HDD，NVMe 要靠 BusType 补上
+                    let media = if bus.to_uppercase().contains("NVME")
+                        && !media.to_uppercase().contains("NVME")
+                    {
+                        format!("{media}/NVMe")
+                    } else {
+                        media
+                    };
                     cands.push((format!("{letter}:\\"), free as f32, media));
                 }
             }
@@ -406,20 +415,32 @@ pub extern "C" fn recommend_install_dir(buf: *mut u8, len: usize) -> i32 {
     }
 
     let system_drive = std::env::var("SystemDrive").unwrap_or_else(|_| "C:".into()).to_uppercase();
-    let score = |c: &(String, f32, String)| -> f32 {
-        let ssd = c.2.to_uppercase().contains("SSD") || c.2.to_uppercase().contains("NVME");
-        let is_sys = c.0.to_uppercase().starts_with(&system_drive) || c.0.to_uppercase().starts_with("C:");
-        let mut s = if ssd { 100.0 } else { 40.0 };
-        if is_sys { s -= 25.0; }
-        s + c.1.min(1000.0) / 100.0
+
+    // 分档：0 = NVMe 固态，1 = 其他固态，2 = 机械/未知
+    // 同档内：先非系统盘，再比剩余空间（大的优先）
+    let rank = |c: &(String, f32, String)| -> (u8, u8, f32) {
+        let m = c.2.to_uppercase();
+        let tier = if m.contains("NVME") {
+            0u8
+        } else if m.contains("SSD") {
+            1
+        } else {
+            2
+        };
+        let is_sys =
+            c.0.to_uppercase().starts_with(&system_drive) || c.0.to_uppercase().starts_with("C:");
+        (tier, if is_sys { 1 } else { 0 }, c.1)
     };
 
-    let mut best: Option<&(String, f32, String)> = None;
-    for c in &cands {
-        if best.map(|b| score(c) > score(b)).unwrap_or(true) {
-            best = Some(c);
-        }
-    }
+    cands.sort_by(|a, b| {
+        let ra = rank(a);
+        let rb = rank(b);
+        ra.0.cmp(&rb.0)
+            .then(ra.1.cmp(&rb.1))
+            .then(rb.2.partial_cmp(&ra.2).unwrap_or(std::cmp::Ordering::Equal))
+    });
+
+    let best = cands.first();
 
     match best {
         Some(b) => {
