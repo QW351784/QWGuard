@@ -5,7 +5,18 @@ import 'package:flutter/material.dart';
 
 import 'state.dart';
 
-/// iOS 27 液态玻璃 + 澎湃 OS 4 布局
+/// 界面材质档
+enum MatStyle { auto, mica, aero, glass, solid }
+
+MatStyle currentMatStyle() => switch (Ui.material.value) {
+      'mica' => MatStyle.mica,
+      'aero' => MatStyle.aero,
+      'glass' => MatStyle.glass,
+      'solid' => MatStyle.solid,
+      _ => MatStyle.auto,
+    };
+
+/// iOS 27 液态玻璃 + 澎湃 OS 4 布局 + Win11 云母 / Win7 Aero 混搭
 class AppTheme {
   static ThemeData light() => _base(Brightness.light, const Color(0xFF2F7BFF));
   static ThemeData dark() => _base(Brightness.dark, const Color(0xFF4C9BFF));
@@ -27,6 +38,56 @@ class AppTheme {
 
   static BoxDecoration background(Brightness b) {
     final isDark = b == Brightness.dark;
+    final s = currentMatStyle();
+
+    // 云母 / 混搭：窗口本体走系统 Mica（flutter_acrylic 设的），
+    // Flutter 这层只叠一层很淡的色调，叠厚了会把系统材质盖死
+    if (s == MatStyle.auto || s == MatStyle.mica) {
+      return BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: isDark
+              ? [
+                  const Color(0xFF141821).withOpacity(0.30),
+                  const Color(0xFF0F1218).withOpacity(0.38),
+                  const Color(0xFF171C26).withOpacity(0.26),
+                ]
+              : [
+                  const Color(0xFFF7FBFF).withOpacity(0.38),
+                  const Color(0xFFFDFEFF).withOpacity(0.28),
+                  const Color(0xFFEAF2FF).withOpacity(0.34),
+                ],
+        ),
+      );
+    }
+
+    // Aero：Win7 那种更透、更蓝的薄雾玻璃
+    if (s == MatStyle.aero) {
+      return BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: isDark
+              ? [
+                  const Color(0xFF07101E).withOpacity(0.66),
+                  const Color(0xFF123055).withOpacity(0.52),
+                  const Color(0xFF0A1A2E).withOpacity(0.60),
+                ]
+              : [
+                  const Color(0xFFE8F4FF).withOpacity(0.66),
+                  const Color(0xFFB9DAFF).withOpacity(0.50),
+                  const Color(0xFFDCEEFF).withOpacity(0.60),
+                ],
+        ),
+      );
+    }
+
+    if (s == MatStyle.solid) {
+      return BoxDecoration(color: isDark ? const Color(0xFF15181F) : const Color(0xFFF6F8FC));
+    }
+
+    // 液态玻璃：原来那套不透明渐变，给玻璃控件当折射底
     return BoxDecoration(
       gradient: LinearGradient(
         begin: Alignment.topLeft,
@@ -71,64 +132,117 @@ class LiquidGlass extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final glass = forceGlass || Ui.glass.value;
-    final blur = glass && Ui.realtimeBlur.value;
+    final s = currentMatStyle();
+    final glassLike = s == MatStyle.glass || s == MatStyle.auto;
+    final aeroLike = s == MatStyle.aero;
+    final micaLike = s == MatStyle.mica;
+    final solidLike = s == MatStyle.solid;
 
-    // iPhone 式 R 角：用连续曲率（squircle），四角过渡比纯圆弧更顺
+    // 液态玻璃开关只管玻璃档；云母和 Aero 是系统材质，不受它影响
+    final glass = glassLike && (forceGlass || Ui.glass.value);
+    final blurOn = !solidLike && Ui.realtimeBlur.value;
+
+    // iPhone 式 R 角：连续曲率，四角过渡比纯圆弧更顺
     final shape = ContinuousRectangleBorder(
       borderRadius: BorderRadius.circular(radius),
       side: BorderSide(
-        color: glass
-            ? (isDark ? Colors.white.withOpacity(0.16) : Colors.white.withOpacity(0.75))
-            : (isDark ? Colors.white.withOpacity(0.08) : Colors.black.withOpacity(0.06)),
-        width: 1.1,
+        color: solidLike
+            ? (isDark ? Colors.white.withOpacity(0.06) : Colors.black.withOpacity(0.06))
+            : aeroLike
+                ? Colors.white.withOpacity(isDark ? 0.28 : 0.90)
+                : micaLike
+                    ? (isDark ? Colors.white.withOpacity(0.10) : Colors.white.withOpacity(0.55))
+                    : (isDark ? Colors.white.withOpacity(0.16) : Colors.white.withOpacity(0.75)),
+        width: aeroLike ? 1.4 : 1.1,
       ),
     );
     final clipper = ShapeBorderClipper(shape: shape, textDirection: TextDirection.ltr);
+
+    // 各档的填充、渐变与阴影
+    Color? fill;
+    Gradient? grad;
+    List<BoxShadow> shadows;
+
+    if (solidLike) {
+      fill = isDark ? const Color(0xFF1B2029) : Colors.white.withOpacity(0.94);
+      shadows = [
+        BoxShadow(color: Colors.black.withOpacity(isDark ? 0.30 : 0.08), blurRadius: 18, offset: const Offset(0, 6)),
+      ];
+    } else if (aeroLike) {
+      // Win7 Aero：顶部一道强白高光，中段蓝色雾面，底部收暗
+      grad = LinearGradient(
+        begin: Alignment.topCenter,
+        end: Alignment.bottomCenter,
+        colors: isDark
+            ? [Colors.white.withOpacity(0.16), const Color(0xFF0E2440).withOpacity(0.34), Colors.white.withOpacity(0.05)]
+            : [Colors.white.withOpacity(0.94), const Color(0xFFD6EAFF).withOpacity(0.54), Colors.white.withOpacity(0.66)],
+        stops: const [0.0, 0.52, 1.0],
+      );
+      shadows = [
+        BoxShadow(color: Colors.black.withOpacity(isDark ? 0.34 : 0.10), blurRadius: 26, offset: const Offset(0, 10)),
+        BoxShadow(color: Colors.white.withOpacity(isDark ? 0.10 : 0.85), blurRadius: 10, offset: const Offset(0, -4)),
+      ];
+    } else if (micaLike) {
+      // 云母：中性偏冷的半透明面，不折射、不抢背景
+      grad = LinearGradient(
+        begin: Alignment.topLeft,
+        end: Alignment.bottomRight,
+        colors: isDark
+            ? [const Color(0xFF232933).withOpacity(0.74), const Color(0xFF1A1F28).withOpacity(0.66)]
+            : [Colors.white.withOpacity(0.80), const Color(0xFFF1F5FB).withOpacity(0.66)],
+      );
+      shadows = [
+        BoxShadow(color: Colors.black.withOpacity(isDark ? 0.22 : 0.06), blurRadius: 16, offset: const Offset(0, 5)),
+      ];
+    } else {
+      fill = glass ? null : (isDark ? const Color(0xFF1B2029) : Colors.white.withOpacity(0.92));
+      grad = glass
+          ? LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: isDark
+                  ? [Colors.white.withOpacity(0.13), Colors.white.withOpacity(0.05), const Color(0xFF2C4C7A).withOpacity(0.09)]
+                  : [Colors.white.withOpacity(0.92), Colors.white.withOpacity(0.55), const Color(0xFFDCEBFF).withOpacity(0.60)],
+            )
+          : null;
+      shadows = glass
+          ? (isDark
+              ? [
+                  BoxShadow(color: Colors.black.withOpacity(0.40), blurRadius: 34, offset: const Offset(0, 14)),
+                  BoxShadow(color: Colors.white.withOpacity(0.06), blurRadius: 14, offset: const Offset(-6, -6)),
+                ]
+              : [
+                  BoxShadow(color: const Color(0xFF9DBBE0).withOpacity(0.28), blurRadius: 34, offset: const Offset(0, 14)),
+                  BoxShadow(color: Colors.white.withOpacity(0.65), blurRadius: 18, offset: const Offset(-8, -8)),
+                ])
+          : [BoxShadow(color: Colors.black.withOpacity(isDark ? 0.30 : 0.08), blurRadius: 18, offset: const Offset(0, 6))];
+    }
 
     Widget box = Container(
       width: width,
       height: height,
       padding: padding,
-      decoration: ShapeDecoration(
-        shape: shape,
-        color: glass
-            ? null
-            : (isDark ? const Color(0xFF1B2029) : Colors.white.withOpacity(0.92)),
-        gradient: glass
-            ? LinearGradient(
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-                colors: isDark
-                    ? [Colors.white.withOpacity(0.13), Colors.white.withOpacity(0.05), const Color(0xFF2C4C7A).withOpacity(0.09)]
-                    : [Colors.white.withOpacity(0.92), Colors.white.withOpacity(0.55), const Color(0xFFDCEBFF).withOpacity(0.60)],
-              )
-            : null,
-        shadows: glass
-            ? (isDark
-                ? [
-                    BoxShadow(color: Colors.black.withOpacity(0.40), blurRadius: 34, offset: const Offset(0, 14)),
-                    BoxShadow(color: Colors.white.withOpacity(0.06), blurRadius: 14, offset: const Offset(-6, -6)),
-                  ]
-                : [
-                    BoxShadow(color: const Color(0xFF9DBBE0).withOpacity(0.28), blurRadius: 34, offset: const Offset(0, 14)),
-                    BoxShadow(color: Colors.white.withOpacity(0.65), blurRadius: 18, offset: const Offset(-8, -8)),
-                  ])
-            : [BoxShadow(color: Colors.black.withOpacity(isDark ? 0.30 : 0.08), blurRadius: 18, offset: const Offset(0, 6))],
-      ),
+      decoration: ShapeDecoration(shape: shape, color: fill, gradient: grad, shadows: shadows),
       child: child,
     );
 
-    if (blur) {
+    if (blurOn) {
+      // 档位不同模糊强度不同：Aero 最重（Win7 那种糊）、云母最轻
+      final sigma = aeroLike
+          ? (isDark ? 22 : 28)
+          : micaLike
+              ? (isDark ? 10 : 14)
+              : (isDark ? 18 : 24);
       box = ClipPath(
         clipper: clipper,
         child: BackdropFilter(
-          filter: ImageFilter.blur(sigmaX: isDark ? 18 : 24, sigmaY: isDark ? 18 : 24),
+          filter: ImageFilter.blur(sigmaX: sigma, sigmaY: sigma),
           child: box,
         ),
       );
     }
 
+    // 折射只挂在液态玻璃档；云母 / Aero / 纯色不做折射
     if (glass && Ui.refraction.value) {
       box = Stack(
         children: [
@@ -276,11 +390,12 @@ class _ParticleLayerState extends State<ParticleLayer> with SingleTickerProvider
     final rnd = math.Random(7);
     for (var i = 0; i < widget.count; i++) {
       _ps.add(_P(
-        x: rnd.nextDouble(),
-        y: rnd.nextDouble(),
-        r: 1.4 + rnd.nextDouble() * 3.2,
-        speed: 0.2 + rnd.nextDouble() * 0.7,
+        angle: rnd.nextDouble() * math.pi * 2,
+        radius: 0.18 + rnd.nextDouble() * 0.82,
+        speed: 0.35 + rnd.nextDouble() * 0.65,
+        size: 1.2 + rnd.nextDouble() * 2.6,
         phase: rnd.nextDouble() * math.pi * 2,
+        squash: 0.62 + rnd.nextDouble() * 0.38,
         warm: rnd.nextBool(),
       ));
     }
@@ -309,13 +424,22 @@ class _ParticleLayerState extends State<ParticleLayer> with SingleTickerProvider
 }
 
 class _P {
-  final double x;
-  final double y;
-  final double r;
-  final double speed;
+  final double angle;   // 初始角
+  final double radius;  // 归一化轨道半径
+  final double speed;   // 角速度倍率
+  final double size;
   final double phase;
+  final double squash;  // 椭圆压扁系数
   final bool warm;
-  const _P({required this.x, required this.y, required this.r, required this.speed, required this.phase, required this.warm});
+  const _P({
+    required this.angle,
+    required this.radius,
+    required this.speed,
+    required this.size,
+    required this.phase,
+    required this.squash,
+    required this.warm,
+  });
 }
 
 class _ParticlePainter extends CustomPainter {
@@ -327,22 +451,47 @@ class _ParticlePainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
+    final center = Offset(size.width * 0.5, size.height * 0.46);
+    final rx = size.width * 0.54;
+    final ry = size.height * 0.42;
+
     for (final p in ps) {
-      final dy = (p.y - t * p.speed) % 1.0;
-      final dx = p.x + math.sin(t * math.pi * 2 + p.phase) * 0.02;
-      final pos = Offset(dx * size.width, dy * size.height);
-      final base = p.warm ? const Color(0xFF5AA2FF) : const Color(0xFF9BD0FF);
-      final color = base.withOpacity(dark ? 0.32 : 0.55);
-      final paint = Paint()
-        ..shader = RadialGradient(colors: [color, color.withOpacity(0.0)]).createShader(
-          Rect.fromCircle(center: pos, radius: p.r * 3),
+      final a = p.angle + t * math.pi * 2 * p.speed;
+      // 呼吸：整圈一起胀缩，像粒子被中心吸住又松开
+      final breathe = 0.70 + 0.30 * math.sin(t * math.pi * 2 + p.phase);
+      final rr = p.radius * breathe;
+      final pos = center + Offset(math.cos(a) * rx * rr, math.sin(a) * ry * rr * p.squash);
+
+      final base = p.warm ? const Color(0xFF5AA2FF) : const Color(0xFF8CE3FF);
+      // 亮度同步呼吸
+      final lum = (0.45 + 0.55 * math.sin(t * math.pi * 2 + p.phase + 1.2)).clamp(0.15, 1.0);
+      final alpha = (dark ? 0.30 : 0.52) * lum;
+
+      // 拖尾：沿轨迹往回排，越远越淡越小，做出流线感
+      for (var k = 5; k >= 1; k--) {
+        final ta = a - k * 0.055 * p.speed;
+        final tr = p.radius * (0.70 + 0.30 * math.sin(t * math.pi * 2 + p.phase - k * 0.06));
+        final tp = center + Offset(math.cos(ta) * rx * tr, math.sin(ta) * ry * tr * p.squash);
+        final fade = 1.0 - k / 6.0;
+        canvas.drawCircle(
+          tp,
+          p.size * fade * 0.85,
+          Paint()..color = base.withOpacity(alpha * fade * 0.42),
         );
-      canvas.drawCircle(pos, p.r * 3, paint);
+      }
+
+      // 主体：外圈光晕 + 中心亮点
+      final glow = Paint()
+        ..shader = RadialGradient(
+          colors: [base.withOpacity(math.min(alpha * 1.6, 1.0)), base.withOpacity(0.0)],
+        ).createShader(Rect.fromCircle(center: pos, radius: p.size * 3.2));
+      canvas.drawCircle(pos, p.size * 3.2, glow);
+      canvas.drawCircle(pos, p.size * 0.9, Paint()..color = Colors.white.withOpacity(alpha * 0.75));
     }
   }
 
   @override
-  bool shouldRepaint(covariant _ParticlePainter old) => old.t != t;
+  bool shouldRepaint(covariant _ParticlePainter old) => old.t != t || old.dark != dark;
 }
 
 /// 页面标题
@@ -478,6 +627,53 @@ class _RefractionPainter extends CustomPainter {
       canvas.drawRRect(rrect, paint);
       canvas.restore();
     }
+
+    // 1.2 动态流光边：一圈彩虹色散沿边框旋转，不碰鼠标也在流动
+    //     这是"实时动态光线折射"的主体，色散按角度变化
+    final flow = SweepGradient(
+      startAngle: 0,
+      endAngle: math.pi * 2,
+      colors: [
+        const Color(0xFFFF4D6D).withOpacity(0.0),
+        const Color(0xFFFF4D6D).withOpacity(dark ? 0.24 : 0.34),
+        const Color(0xFFB58CFF).withOpacity(dark ? 0.16 : 0.22),
+        const Color(0xFF4DD2FF).withOpacity(dark ? 0.26 : 0.36),
+        const Color(0xFF7BFFB2).withOpacity(0.0),
+        const Color(0xFFFF4D6D).withOpacity(0.0),
+      ],
+      stops: const [0.0, 0.18, 0.40, 0.62, 0.84, 1.0],
+      transform: GradientRotation(t * math.pi * 2),
+    ).createShader(Offset.zero & size);
+    canvas.drawRRect(
+      rrect,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.8
+        ..shader = flow,
+    );
+
+    // 1.3 第二层反向流光，慢一档，叠出玻璃厚度
+    final flow2 = SweepGradient(
+      startAngle: 0,
+      endAngle: math.pi * 2,
+      colors: [
+        Colors.white.withOpacity(0.0),
+        Colors.white.withOpacity(dark ? 0.16 : 0.30),
+        Colors.white.withOpacity(0.0),
+      ],
+      stops: const [0.0, 0.5, 1.0],
+      transform: GradientRotation(-t * math.pi * 2 + 1.6),
+    ).createShader(Offset.zero & size);
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(
+        (Offset.zero & size).deflate(2.2),
+        Radius.circular(math.max(radius - 2.2, 1.0)),
+      ),
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.0
+        ..shader = flow2,
+    );
 
     // 1.5 玻璃切面：边缘一圈极细白线，做出玻璃厚度
     canvas.drawRRect(

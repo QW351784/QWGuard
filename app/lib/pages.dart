@@ -1622,10 +1622,12 @@ class _WelcomeSheetState extends State<WelcomeSheet> {
   final PageController _pc = PageController();
   int _page = 0;
 
-  /// 三种材质：默认 Win11 云母
+  /// 五档材质：默认混搭（控件玻璃 + 背景云母）
   static const _materials = [
-    ('mica', 'Windows 11 云母', '跟随系统取色，Win11 原生观感，默认', Icons.blur_on_rounded),
-    ('glass', '液态玻璃', '半透明磨砂，边缘高光与折射', Icons.water_drop_rounded),
+    ('auto', '智能混搭（默认）', '按钮和选项用液态玻璃，窗口背景用 Win11 云母，各管一块', Icons.auto_awesome_rounded),
+    ('mica', 'Windows 11 云母', '整窗云母，中性冷调，最贴近系统原生观感', Icons.blur_on_rounded),
+    ('aero', 'Windows 7 Aero', '薄雾玻璃加顶部强高光，老 Aero 那种通透感', Icons.wb_sunny_rounded),
+    ('glass', '液态玻璃', 'iOS 27 液态玻璃，边缘色散、流动折射、玻璃厚度高光', Icons.water_drop_rounded),
     ('solid', '纯色', '不透明实色，最省性能', Icons.square_rounded),
   ];
 
@@ -1738,7 +1740,7 @@ class _WelcomeSheetState extends State<WelcomeSheet> {
       children: [
         const Text('界面材质', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
         const SizedBox(height: 5),
-        Text('默认 Windows 11 云母；想更花哨就选液态玻璃，想最省性能就选纯色。',
+        Text('默认走混搭：按钮和选项是液态玻璃，窗口背景是 Win11 云母。想要整窗全玻璃或者 Win7 那种 Aero 观感，再手动切。',
             style: TextStyle(fontSize: 11.5, color: isDark ? Colors.white38 : Colors.black45)),
         const SizedBox(height: 12),
         for (final m in _materials)
@@ -1923,7 +1925,9 @@ class _SettingsPageState extends State<SettingsPage> {
     await sp.setBool('ui_glass', v);
     if (Platform.isWindows) {
       try {
-        await Window.setEffect(effect: v ? WindowEffect.mica : WindowEffect.solid);
+        await Window.setEffect(
+          effect: currentMatStyle() == MatStyle.solid ? WindowEffect.solid : WindowEffect.mica,
+        );
       } catch (_) {}
     }
   }
@@ -1949,6 +1953,7 @@ class _SettingsPageState extends State<SettingsPage> {
           Expanded(
             child: ListView(children: [
               _section('外观与动画'),
+              _materialRow(),
               for (final a in Ui.anims) _animRow(a),
               _langRow(),
               _section('悬浮监控'),
@@ -2328,6 +2333,76 @@ class _SettingsPageState extends State<SettingsPage> {
     'cardEntrance': Icons.view_carousel_rounded,
   };
 
+  /// 设置页的材质入口：点开选五档
+  Widget _materialRow() {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final label = switch (Ui.material.value) {
+      'mica' => 'Windows 11 云母',
+      'aero' => 'Windows 7 Aero',
+      'glass' => '液态玻璃',
+      'solid' => '纯色',
+      _ => '智能混搭',
+    };
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: LiquidGlass(
+        radius: 26,
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        onTap: _pickMaterial,
+        child: Row(
+          children: [
+            const Icon(Icons.palette_rounded, size: 20),
+            const SizedBox(width: 12),
+            const Expanded(child: Text('界面材质', style: TextStyle(fontSize: 14))),
+            Text(label,
+                style: TextStyle(fontSize: 12.5, color: isDark ? Colors.white70 : Colors.black54)),
+            const SizedBox(width: 4),
+            const Icon(Icons.chevron_right_rounded, size: 18),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _pickMaterial() async {
+    final cur = Ui.material.value;
+    const opts = <(String, String, String)>[
+      ('auto', '智能混搭（默认）', '控件液态玻璃 + 窗口背景云母'),
+      ('mica', 'Windows 11 云母', '整窗云母，中性冷调'),
+      ('aero', 'Windows 7 Aero', '薄雾玻璃加顶部强高光'),
+      ('glass', '液态玻璃', '边缘色散、流动折射、厚度高光'),
+      ('solid', '纯色', '不透明实色，最省性能'),
+    ];
+    final picked = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('界面材质', style: TextStyle(fontSize: 16)),
+        contentPadding: const EdgeInsets.fromLTRB(8, 10, 8, 8),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            for (final o in opts)
+              ListTile(
+                dense: true,
+                leading: Icon(
+                  o.$1 == cur ? Icons.radio_button_checked_rounded : Icons.radio_button_off_rounded,
+                  size: 18,
+                  color: const Color(0xFF2F7BFF),
+                ),
+                title: Text(o.$2, style: const TextStyle(fontSize: 13)),
+                subtitle: Text(o.$3, style: const TextStyle(fontSize: 11)),
+                onTap: () => Navigator.of(ctx).pop(o.$1),
+              ),
+          ],
+        ),
+      ),
+    );
+    if (picked == null) return;
+    setState(() => Ui.material.value = picked);
+    final sp = await SharedPreferences.getInstance();
+    await sp.setString('ui_material', picked);
+  }
+
   Widget _animRow(AnimDef a) {
     final label = I18n.lang == 'en' ? a.en : a.zh;
     final icon = _animIcons[a.key] ?? Icons.animation_rounded;
@@ -2339,7 +2414,9 @@ class _SettingsPageState extends State<SettingsPage> {
         await sp.setBool('ui_glass', v);
         if (Platform.isWindows) {
           try {
-            await Window.setEffect(effect: v ? WindowEffect.mica : WindowEffect.solid);
+            await Window.setEffect(
+              effect: currentMatStyle() == MatStyle.solid ? WindowEffect.solid : WindowEffect.mica,
+            );
           } catch (_) {}
         }
       }

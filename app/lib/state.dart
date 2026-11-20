@@ -45,8 +45,13 @@ class Ui {
   static final floating = ValueNotifier<bool>(false);
   static final floatMetrics = ValueNotifier<Set<String>>({'cpu', 'mem', 'gpu'});
 
-  /// 材质风格：mica（Win11 云母，默认）/ glass（液态玻璃）/ solid（纯色
-  static final material = ValueNotifier<String>('mica');
+  /// 材质风格：
+  /// - auto（默认，混搭）：控件用液态玻璃，窗口背景用 Win11 云母
+  /// - mica：全部走云母
+  /// - aero：Win7 Aero 那种薄雾玻璃
+  /// - glass：全部液态玻璃
+  /// - solid：纯色最省性能
+  static final material = ValueNotifier<String>('auto');
 
   /// 澎湃 OS 4 回弹曲线
   /// 澎湃 OS 4 的 Q 弹曲线：带明显过冲再回落，按下去像果冻

@@ -42,7 +42,7 @@ Future<void> main(List<String> args) async {
     Ui.on(a.key).value = sp.getBool('anim_${a.key}') ?? a.defaultOn;
   }
   Ui.floating.value = sp.getBool('ui_floating') ?? false;
-  Ui.material.value = sp.getString('ui_material') ?? 'mica';
+  Ui.material.value = sp.getString('ui_material') ?? 'auto';
   final fm = sp.getStringList('float_metrics');
   if (fm != null && fm.isNotEmpty) Ui.floatMetrics.value = fm.toSet();
 
@@ -169,7 +169,11 @@ class _ShellState extends State<Shell> with WindowListener {
     super.dispose();
   }
 
-  void _rebuild() => setState(() {});
+  void _rebuild() {
+    setState(() {});
+    // 材质档变了（比如用户切到 Aero）要重设窗口特效，其余开关只重建界面
+    _applyMaterial();
+  }
 
   /// 关窗口：先确认，再按需验密码
   @override
@@ -307,18 +311,26 @@ class _ShellState extends State<Shell> with WindowListener {
       final lang = res[1] as String;
       ToolboxApp.of(context)?.setTheme(t);
       if (mounted) setState(() => I18n.lang = lang);
-      await _applyMica();
+      await _applyMaterial();
     }
   }
 
-  Future<void> _applyMica() async {
+  /// 按材质档切窗口本体特效：
+  /// 混搭 / 云母 / 液态玻璃 → 系统 Mica；Aero → Acrylic（最接近 Win7 雾面玻璃）；纯色 → Solid
+  Future<void> _applyMaterial() async {
     if (!Platform.isWindows) return;
+    if (!mounted) return;
     try {
-      if (Ui.glass.value) {
-        final dark = Theme.of(context).brightness == Brightness.dark;
-        await Window.setEffect(effect: WindowEffect.mica, dark: dark);
-      } else {
-        await Window.setEffect(effect: WindowEffect.solid);
+      final dark = Theme.of(context).brightness == Brightness.dark;
+      switch (currentMatStyle()) {
+        case MatStyle.auto:
+        case MatStyle.mica:
+        case MatStyle.glass:
+          await Window.setEffect(effect: WindowEffect.mica, dark: dark);
+        case MatStyle.aero:
+          await Window.setEffect(effect: WindowEffect.acrylic, dark: dark);
+        case MatStyle.solid:
+          await Window.setEffect(effect: WindowEffect.solid);
       }
     } catch (_) {}
   }
