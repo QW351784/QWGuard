@@ -28,9 +28,9 @@ CloseApplications=yes
 RestartApplications=no
 
 [Languages]
-Name: "chs"; MessagesFile: "compiler:Default.isl"
-Name: "cht"; MessagesFile: "compiler:Languages\ChineseTraditional.isl"
-Name: "en";  MessagesFile: "compiler:Default.isl"
+; Inno Setup 6 只自带英文语言文件，chs/cht 会直接编译中止；
+; 要中文界面得把 ChineseSimplified.isl 放进仓库再引用
+Name: "en"; MessagesFile: "compiler:Default.isl"
 
 [Tasks]
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"
