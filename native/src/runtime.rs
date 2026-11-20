@@ -18,7 +18,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Mutex;
+use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 #[cfg(windows)]
@@ -83,6 +83,74 @@ fn find_dx() -> Option<(PathBuf, bool)> {
     find_tool(&[DXWEB]).map(|p| (p, true))
 }
 
+/// DirectX Repair 自带的数据包目录（Data/A = 32 位，Data/B = 64 位）
+/// 它的「扫描判断」本质就是拿这两个目录的清单去比对系统目录，
+/// 这里直接复用它这套清单，和下面的自研 DLL 检测互相印证。
+fn dx_data_dirs() -> Option<(PathBuf, PathBuf)> {
+    for d in tool_dirs() {
+        let a = d.join("Data").join("A");
+        let b = d.join("Data").join("B");
+        if a.is_dir() && b.is_dir() {
+            return Some((a, b));
+        }
+    }
+    None
+}
+
+/// 比对结果缓存 30 秒：连点两次「运行库补全」不用把 260 个 DLL 重新 stat 一遍
+static DX_DATA_CACHE: Mutex<Option<(Instant, Vec<String>, Vec<String>)>> = Mutex::new(None);
+
+/// 按 DirectX Repair 的清单比对系统目录，返回 (缺的 32 位, 缺的 64 位)
+/// 64 位系统上 32 位组件落在 SysWOW64，64 位组件落在 System32
+fn dx_missing_by_data() -> (Vec<String>, Vec<String>) {
+    // 开发机（非 Windows）不比对，否则会把清单全判成缺失
+    if !cfg!(windows) {
+        return (Vec::new(), Vec::new());
+    }
+    if let Ok(g) = DX_DATA_CACHE.lock() {
+        if let Some((t, a, b)) = g.as_ref() {
+            if t.elapsed() < Duration::from_secs(30) {
+                return (a.clone(), b.clone());
+            }
+        }
+    }
+
+    let mut m32 = Vec::new();
+    let mut m64 = Vec::new();
+    if let Some((a, b)) = dx_data_dirs() {
+        let root = std::env::var("SystemRoot")
+            .or_else(|_| std::env::var("windir"))
+            .unwrap_or_else(|_| r"C:\Windows".to_string());
+        let sys32 = PathBuf::from(&root).join("System32");
+        let wow64 = PathBuf::from(&root).join("SysWOW64");
+
+        let collect = |dir: &Path, target: &Path, out: &mut Vec<String>| {
+            if let Ok(rd) = fs::read_dir(dir) {
+                for e in rd.flatten() {
+                    let name = e.file_name().to_string_lossy().to_string();
+                    if !name.to_lowercase().ends_with(".dll") {
+                        continue;
+                    }
+                    if !target.join(&name).exists() {
+                        out.push(name);
+                    }
+                }
+            }
+        };
+        collect(&a, &wow64, &mut m32);
+        collect(&b, &sys32, &mut m64);
+
+        // 只回前 40 个，界面不用看全量
+        m32.truncate(40);
+        m64.truncate(40);
+    }
+
+    if let Ok(mut g) = DX_DATA_CACHE.lock() {
+        *g = Some((Instant::now(), m32.clone(), m64.clone()));
+    }
+    (m32, m64)
+}
+
 // ============ 运行库检测 ============
 
 /// 一项运行库：看关键 DLL 在不在
@@ -110,17 +178,24 @@ const LIBS: [(&str, &str, &str); 12] = [
     ("d3dcompiler", "D3D 着色器编译", "d3dcompiler_47.dll"),
 ];
 
-fn sys_dirs() -> Vec<PathBuf> {
-    let mut v = Vec::new();
-    for key in ["SystemRoot", "windir"] {
-        if let Ok(root) = std::env::var(key) {
-            v.push(PathBuf::from(&root).join("System32"));
-            v.push(PathBuf::from(&root).join("SysWOW64"));
+/// 系统目录只解析一次，后面每查一个 DLL 都复用，省掉重复读环境变量和拼路径
+static SYS_DIRS: OnceLock<Vec<PathBuf>> = OnceLock::new();
+
+fn sys_dirs() -> &'static Vec<PathBuf> {
+    SYS_DIRS.get_or_init(|| {
+        let mut v = Vec::new();
+        for key in ["SystemRoot", "windir"] {
+            if let Ok(root) = std::env::var(key) {
+                v.push(PathBuf::from(&root).join("System32"));
+                v.push(PathBuf::from(&root).join("SysWOW64"));
+            }
         }
-    }
-    // 非 Windows（开发机上跑测试）给几个常见位置，避免直接空数组
-    v.push(PathBuf::from("/usr/lib"));
-    v
+        // 非 Windows（开发机上跑测试）给个占位，避免空数组
+        if v.is_empty() {
+            v.push(PathBuf::from("/usr/lib"));
+        }
+        v
+    })
 }
 
 fn dll_exists(name: &str) -> bool {
@@ -143,17 +218,37 @@ pub extern "C" fn runtime_scan(buf: *mut u8, len: usize) -> i32 {
     let total = items.len();
     let ok_count = total - missing.len();
 
+    // 第二重判定：拿 DirectX Repair 自带 Data 清单比对系统目录
+    let (m32, m64) = dx_missing_by_data();
+    let dx_data_missing = m32.len() + m64.len();
+    let dx_data_ready = dx_data_dirs().is_some();
+
+    let need_vc = items
+        .iter()
+        .any(|i| !i.ok && i.key != "dx9" && i.key != "xinput" && i.key != "d3dcompiler");
+    let need_dx = items
+        .iter()
+        .any(|i| !i.ok && matches!(i.key, "dx9" | "xinput" | "d3dcompiler"))
+        || dx_data_missing > 0;
+
+    let complete = missing.is_empty() && dx_data_missing == 0;
+
     ok(
         buf,
         len,
-        if missing.is_empty() { "运行库完整" } else { "发现缺失的运行库" },
+        if complete { "运行库完整" } else { "发现缺失的运行库" },
         serde_json::json!({
             "items": items,
             "total": total,
             "ok_count": ok_count,
             "missing": missing,
-            "need_vc": items.iter().any(|i| !i.ok && i.key != "dx9" && i.key != "xinput" && i.key != "d3dcompiler"),
-            "need_dx": items.iter().any(|i| !i.ok && matches!(i.key, "dx9" | "xinput" | "d3dcompiler")),
+            "need_vc": need_vc,
+            "need_dx": need_dx,
+            // 自研 DLL 检测 + DirectX Repair 自带清单，两重结果都给前端
+            "dx_data_ready": dx_data_ready,
+            "dx_data_missing": dx_data_missing,
+            "dx_data_32": m32,
+            "dx_data_64": m64,
             "vc_tool": find_tool(&[VCREDIST]).map(|p| p.to_string_lossy().to_string()),
             "dx_tool": find_dx().map(|(p, _)| p.to_string_lossy().to_string()),
         }),
@@ -165,9 +260,18 @@ pub extern "C" fn runtime_scan(buf: *mut u8, len: usize) -> i32 {
 /// tools.json 格式：{"VisualCppRedist_AIO_x86_x64.exe":"<sha256>", "DirectX Repair.exe":"<sha256>"}
 fn sha256_file(path: &Path) -> Option<String> {
     use sha2::{Digest, Sha256};
-    let data = fs::read(path).ok()?;
+    use std::io::Read as _;
+    // 分块读，不再把 32MB 的 AIO 整个读进内存
+    let mut f = fs::File::open(path).ok()?;
+    let mut buf = [0u8; 64 * 1024];
     let mut h = Sha256::new();
-    h.update(&data);
+    loop {
+        let n = f.read(&mut buf).ok()?;
+        if n == 0 {
+            break;
+        }
+        h.update(&buf[..n]);
+    }
     Some(format!("{:x}", h.finalize()))
 }
 
@@ -250,13 +354,31 @@ fn log_path() -> PathBuf {
     dir.join("runtime.log")
 }
 
+/// 日志超过 2MB 只留尾部 200KB，防止一年年累积把用户磁盘写满
+fn trim_log(path: &Path) {
+    let Ok(meta) = fs::metadata(path) else { return };
+    if meta.len() <= 2 * 1024 * 1024 {
+        return;
+    }
+    if let Ok(text) = fs::read_to_string(path) {
+        let total = text.chars().count();
+        let tail: String = text
+            .chars()
+            .skip(total.saturating_sub(200 * 1024))
+            .collect();
+        let _ = fs::write(path, format!("（日志过长，只保留尾部）\n{tail}"));
+    }
+}
+
 /// 跑一个子进程并等它结束，输出写日志。返回 exit code
 fn run_tool(exe: &Path, args: &[&str], log_name: &str) -> Result<i32, String> {
     use std::io::Write as _;
+    let lp = log_path();
+    trim_log(&lp);
     let mut log = fs::OpenOptions::new()
         .create(true)
         .append(true)
-        .open(log_path())
+        .open(&lp)
         .map_err(|e| format!("日志打不开: {e}"))?;
     let _ = writeln!(log, "\n=== {log_name} | {} | args={:?}", exe.display(), args);
 
@@ -306,9 +428,10 @@ fn run_all(mode: String) {
                 *EXIT_CODE.lock().unwrap() = Some(-2);
                 continue;
             }
-            // DirectX Repair 走 /silent，微软官方 dxwebsetup 走 /q
+            // DirectX Repair 走 /silent /nosound：不弹它自己的窗口、不响提示音
+            // 微软官方 dxwebsetup 走 /q
             let label = if is_web { "DirectX 官方安装器" } else { "DirectX Repair" };
-            let args = if is_web { vec!["/q"] } else { vec!["/silent"] };
+            let args = if is_web { vec!["/q"] } else { vec!["/silent", "/nosound"] };
             (p, args, label)
         };
 

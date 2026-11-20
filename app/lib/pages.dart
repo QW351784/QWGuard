@@ -933,11 +933,35 @@ class _ToolsPageState extends State<ToolsPage> {
   Future<void> _run(BuildContext context, String name) async {
     switch (name) {
       case '去除快捷方式小箭头':
-        final r = Api.shortcutArrow(true);
+        final on = await showDialog<bool>(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            title: const Text('QW 电脑安全管家 · 快捷方式小箭头'),
+            content: const Text('去掉桌面快捷方式左下角的小箭头，随时可以恢复系统默认。'),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('恢复默认')),
+              FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('去掉箭头')),
+            ],
+          ),
+        );
+        if (on == null) return;
+        final r = Api.shortcutArrow(on);
         _toast(context, r['message']?.toString() ?? '');
         break;
       case '显示文件后缀':
-        final r = Api.fileExtShow(true);
+        final show = await showDialog<bool>(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            title: const Text('QW 电脑安全管家 · 文件后缀显示'),
+            content: const Text('让资源管理器把所有文件的扩展名都显示出来，随时可以恢复隐藏。'),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('恢复隐藏')),
+              FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('显示全部')),
+            ],
+          ),
+        );
+        if (show == null) return;
+        final r = Api.fileExtShow(show);
         _toast(context, r['message']?.toString() ?? '');
         break;
       case '文件粉碎机':
@@ -1046,8 +1070,20 @@ class _ToolsPageState extends State<ToolsPage> {
       buf.writeln('${it['ok'] == true ? '[有]' : '[缺]'}  ${it['name']}');
     }
 
+    // 第二重：DirectX Repair 自带清单的比对结果
+    final dx32 = ((data['dx_data_32'] as List?) ?? const []).map((e) => e.toString()).toList();
+    final dx64 = ((data['dx_data_64'] as List?) ?? const []).map((e) => e.toString()).toList();
+    final dxCnt = (data['dx_data_missing'] as num?)?.toInt() ?? 0;
+    final dxReady = data['dx_data_ready'] == true;
+    final dxLine = !dxReady
+        ? 'DirectX Repair 清单比对：数据包不在，跳过这一重'
+        : (dxCnt == 0
+            ? 'DirectX Repair 清单比对：组件齐全'
+            : 'DirectX Repair 清单比对：缺 $dxCnt 个（32 位 ${dx32.length} / 64 位 ${dx64.length}）');
+
     final body = '本机情况：\n$buf\n'
         '${missing.isEmpty ? '一项都不缺。' : '缺 ${missing.length} 项：${missing.join('、')}'}\n\n'
+        '$dxLine\n\n'
         '内置修复工具：\n'
         '${toolLine(vcInfo, 'VisualCppRedist AIO')}\n'
         '${toolLine(dxInfo, 'DirectX Repair')}\n\n'

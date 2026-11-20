@@ -164,7 +164,19 @@ fn shred_file(path: &Path, passes: u8) -> Result<u64, String> {
     Ok(len)
 }
 
-fn shred_walk(path: &Path, passes: u8, done: &mut u64, bytes: &mut u64, failed: &mut Vec<String>) {
+fn shred_walk(
+    path: &Path,
+    passes: u8,
+    depth: u8,
+    done: &mut u64,
+    bytes: &mut u64,
+    failed: &mut Vec<String>,
+) {
+    // 层级过深就停，防止极端目录结构把递归栈撑爆
+    if depth > 64 {
+        failed.push(format!("{}: 目录层级过深，已跳过", path.display()));
+        return;
+    }
     let Ok(meta) = fs::symlink_metadata(path) else {
         failed.push(format!("{}: 不存在", path.display()));
         return;
@@ -192,7 +204,7 @@ fn shred_walk(path: &Path, passes: u8, done: &mut u64, bytes: &mut u64, failed: 
     }
     if let Ok(rd) = fs::read_dir(path) {
         for e in rd.flatten() {
-            shred_walk(&e.path(), passes, done, bytes, failed);
+            shred_walk(&e.path(), passes, depth + 1, done, bytes, failed);
         }
     }
     let _ = fs::remove_dir(path);
@@ -229,7 +241,7 @@ pub extern "C" fn shredder_run(paths: *const c_char, passes: i32, dry_run: i32, 
             bytes += if meta.is_file() { meta.len() } else { 0 };
             continue;
         }
-        shred_walk(&path, p, &mut done, &mut bytes, &mut failed);
+        shred_walk(&path, p, 0, &mut done, &mut bytes, &mut failed);
     }
 
     ok(
