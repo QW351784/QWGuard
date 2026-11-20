@@ -1000,9 +1000,10 @@ class _ToolsPageState extends State<ToolsPage> {
         child: Padding(
           padding: const EdgeInsets.only(top: 12),
           child: DropTarget(
-            onDragDone: (detail) {
-              final ps = detail.files
-                  .map((f) => f.path)
+            onDrop: (detail) {
+              final ps = detail.items
+                  .whereType<DropFileItem>()
+                  .map((f) => f.localPath ?? f.file.path)
                   .where((p) => p.isNotEmpty)
                   .toList();
               if (ps.isNotEmpty) ctrl.text = ps.join('\n');
