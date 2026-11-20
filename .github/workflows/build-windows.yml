@@ -21,7 +21,6 @@ jobs:
         uses: subosito/flutter-action@v2
         with:
           channel: stable
-          flutter-version: latest
           cache: true
 
       - name: 版本自检
