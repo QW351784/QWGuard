@@ -133,3 +133,32 @@ flutter build windows --enable-impeller
     }
 
 分工：VC++ 一律走 AIO，DirectX 走 Repair，两边不重叠，避免抢注册表。
+
+---
+
+## 借鉴与致谢
+
+谢谢下面这些团队的支持：
+
+- **Windows Defender 查杀引擎** — Microsoft · 命令行 MpCmdRun
+- **ClamAV 病毒扫描** — Cisco Talos · https://github.com/Cisco-Talos/clamav
+- **YARA-X 规则引擎** — VirusTotal · https://github.com/VirusTotal/yara-x
+- **火绒安全 hrscan** — 火绒安全 · https://www.huorong.cn
+- **PYAS 引擎** — 外部集成，日志回传
+- **VisualCppRedist AIO**（VC++ 2002~2026 全套 + VB6 + UCRT）— abbodi1406 · https://github.com/abbodi1406/vcredist
+- **DirectX Repair 增强版**（DirectX 9 / XInput / 着色器编译组件修复）— zysoftware · https://www.zysoftware.top
+- **Flutter / Rust** — 界面与底层框架
+
+漏了谁、写错了谁，提 issue，我立刻补上。
+
+---
+
+**酷安作者账号：QW123456780**
+
+---
+
+### 支持作者
+
+作者制作维护不容易，爱心捐款，一杯奶茶价钱，就是作者继续维护更新的动力。
+
+<img src="app/assets/donate_qr.png" alt="微信赞赏码" width="240">

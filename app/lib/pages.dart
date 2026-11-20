@@ -55,6 +55,105 @@ class _HardwarePageState extends State<HardwarePage> {
     });
   }
 
+  void _showAbout() {
+    showDialog(
+      context: context,
+      builder: (ctx) {
+        final isDark = Theme.of(ctx).brightness == Brightness.dark;
+        Widget credit(String name, String by, String note) => Padding(
+              padding: const EdgeInsets.only(bottom: 9),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(name, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700)),
+                  const SizedBox(height: 2),
+                  Text('$by · $note',
+                      style: TextStyle(fontSize: 11, color: isDark ? Colors.white54 : Colors.black54)),
+                ],
+              ),
+            );
+        return AlertDialog(
+          title: const Text('关于 QW 电脑安全管家'),
+          content: SizedBox(
+            width: 470,
+            child: SingleChildScrollView(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Text('版本 1.0 · Flutter + Impeller + Rust', style: TextStyle(fontSize: 12)),
+                  const SizedBox(height: 16),
+                  const Text('借鉴与致谢', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700)),
+                  const SizedBox(height: 10),
+                  credit('Windows Defender 查杀引擎', 'Microsoft', 'MpCmdRun 命令行'),
+                  credit('ClamAV 病毒扫描', 'Cisco Talos', 'github.com/Cisco-Talos/clamav'),
+                  credit('YARA-X 规则引擎', 'VirusTotal', 'github.com/VirusTotal/yara-x'),
+                  credit('火绒安全 hrscan', '火绒安全', 'huorong.cn'),
+                  credit('PYAS 引擎', 'PYAS 项目', '外部集成，日志回传'),
+                  credit('VisualCppRedist AIO', 'abbodi1406', 'github.com/abbodi1406/vcredist'),
+                  credit('DirectX Repair 增强版', 'zysoftware', 'zysoftware.top'),
+                  credit('界面与底层框架', 'Flutter · Rust', 'flutter.dev / rust-lang.org'),
+                  const SizedBox(height: 4),
+                  Text('漏了谁、写错了谁，提 issue，我立刻补上。',
+                      style: TextStyle(fontSize: 11, color: isDark ? Colors.white54 : Colors.black54)),
+                  const SizedBox(height: 18),
+                  const Text('支持作者', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700)),
+                  const SizedBox(height: 8),
+                  const Text('作者制作维护不容易，爱心捐款，一杯奶茶价钱，就是作者继续维护更新的动力。',
+                      style: TextStyle(fontSize: 12, height: 1.5)),
+                  const SizedBox(height: 12),
+                  Center(
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(12),
+                      child: Image.asset('assets/donate_qr.png', width: 175),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Center(
+                    child: Text('酷安作者账号：QW123456780',
+                        style: TextStyle(fontSize: 11, color: isDark ? Colors.white54 : Colors.black54)),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.of(ctx).pop(), child: const Text('好')),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _aboutBar() {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return Padding(
+      padding: const EdgeInsets.only(top: 12),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(14),
+        onTap: _showAbout,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+          decoration: BoxDecoration(
+            color: isDark ? Colors.white.withOpacity(0.05) : Colors.black.withOpacity(0.035),
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: isDark ? Colors.white10 : Colors.black12),
+          ),
+          child: Row(
+            children: [
+              const Icon(Icons.favorite_rounded, size: 15, color: Color(0xFF2F7BFF)),
+              const SizedBox(width: 9),
+              const Expanded(
+                child: Text('关于 · 借鉴与致谢 · 支持作者', style: TextStyle(fontSize: 12)),
+              ),
+              Icon(Icons.chevron_right_rounded, size: 16, color: isDark ? Colors.white38 : Colors.black38),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final d = _data;
@@ -139,6 +238,7 @@ class _HardwarePageState extends State<HardwarePage> {
                 ],
               ),
             ),
+          _aboutBar(),
         ],
       ),
     );
