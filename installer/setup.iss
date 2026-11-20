@@ -13,7 +13,6 @@ AppName={#MyAppName}
 AppVersion={#MyAppVersion}
 AppPublisher={#MyAppPublisher}
 DefaultDirName={autopf}\QW 电脑安全管家
-DefaultUninstallStyle=modern
 UninstallDisplayName={#MyAppName}
 UninstallDisplayIcon={app}\{#MyAppExeName}
 OutputDir=..\dist
@@ -25,7 +24,6 @@ ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 PrivilegesRequired=admin
 DisableProgramGroupPage=yes
-SetupIconFile=..\assets\app.ico
 CloseApplications=yes
 RestartApplications=no
 
