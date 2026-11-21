@@ -238,7 +238,7 @@ pub(crate) fn rules() -> Vec<(&'static str, &'static str, &'static str, &'static
 
 /// 逐文件统计体积，顺便把当前文件写进进度（前端拿它滚动显示）
 pub(crate) fn walk_stat(dir: &Path, files: &mut u64, bytes: &mut u64, depth: usize) {
-    if depth > 14 || *files > 2_000_000 {
+    if depth > 14 {
         return;
     }
     let Ok(rd) = fs::read_dir(dir) else { return };

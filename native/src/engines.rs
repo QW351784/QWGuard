@@ -82,18 +82,15 @@ pub(crate) fn signature_scan(path: &str) -> (bool, Vec<String>) {
 
     // SHA-256 黑名单：rules/hash_blacklist.txt，每行一个 64 位 hex
     if p.is_file() {
-        if let Ok(meta) = p.metadata() {
-            if meta.len() <= 512 * 1024 * 1024 {
-                if let Ok(digest) = sha256_file(p) {
-                    if let Ok(text) = fs::read_to_string(rules_dir().join("hash_blacklist.txt")) {
-                        for line in text.lines() {
-                            let h = line.trim().to_lowercase();
-                            if h.len() == 64 && h == digest {
-                                let short: String = digest.chars().take(16).collect();
-                                threats.push(format!("SIG.Sha256.{short}"));
-                                break;
-                            }
-                        }
+        // 不设大小上限：多大的文件都流式读一遍算 SHA-256（1MB 缓冲，内存恒定）
+        if let Ok(digest) = sha256_file(p) {
+            if let Ok(text) = fs::read_to_string(rules_dir().join("hash_blacklist.txt")) {
+                for line in text.lines() {
+                    let h = line.trim().to_lowercase();
+                    if h.len() == 64 && h == digest {
+                        let short: String = digest.chars().take(16).collect();
+                        threats.push(format!("SIG.Sha256.{short}"));
+                        break;
                     }
                 }
             }

@@ -1063,7 +1063,7 @@ fn scan_one_file(
 
 /// 边遍历边扫：不预先收集文件列表，所以没有"文件数上限"这回事
 /// （360 / 火绒也是这么走的，文件来了就扫，扫完就丢）
-fn scan_roots(roots: Vec<PathBuf>, scope: String, max_size: u64, buf: *mut u8, len: usize) -> i32 {
+fn scan_roots(roots: Vec<PathBuf>, scope: String, buf: *mut u8, len: usize) -> i32 {
     crate::engines::ensure_default_rules();
 
     SCAN_CANCEL.store(false, Ordering::Relaxed);
@@ -1089,8 +1089,7 @@ fn scan_roots(roots: Vec<PathBuf>, scope: String, max_size: u64, buf: *mut u8, l
         }
         let Ok(md) = fs::metadata(&node) else { continue };
         if md.is_file() {
-            let sz = md.len();
-            if sz == 0 || sz > max_size {
+            if md.len() == 0 {
                 skipped += 1;
                 continue;
             }
@@ -1115,8 +1114,7 @@ fn scan_roots(roots: Vec<PathBuf>, scope: String, max_size: u64, buf: *mut u8, l
                 }
                 stack.push(e.path());
             } else if md.is_file() {
-                let sz = md.len();
-                if sz == 0 || sz > max_size {
+                if md.len() == 0 {
                     skipped += 1;
                     continue;
                 }
@@ -1219,7 +1217,7 @@ pub extern "C" fn scan_auto(target: *const c_char, buf: *mut u8, len: usize) -> 
     if is_whitelisted(&target) {
         return ok(buf, len, "已跳过（白名单）", json!({"skipped": true, "engines": []}));
     }
-    scan_roots(vec![p], "指定位置扫描".to_string(), 2u64 << 30, buf, len)
+    scan_roots(vec![p], "指定位置扫描".to_string(), buf, len)
 }
 
 /// 四种扫描模式：quick 快速 / full 全盘 / usb U 盘 / custom 指定位置
@@ -1228,16 +1226,16 @@ pub extern "C" fn scan_by_mode(mode: *const c_char, path: *const c_char, buf: *m
     let Some(mode) = cstr(mode) else { return fail(buf, len, -1, "模式为空") };
     let path = cstr(path).unwrap_or_default();
 
-    let (roots, max_size, label): (Vec<PathBuf>, u64, String) = match mode.as_str() {
-        "quick" => (quick_dirs(), 1u64 << 30, "快速扫描".to_string()),
-        "full" => (drives("fixed"), 2u64 << 30, "全盘扫描".to_string()),
-        "usb" => (drives("removable"), 2u64 << 30, "U 盘扫描".to_string()),
+    let (roots, label): (Vec<PathBuf>, String) = match mode.as_str() {
+        "quick" => (quick_dirs(), "快速扫描".to_string()),
+        "full" => (drives("fixed"), "全盘扫描".to_string()),
+        "usb" => (drives("removable"), "U 盘扫描".to_string()),
         _ => {
             let p = PathBuf::from(&path);
             if !p.exists() {
                 return fail(buf, len, -3, "路径不存在");
             }
-            (vec![p], 2u64 << 30, "指定位置扫描".to_string())
+            (vec![p], "指定位置扫描".to_string())
         }
     };
 
@@ -1247,7 +1245,7 @@ pub extern "C" fn scan_by_mode(mode: *const c_char, path: *const c_char, buf: *m
     if let Ok(mut g) = SCAN_CUR.lock() {
         *g = "正在枚举文件".to_string();
     }
-    scan_roots(roots, label, max_size, buf, len)
+    scan_roots(roots, label, buf, len)
 }
 
 /// 停止扫描：遍历和逐文件循环都会看这个标志
