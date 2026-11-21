@@ -12,15 +12,25 @@ class AnimDef {
 /// 全局 UI 状态
 /// 动画默认全部开启，只有用户明确要求默认关闭的（悬浮窗）才关
 class Ui {
+  // 默认开的这些是「不烧 GPU 的」：材质、模糊、折射、Dock、页面切换、按钮回弹。
+  // blur（BackdropFilter）是单帧最贵的一项：每个 LiquidGlass 都要把背景
+  // 重采样一遍，一屏十几块玻璃就是十几次全屏采样，双显卡机器上系统还默认
+  // 把它丢给核显 —— 这是「动画全关了 GPU 还 70%」的主要来源。
+  // 默认关掉后玻璃仍是半透明渐变 + 边缘高光，只是不再糊背景。
+  //
+  // 另外五个都是每帧重绘整屏的：粒子（34 个粒子 × 6 层拖尾 = 200+ 次
+  // drawCircle）、水纹（每次移动都新建波纹）、背景光斑（每帧 Transform）、
+  // 扫光带、光追 —— 它们叠在一起就是 4060 上 90% 占用率的来源。
+  // 用户想要可以在设置里逐个打开，但默认不替他把显卡烧了。
   static const List<AnimDef> anims = [
     AnimDef('glass', '液态玻璃材质', 'Liquid glass'),
-    AnimDef('blur', '实时模糊', 'Live blur'),
+    AnimDef('blur', '实时模糊', 'Live blur', defaultOn: false),
     AnimDef('refraction', '光影折射', 'Refraction'),
-    AnimDef('raytrace', '光追反射', 'Ray tracing'),
-    AnimDef('water', '水纹动画', 'Water ripple'),
-    AnimDef('sweep', '折射扫光带', 'Light sweep'),
-    AnimDef('particles', '粒子特效', 'Particles'),
-    AnimDef('blobs', '背景光斑漂浮', 'Floating blobs'),
+    AnimDef('raytrace', '光追反射', 'Ray tracing', defaultOn: false),
+    AnimDef('water', '水纹动画', 'Water ripple', defaultOn: false),
+    AnimDef('sweep', '折射扫光带', 'Light sweep', defaultOn: false),
+    AnimDef('particles', '粒子特效', 'Particles', defaultOn: false),
+    AnimDef('blobs', '背景光斑漂浮', 'Floating blobs', defaultOn: false),
     AnimDef('dockSpring', 'Dock 弹簧动画', 'Dock spring'),
     AnimDef('dockGlass', 'Dock 玻璃效果', 'Dock glass'),
     AnimDef('pageTransition', '页面切换动画', 'Page transition'),

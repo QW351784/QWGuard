@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter_acrylic/flutter_acrylic.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:tray_manager/tray_manager.dart';
 import 'package:window_manager/window_manager.dart';
 
 import 'api.dart';
@@ -24,6 +25,28 @@ import 'floating_monitor.dart';
 ///
 /// 之前这两个分支进来什么都没设，窗口标题就是 flutter create 脚手架里的
 /// 工程名 `system_toolbox` —— 用户截图左上角那个英文就是它，必须改成中文。
+/// 把本程序登记成「高性能 GPU」
+///
+/// Flutter 在 Windows 上走 ANGLE → D3D11，由系统按默认策略挑显卡。
+/// 双显卡机器（核显 + 独显）上默认给的是**核显** —— 界面上那些模糊、
+/// 折射、合成全压在核显上，占用率直接飙到 90%，用户还以为在消耗 4060。
+/// 在 HKCU 的 DirectX\UserGpuPreferences 里把本 exe 标成 GpuPreference=2
+/// （2 = 高性能），系统就会把它分给独显。生效时机是下一次启动。
+Future<void> _preferHighPerformanceGpu() async {
+  if (!Platform.isWindows) return;
+  try {
+    final exe = Platform.resolvedExecutable;
+    await Process.run('reg', [
+      'add',
+      r'HKCU\SOFTWARE\Microsoft\DirectX\UserGpuPreferences',
+      '/v', exe,
+      '/t', 'REG_SZ',
+      '/d', 'GpuPreference=2;',
+      '/f',
+    ]);
+  } catch (_) {}
+}
+
 Future<void> _setupWindow() async {
   if (!Platform.isWindows) return;
   try {
@@ -49,6 +72,7 @@ Future<void> _setupWindow() async {
 
 Future<void> main(List<String> args) async {
   WidgetsFlutterBinding.ensureInitialized();
+  await _preferHighPerformanceGpu();
 
   // 安装 / 卸载模式：跟主程序同一个二进制，靠参数分流
   if (args.contains('--setup') || args.contains('--uninstall')) {
@@ -170,7 +194,8 @@ class Shell extends StatefulWidget {
   State<Shell> createState() => _ShellState();
 }
 
-class _ShellState extends State<Shell> with WindowListener, TickerProviderStateMixin {
+class _ShellState extends State<Shell>
+    with WindowListener, TrayListener, TickerProviderStateMixin {
   int _index = 0;
   bool _oobe = true;
   Ticker? _ticker;
@@ -196,6 +221,10 @@ class _ShellState extends State<Shell> with WindowListener, TickerProviderStateM
     // 单调递增的秒数，不回绕：回绕会让 22s/14s 这种非整除周期在接缝处跳一帧
     _clock.start();
     _ticker = createTicker((_) {
+      // 没有监听者时直接返回：所有动画关掉之后，不该还存在一个每帧改写
+      // ValueNotifier 的定时器 —— 那会让整棵树持续被判定为「需要重建」，
+      // 用户看到的就是「动画全关了 GPU 还在 70%」。
+      if (!Ui.tick.hasListeners) return;
       Ui.tick.value = _clock.elapsedMicroseconds / 1000000.0;
     })..start();
 
@@ -216,6 +245,8 @@ class _ShellState extends State<Shell> with WindowListener, TickerProviderStateM
       try {
         windowManager.addListener(this);
         windowManager.setPreventClose(true);
+        trayManager.addListener(this);
+        _initTray();
       } catch (_) {}
     }
     WidgetsBinding.instance.addPostFrameCallback((_) async {
@@ -240,6 +271,7 @@ class _ShellState extends State<Shell> with WindowListener, TickerProviderStateM
     if (Platform.isWindows) {
       try {
         windowManager.removeListener(this);
+        trayManager.removeListener(this);
       } catch (_) {}
     }
     super.dispose();
@@ -275,15 +307,67 @@ class _ShellState extends State<Shell> with WindowListener, TickerProviderStateM
     if (mounted) setState(() {});
   }
 
-  /// 关窗口：先确认，再按需验密码
+  bool _trayReady = false;
+  bool _quitAsked = false;
+
+  /// 托盘：图标、悬停名、右键菜单。名字一律中文，不露英文 exe 名
+  Future<void> _initTray() async {
+    if (_trayReady) return;
+    try {
+      await trayManager.setIcon('assets/tray.ico');
+      await trayManager.setToolTip('QW 安全电脑管家');
+      await trayManager.setContextMenu(Menu(items: [
+        MenuItem(key: 'show', label: '打开主界面'),
+        MenuItem.separator(),
+        MenuItem(key: 'exit', label: '退出 QW 安全电脑管家'),
+      ]));
+      _trayReady = true;
+    } catch (_) {}
+  }
+
+  /// 关窗口：只收进托盘，进程和后台防护继续跑 —— 不弹确认、不退出
   @override
   void onWindowClose() async {
+    if (_quitAsked) return;
+    try {
+      await windowManager.hide();
+    } catch (_) {}
+  }
+
+  Future<void> _showFromTray() async {
+    try {
+      await windowManager.show();
+      await windowManager.focus();
+      _resumeAnim();
+    } catch (_) {}
+  }
+
+  /// 只有托盘菜单里点「退出」才真退，这时才需要验一次密码
+  Future<void> _quitApp() async {
     final ok = await _confirmClose();
     if (!ok) return;
+    _quitAsked = true;
     try {
+      await trayManager.destroy();
       await windowManager.setPreventClose(false);
-      await windowManager.close();
+      await windowManager.destroy();
     } catch (_) {}
+  }
+
+  @override
+  void onTrayIconMouseDown() => _showFromTray();
+
+  @override
+  void onTrayIconRightMouseDown() {
+    try {
+      trayManager.popUpContextMenu();
+    } catch (_) {}
+  }
+
+  @override
+  void onTrayMenuItemClick(MenuItem menuItem) {
+    if (menuItem.key == 'show') _showFromTray();
+    if (menuItem.key == 'exit') _quitApp();
   }
 
   Future<bool> _confirmClose() async {
@@ -438,6 +522,12 @@ class _ShellState extends State<Shell> with WindowListener, TickerProviderStateM
         case MatStyle.solid:
           await Window.setEffect(effect: WindowEffect.solid);
       }
+      // Mica / Acrylic 的实现会重设窗口样式，把我们之前设的无边框覆盖掉，
+      // 结果原生标题栏（标题文字 + 三键）和我们自绘的那条同时出现 ——
+      // 这就是截图里「标题栏和界面重叠」的另一半原因。这里补一刀。
+      try {
+        await windowManager.setAsFrameless();
+      } catch (_) {}
     } catch (_) {}
   }
 
@@ -467,7 +557,7 @@ class _ShellState extends State<Shell> with WindowListener, TickerProviderStateM
       return Scaffold(
         backgroundColor: Colors.transparent,
         body: ClipRRect(
-          borderRadius: BorderRadius.circular(18),
+          borderRadius: BorderRadius.circular(24),
           child: OobeIntro(onDone: () => setState(() => _oobe = false)),
         ),
       );
@@ -483,7 +573,7 @@ class _ShellState extends State<Shell> with WindowListener, TickerProviderStateM
           Positioned.fill(
             child: RepaintBoundary(
               child: Padding(
-              padding: const EdgeInsets.fromLTRB(18, 18, 18, 96),
+              padding: const EdgeInsets.fromLTRB(18, 54, 18, 96),
               child: ClipRRect(
                 borderRadius: BorderRadius.circular(26),
                 child: AnimatedSwitcher(
@@ -536,7 +626,7 @@ class _ShellState extends State<Shell> with WindowListener, TickerProviderStateM
     return Scaffold(
       backgroundColor: Colors.transparent,
       body: ClipRRect(
-        borderRadius: BorderRadius.circular(18),
+        borderRadius: BorderRadius.circular(24),
         child: content,
       ),
     );

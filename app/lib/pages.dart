@@ -215,7 +215,7 @@ class _HardwarePageState extends State<HardwarePage> {
         children: [
           PageTitle(
             title: I18n.t('hw'),
-            subtitle: I18n.lang == 'en' ? '实时读取处理器、内存与磁盘状态' : 'Live CPU, memory and disk status',
+            subtitle: I18n.lang == 'en' ? 'Live CPU, memory and disk status' : '实时读取处理器、内存与磁盘状态',
             trailing: Row(children: [
               LiquidButton(text: I18n.t('refresh'), icon: Icons.refresh_rounded, primary: false, onTap: _loading ? null : _load),
             ]),
@@ -390,11 +390,11 @@ class _CleanPageState extends State<CleanPage> {
       final ok = await showDialog<bool>(
         context: context,
         builder: (c) => AlertDialog(
-          title: Text(I18n.lang == 'en' ? '确认删除这些文件？' : 'Delete these files?'),
-          content: Text(I18n.lang == 'en' ? '共 ${paths.length} 项，删除后不可恢复。' : '${paths.length} items, cannot be undone.'),
+          title: Text(I18n.lang == 'en' ? 'Delete these files?' : '确认删除这些文件？'),
+          content: Text(I18n.lang == 'en' ? '${paths.length} items, cannot be undone.' : '共 ${paths.length} 项，删除后不可恢复。'),
           actions: [
-            TextButton(onPressed: () => Navigator.pop(c, false), child: Text(I18n.lang == 'en' ? '取消' : 'Cancel')),
-            TextButton(onPressed: () => Navigator.pop(c, true), child: Text(I18n.lang == 'en' ? '确认' : 'Confirm')),
+            TextButton(onPressed: () => Navigator.pop(c, false), child: Text(I18n.lang == 'en' ? 'Cancel' : '取消')),
+            TextButton(onPressed: () => Navigator.pop(c, true), child: Text(I18n.lang == 'en' ? 'Confirm' : '确认')),
           ],
         ),
       );
@@ -428,7 +428,7 @@ class _CleanPageState extends State<CleanPage> {
         children: [
           PageTitle(
             title: I18n.t('clean'),
-            subtitle: I18n.lang == 'en' ? '扫描 → 勾选 → 二次确认，三步才删除' : 'Scan → select → confirm, three steps before deletion',
+            subtitle: I18n.lang == 'en' ? 'Scan → select → confirm, three steps before deletion' : '扫描 → 勾选 → 二次确认，三步才删除',
             trailing: LiquidButton(text: '快速清理', icon: Icons.bolt_rounded, primary: false,
                 onTap: _scanning ? null : () => _cleanScan(mode: 'quick')),
           ),
@@ -993,7 +993,7 @@ class _ScanPageState extends State<ScanPage> {
         children: [
           PageTitle(
             title: I18n.t('scan'),
-            subtitle: I18n.lang == 'en' ? '内置引擎扫描，外部工具可一键唤起' : 'Built-in engines scan, external tools launch in one click',
+            subtitle: I18n.lang == 'en' ? 'Built-in engines scan, external tools launch in one click' : '内置引擎扫描，外部工具可一键唤起',
           ),
           const SizedBox(height: 16),
           LiquidGlass(
@@ -1014,7 +1014,7 @@ class _ScanPageState extends State<ScanPage> {
                 TextField(
                   controller: _pathCtrl,
                   decoration: InputDecoration(
-                    hintText: I18n.lang == 'en' ? '例如 C:\\Users\\me\\Downloads' : 'e.g. C:\\Users\\me\\Downloads',
+                    hintText: I18n.lang == 'en' ? 'e.g. C:\\Users\\me\\Downloads' : '例如 C:\\Users\\me\\Downloads',
                     isDense: true,
                     border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
                   ),
@@ -1095,8 +1095,8 @@ class _ScanPageState extends State<ScanPage> {
                                   Text(
                                     ok
                                         ? (infected
-                                            ? (I18n.lang == 'en' ? '发现威胁' : 'Threat found')
-                                            : (I18n.lang == 'en' ? '未发现威胁' : 'No threat'))
+                                            ? (I18n.lang == 'en' ? 'Threat found' : '发现威胁')
+                                            : (I18n.lang == 'en' ? 'No threat' : '未发现威胁'))
                                         : r['message'].toString(),
                                     style: TextStyle(fontSize: 12, color: isDark ? Colors.white54 : Colors.black54),
                                   ),
@@ -1466,7 +1466,7 @@ class _ToolsPageState extends State<ToolsPage> {
         children: [
           PageTitle(
             title: I18n.t('tools'),
-            subtitle: I18n.lang == 'en' ? '系统小工具按需接入，全部带 QW 前缀' : 'More utilities will be added',
+            subtitle: I18n.lang == 'en' ? 'More utilities will be added' : '系统小工具按需接入，全部带 QW 前缀',
           ),
           const SizedBox(height: 14),
           Container(
@@ -1953,7 +1953,7 @@ class _WelcomeSheetState extends State<WelcomeSheet> {
                   if (_page > 0)
                     TextButton(
                       onPressed: () => _go(-1),
-                      child: Text(I18n.lang == 'en' ? '上一步' : 'Back'),
+                      child: Text(I18n.lang == 'en' ? 'Back' : '上一步'),
                     )
                   else
                     const SizedBox(width: 64),
@@ -1961,7 +1961,7 @@ class _WelcomeSheetState extends State<WelcomeSheet> {
                   LiquidButton(
                     text: _page == 2
                         ? I18n.t('confirm')
-                        : (I18n.lang == 'en' ? '下一步' : 'Next'),
+                        : (I18n.lang == 'en' ? 'Next' : '下一步'),
                     icon: _page == 2 ? Icons.check_rounded : Icons.arrow_forward_rounded,
                     onTap: _page == 2 ? _finish : () => _go(1),
                   ),
@@ -2047,20 +2047,24 @@ class _WelcomeSheetState extends State<WelcomeSheet> {
       children: [
         Text(I18n.t('pickTheme'), style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
         const SizedBox(height: 12),
+        // 顺序：跟随系统 → 浅色 → 深色。
+        // 「跟随系统」是 Windows 11 的默认习惯，原来排在第三，
+        // 想用它得先翻过两个不想要的选项。
+        _opt(I18n.t('system'), ThemeOption.system),
+        const SizedBox(height: 9),
         _opt(I18n.t('light'), ThemeOption.light),
         const SizedBox(height: 9),
         _opt(I18n.t('dark'), ThemeOption.dark),
-        const SizedBox(height: 9),
-        _opt(I18n.t('system'), ThemeOption.system),
         const SizedBox(height: 16),
         Row(children: [
           Text('${I18n.t('language')}:', style: const TextStyle(fontSize: 12.5)),
           const SizedBox(width: 8),
-          ChoiceChip(label: const Text('简'), selected: _lang == 'zh', onSelected: (_) => setState(() => _lang = 'zh')),
+          // 写全称，不用「简 / 繁 / EN」这种缩写 —— 用户第一眼要能看懂是什么语言
+          ChoiceChip(label: const Text('简体中文'), selected: _lang == 'zh', onSelected: (_) => setState(() => _lang = 'zh')),
           const SizedBox(width: 6),
-          ChoiceChip(label: const Text('繁'), selected: _lang == 'hant', onSelected: (_) => setState(() => _lang = 'hant')),
+          ChoiceChip(label: const Text('繁體中文'), selected: _lang == 'hant', onSelected: (_) => setState(() => _lang = 'hant')),
           const SizedBox(width: 6),
-          ChoiceChip(label: const Text('EN'), selected: _lang == 'en', onSelected: (_) => setState(() => _lang = 'en')),
+          ChoiceChip(label: const Text('English'), selected: _lang == 'en', onSelected: (_) => setState(() => _lang = 'en')),
         ]),
       ],
     );
@@ -2106,8 +2110,8 @@ class _SettingsPageState extends State<SettingsPage> {
   String _renderMsg = '';
   List<Map<String, dynamic>> _gpus = [];
   String _virusAction = 'ask';
-  int _cleanInterval = 0;
-  int _scanInterval = 0;
+  int _cleanInterval = 60;
+  int _scanInterval = 60;
   bool _idleOnly = true;
   bool _pwdEnabled = false;
   bool _silentUpdate = true;
@@ -2148,8 +2152,8 @@ class _SettingsPageState extends State<SettingsPage> {
       if (sec['success'] == true && sec['data'] is Map) {
         final d = sec['data'];
         _virusAction = d['virus_action']?.toString() ?? 'ask';
-        _cleanInterval = (d['clean_interval_min'] as num?)?.toInt() ?? 0;
-        _scanInterval = (d['scan_interval_min'] as num?)?.toInt() ?? 0;
+        _cleanInterval = (d['clean_interval_min'] as num?)?.toInt() ?? 60;
+        _scanInterval = (d['scan_interval_min'] as num?)?.toInt() ?? 60;
         _idleOnly = d['idle_only'] == true;
         _pwdEnabled = d['pwd_enabled'] == true;
         _silentUpdate = d['silent_update'] != false;
@@ -2185,7 +2189,7 @@ class _SettingsPageState extends State<SettingsPage> {
         children: [
           PageTitle(
             title: I18n.t('settings'),
-            subtitle: I18n.lang == 'en' ? '界面材质、性能、更新与安全项' : 'Appearance, performance, updates and security',
+            subtitle: I18n.lang == 'en' ? 'Appearance, performance, updates and security' : '界面材质、性能、更新与安全项',
           ),
           const SizedBox(height: 14),
           Expanded(
@@ -2260,13 +2264,9 @@ class _SettingsPageState extends State<SettingsPage> {
                 }
               }),
               _section(I18n.t('tools')),
-              _actionRow(Icons.memory_rounded, I18n.t('runtimeFix'), _runtimeMsg, () async {
-                final r = Api.runtime();
-                if (r['success'] == true) {
-                  final missing = ((r['data']['missing'] as List?) ?? const []).map((e) => e.toString()).toList();
-                  setState(() => _runtimeMsg = missing.isEmpty ? '运行库完整' : '缺少 ${missing.join(', ')}');
-                }
-              }),
+              // 运行库补全已经从设置页移走：工具页里本来就有一整张卡片
+              // （带扫描 → 确认 → 后台补齐的完整流程）。设置页这里只留一条
+              // 「点一下看缺什么」的残废版，同一功能两个入口，用户反而找不到。
               _actionRow(Icons.storage_rounded, I18n.t('installRec'), _installMsg, () async {
                 final r = Api.recommendDir();
                 setState(() => _installMsg = r['success'] == true ? '${r['data']['reason']}' : '${r['message']}');
@@ -2312,7 +2312,7 @@ class _SettingsPageState extends State<SettingsPage> {
                 setState(() => _silentUpdate = v);
                 Api.securitySet('silent_update', v);
               }),
-              _switchRow(Icons.lock_rounded, '密码保护（默认关闭）', _pwdEnabled, (v) async {
+              _switchRow(Icons.lock_rounded, '密码保护', _pwdEnabled, (v) async {
                 if (v) {
                   final pwd = await _askNewPassword();
                   if (pwd == null) return;
@@ -2342,7 +2342,12 @@ class _SettingsPageState extends State<SettingsPage> {
               SwitchListTile(
                 contentPadding: EdgeInsets.zero,
                 title: Text(I18n.t('autostart')),
-                subtitle: Text(Platform.isWindows ? '写入 HKCU\\...\\Run' : '写入 ~/.config/autostart', style: const TextStyle(fontSize: 11)),
+                subtitle: Text(
+                  Platform.isWindows
+                      ? '开机登录后自动拉起后台防护：在注册表 HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run 下登记 QWGuard。关闭后该项会被删除，开机不再自动防护。'
+                      : '开机登录后自动拉起后台防护：在 ~/.config/autostart 写一个 QWGuard 启动项。',
+                  style: const TextStyle(fontSize: 11),
+                ),
                 value: _autoStart,
                 onChanged: (v) async {
                   if (!v) {
@@ -2373,7 +2378,7 @@ class _SettingsPageState extends State<SettingsPage> {
               Padding(
                 padding: const EdgeInsets.only(top: 10),
                 child: Text(
-                  I18n.lang == 'en' ? '卸载时会清理安装目录与 HKCU 注册表项，避免残留。' : 'Uninstall removes install dir and HKCU entries.',
+                  I18n.lang == 'en' ? 'Uninstall removes install dir and HKCU entries.' : '卸载时会清理安装目录与 HKCU 注册表项，避免残留。',
                   style: TextStyle(fontSize: 11, color: isDark ? Colors.white38 : Colors.black38),
                 ),
               ),
@@ -2433,6 +2438,7 @@ class _SettingsPageState extends State<SettingsPage> {
       (60, '1 小时'), (120, '2 小时'), (240, '4 小时'), (360, '6 小时'),
       (480, '8 小时'), (720, '12 小时'),
       (1440, '1 天'), (2880, '2 天'), (4320, '3 天'), (5760, '4 天'), (7200, '5 天'),
+      (-1, '自定义…'),
       (0, '关闭'),
     ];
     final r = await showDialog<int>(
@@ -2453,6 +2459,35 @@ class _SettingsPageState extends State<SettingsPage> {
       ),
     );
     if (r == null) return;
+    if (r == -1) {
+      // 自定义间隔：只让填分钟数，30 = 半小时、1440 = 1 天
+      final ctrl = TextEditingController(text: cur > 0 ? '$cur' : '');
+      final v = await showDialog<int>(
+        context: context,
+        builder: (ctx) => QDialog(
+          icon: Icons.timer_rounded,
+          title: '$title · 自定义',
+          body: '填间隔分钟数。例：30 = 半小时一次，1440 = 一天一次，最小 5 分钟。',
+          okText: '确定',
+          cancelText: '取消',
+          child: TextField(
+            controller: ctrl,
+            keyboardType: TextInputType.number,
+            decoration: const InputDecoration(hintText: '例如 45'),
+          ),
+          onOk: () => Navigator.of(ctx).pop(int.tryParse(ctrl.text.trim())),
+        ),
+      );
+      ctrl.dispose();
+      if (v == null) return;
+      if (v < 5) {
+        if (mounted) _alert(context, '间隔太短', '最少 5 分钟，太频繁会一直占着磁盘。');
+        return;
+      }
+      setState(() => done(v));
+      Api.securitySet(key, v);
+      return;
+    }
     if (r == 0) {
       final ok = await showDialog<bool>(
         context: context,
@@ -2839,7 +2874,7 @@ class _SettingsPageState extends State<SettingsPage> {
         const Spacer(),
         for (final l in ['zh', 'hant', 'en']) ...[
           ChoiceChip(
-            label: Text({'zh': '简体', 'hant': '繁體', 'en': 'EN'}[l]!),
+            label: Text({'zh': '简体中文', 'hant': '繁體中文', 'en': 'English'}[l]!),
             selected: I18n.lang == l,
             onSelected: (_) async {
               setState(() => I18n.lang = l);
