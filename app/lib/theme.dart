@@ -201,13 +201,18 @@ class LiquidGlass extends StatelessWidget {
       ];
     } else {
       fill = glass ? null : (isDark ? const Color(0xFF1B2029) : Colors.white.withOpacity(0.92));
+      // 玻璃档的填充必须够透，否则 BackdropFilter 模糊了背景也透不出来 —
+      // 之前是 0.92 / 0.55 / 0.60 三层白，叠完等于一张白纸，所以才「质感差」。
+      // 现在压到 0.62 / 0.24 / 0.30，背景的彩色光斑能透上来，
+      // 亮的层次靠的是边缘反射，不是靠把面填白。
       grad = glass
           ? LinearGradient(
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
               colors: isDark
-                  ? [Colors.white.withOpacity(0.13), Colors.white.withOpacity(0.05), const Color(0xFF2C4C7A).withOpacity(0.09)]
-                  : [Colors.white.withOpacity(0.92), Colors.white.withOpacity(0.55), const Color(0xFFDCEBFF).withOpacity(0.60)],
+                  ? [Colors.white.withOpacity(0.09), Colors.white.withOpacity(0.03), const Color(0xFF3A5E96).withOpacity(0.07)]
+                  : [Colors.white.withOpacity(0.62), Colors.white.withOpacity(0.24), const Color(0xFFE8F2FF).withOpacity(0.30)],
+              stops: const [0.0, 0.55, 1.0],
             )
           : null;
       // 玻璃档阴影分三层，全部中性灰，不掺蓝：
@@ -999,39 +1004,47 @@ class _BreathingGlowState extends State<BreathingGlow> {
     if (!widget.forceOn && !Ui.isOn('breathing')) {
       return const SizedBox.shrink();
     }
+    // RepaintBoundary 包住：呼吸光每帧自己重绘，不能把整页带着一起重绘。
+    // 之前缺这层，两个光斑每帧驱动整个 Stack 重新布局 + 重绘 ——
+    // 这是「动画发涩、玻璃显得糙」的直接原因。
     return IgnorePointer(
-      child: AnimatedBuilder(
-        animation: Ui.tick,
-        builder: (_, __) {
-          // 4.6 秒一个来回：0→1→0 呼吸
-          final raw = (Ui.tick.value / 4.6) % 1;
-          final half = raw <= 0.5 ? raw * 2 : (1.0 - raw) * 2;
-          final t = Curves.easeInOut.transform(half);
-          final scale = 0.88 + 0.22 * t;
-          final opacity = 0.16 + 0.24 * t;
-          return Transform.scale(
-            scale: scale,
-            child: Opacity(
-              opacity: opacity,
-              child: Container(
-                width: widget.size,
-                height: widget.size,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  gradient: RadialGradient(
-                    colors: [
-                      widget.color.withOpacity(0.55),
-                      widget.color.withOpacity(0.18),
-                      widget.color.withOpacity(0.0),
-                    ],
-                    stops: const [0.0, 0.42, 1.0],
+      child: RepaintBoundary(
+        child: AnimatedBuilder(
+          animation: Ui.tick,
+          builder: (_, __) {
+            // 6.5 秒一个来回，幅度收到 0.94→1.06、透明度 0.10→0.24。
+            // 之前是 4.6 秒、0.88→1.10、0.16→0.40 —— 更像手电筒在闪，
+            // 不像玻璃内部的光在慢慢呼吸。
+            final raw = (Ui.tick.value / 6.5) % 1;
+            final half = raw <= 0.5 ? raw * 2 : (1.0 - raw) * 2;
+            final t = Curves.easeInOutSine.transform(half);
+            final scale = 0.94 + 0.12 * t;
+            final opacity = 0.10 + 0.14 * t;
+            return Transform.scale(
+              scale: scale,
+              child: Opacity(
+                opacity: opacity,
+                child: Container(
+                  width: widget.size,
+                  height: widget.size,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    gradient: RadialGradient(
+                      colors: [
+                        widget.color.withOpacity(0.50),
+                        widget.color.withOpacity(0.15),
+                        widget.color.withOpacity(0.0),
+                      ],
+                      stops: const [0.0, 0.42, 1.0],
+                    ),
                   ),
                 ),
               ),
-            ),
-          );
-      },
-    ),
+            );
+          },
+        ),
+      ),
+    );
   );
   }
 }

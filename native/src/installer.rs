@@ -99,6 +99,54 @@ fn make_shortcut(lnk: &Path, target: &Path, workdir: &Path, desc: &str) -> Resul
 const LEGACY_KEY: &str =
     r"HKCU\Software\Microsoft\Windows\CurrentVersion\Uninstall\{8E2C1A44-9F3B-4C71-8A55-2E6D7B4C1F90}_is1";
 
+/// 同一份旧卸载键落在 HKLM 下的版本（管理员身份安装时写的是这里）
+const LEGACY_KEY_HKLM: &str =
+    r"HKLM\Software\Microsoft\Windows\CurrentVersion\Uninstall\{8E2C1A44-9F3B-4C71-8A55-2E6D7B4C1F90}_is1";
+
+/// 删一个注册表键；`value` 有值时只删这个值，没有时整键连子键一起删
+fn reg_del(key: &str, value: Option<&str>) {
+    let mut c = crate::proc::cmd("reg");
+    c.arg("delete").arg(key);
+    if let Some(v) = value {
+        c.args(["/v", v]);
+    }
+    c.arg("/f");
+    let _ = c.output();
+}
+
+/// 把所有可能被写过的注册表位置**全部**清一遍
+///
+/// 之前卸载只删了 `Run\QWGuard` 和 `Uninstall\QWGuard` 两处，剩下三处没动：
+///   ① Inno 时期写的 `Uninstall\{8E2C1A44…}_is1`（HKCU 那份）
+///   ② 同一个 AppId 在 HKLM 下的那份（旧版按管理员装时写的是这里）
+///   ③ `StartupApproved\Run` 里的 QWGuard —— Windows 记录「自启动已被批准」的开关，
+///      不删的话任务管理器「启动」页会留一条没有主的孤儿条目
+/// 顺带把 App Paths 和 `HKCU\Software\QWGuard` 也扫掉，宁可多删不可漏删。
+fn purge_registry() {
+    const RUN: &str = r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run";
+    const RUN_APPROVED: &str =
+        r"HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run";
+    const UNINST_HKCU: &str = r"HKCU\Software\Microsoft\Windows\CurrentVersion\Uninstall\QWGuard";
+    const UNINST_HKLM: &str = r"HKLM\Software\Microsoft\Windows\CurrentVersion\Uninstall\QWGuard";
+    const IS1: &str = r"Software\Microsoft\Windows\CurrentVersion\Uninstall\{8E2C1A44-9F3B-4C71-8A55-2E6D7B4C1F90}_is1";
+    const APP_PATH: &str = r"HKCU\Software\Microsoft\Windows\CurrentVersion\App Paths\QWGuard.exe";
+
+    reg_del(RUN, Some("QWGuard"));
+    reg_del(RUN_APPROVED, Some("QWGuard"));
+    reg_del(UNINST_HKCU, None);
+    reg_del(UNINST_HKLM, None);
+    reg_del(&format!(r"HKCU\{IS1}"), None);
+    reg_del(&format!(r"HKLM\{IS1}"), None);
+    reg_del(
+        r"HKLM\Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\{8E2C1A44-9F3B-4C71-8A55-2E6D7B4C1F90}_is1",
+        None,
+    );
+    reg_del(APP_PATH, None);
+    reg_del(r"HKCU\Software\QWGuard", None);
+    reg_del(r"HKLM\Software\QWGuard", None);
+    reg_del(r"HKLM\Software\WOW6432Node\QWGuard", None);
+}
+
 /// 装新版之前先把旧版的**安装目录**清掉，但绝不动用户数据
 ///
 /// 关键：不能调旧版的 `unins000.exe`。旧 Inno 脚本的 [UninstallDelete] 里有
@@ -106,22 +154,34 @@ const LEGACY_KEY: &str =
 /// （见 ext::cfg_dir），跑一次卸载器就会把白名单 / 隔离区 / 全部设置清空。
 /// 所以这里只做两件事：删安装目录、删旧注册表键，配置目录一个字节都不碰。
 fn cleanup_legacy() -> Option<String> {
-    let out = crate::proc::cmd("reg")
-        .args(["query", LEGACY_KEY, "/v", "InstallLocation"])
-        .output()
-        .ok()?;
-    if !out.status.success() {
-        return None;
+    // 旧版可能落在 HKCU（当前用户装）也可能落在 HKLM（管理员装），两个都要查，
+    // 只查 HKCU 的话，用管理员身份装过旧版的人这里永远查不到，目录就一直赖着
+    let mut dir: Option<String> = None;
+    for key in [LEGACY_KEY, LEGACY_KEY_HKLM] {
+        let Some(out) = crate::proc::cmd("reg")
+            .args(["query", key, "/v", "InstallLocation"])
+            .output()
+            .ok()
+        else {
+            continue;
+        };
+        if !out.status.success() {
+            continue;
+        }
+        let text = String::from_utf8_lossy(&out.stdout);
+        if let Some(d) = text
+            .lines()
+            .find(|l| l.contains("InstallLocation"))
+            .and_then(|l| l.split("REG_SZ").nth(1))
+            .map(|s| s.trim().to_string())
+        {
+            if !d.is_empty() {
+                dir = Some(d);
+                break;
+            }
+        }
     }
-    let text = String::from_utf8_lossy(&out.stdout);
-    let dir = text
-        .lines()
-        .find(|l| l.contains("InstallLocation"))
-        .and_then(|l| l.split("REG_SZ").nth(1))
-        .map(|s| s.trim().to_string())?;
-    if dir.is_empty() {
-        return None;
-    }
+    let dir = dir?;
     let old = PathBuf::from(&dir);
 
     // 旧安装目录里的进程要先停，否则文件被占用删不掉
@@ -134,9 +194,9 @@ fn cleanup_legacy() -> Option<String> {
     if old.exists() {
         remove_tree(&old, &mut removed);
     }
-    let _ = crate::proc::cmd("reg")
-        .args(["delete", LEGACY_KEY, "/f"])
-        .output();
+    // 覆盖安装时也顺手把旧键清干净（不管 HKCU / HKLM / AppId 哪一份），
+    // 不然装完控制面板会同时出现新旧两条卸载项
+    purge_registry();
 
     Some(format!("已替换旧版安装目录：{dir}（用户数据保留）"))
 }
@@ -416,23 +476,23 @@ pub extern "C" fn uninstall_run(app_dir: *const c_char, keep_config: i32, buf: *
         let _ = fs::remove_file(Path::new(&pub_dir).join(format!("{APP_NAME}.lnk")));
     }
 
-    // 注册表
-    let _ = crate::proc::cmd("reg")
-        .args([
-            "delete",
-            r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run",
-            "/v",
-            "QWGuard",
-            "/f",
-        ])
-        .output();
-    let _ = crate::proc::cmd("reg")
-        .args([
-            "delete",
-            r"HKCU\Software\Microsoft\Windows\CurrentVersion\Uninstall\QWGuard",
-            "/f",
-        ])
-        .output();
+    // 注册表：一次清干净。之前只删两处，Inno 时期的 AppId 键、
+    // HKLM 那份、StartupApproved 记录全都留在了系统里。
+    purge_registry();
+
+    // 收尾：卸载器自己正在运行，exe 和目录会被文件锁占住删不掉，
+    // 于是「卸载完成」之后安装目录还会剩下一个 Uninstall.exe + 空壳目录。
+    // 交给系统在进程退出后再补一刀：等 2 秒 → 删自己 → 删目录。
+    // 不带这步，用户回控制面板看是干净的，去 D:\ 一看目录还在。
+    if app.exists() {
+        let self_exe = std::env::current_exe().unwrap_or_default();
+        let line = format!(
+            r#"ping -n 3 127.0.0.1 >nul & del /f /q "{}" & rmdir /s /q "{}""#,
+            self_exe.display(),
+            app.display()
+        );
+        let _ = crate::proc::cmd("cmd").args(["/c", line.as_str()]).output();
+    }
 
     ok(buf, len, "卸载完成", json!({"removed_files": removed, "kept_config": keep_config != 0}))
 }
