@@ -182,7 +182,7 @@ class Native {
     final buf = calloc<ffi.Uint8>(16384);
     try {
       final ret = f(t.cast(), buf, 16384);
-      final text = buf.cast<ffi.Char>().cast(Utf8).toDartString();
+      final text = buf.cast<ffi.Char>().cast<Utf8>().toDartString();
       if (text.trim().isEmpty) return {'success': false, 'code': ret};
       return jsonDecode(text) as Map<String, dynamic>;
     } finally {
@@ -202,7 +202,7 @@ class Native {
     final buf = calloc<ffi.Uint8>(16384);
     try {
       final ret = f(t.cast(), buf, 16384);
-      final text = buf.cast<ffi.Char>().cast(Utf8).toDartString();
+      final text = buf.cast<ffi.Char>().cast<Utf8>().toDartString();
       if (text.trim().isEmpty) return {'success': false, 'code': ret};
       return jsonDecode(text) as Map<String, dynamic>;
     } finally {

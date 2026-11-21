@@ -823,6 +823,19 @@ class _ScanPageState extends State<ScanPage> {
     _loadRules();
   }
 
+  void _alert(BuildContext ctx, String title, String msg) {
+    showDialog(
+      context: ctx,
+      builder: (_) => AlertDialog(
+        title: Text(title),
+        content: Text(msg),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(_), child: const Text('知道了')),
+        ],
+      ),
+    );
+  }
+
   void _toastScan(String m) {
     if (m.isEmpty) return;
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(m)));
