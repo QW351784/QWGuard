@@ -12,6 +12,7 @@ import 'bridge.dart';
 import 'desktop_monitor.dart';
 import 'state.dart';
 import 'i18n.dart';
+import 'scan_fx.dart';
 import 'theme.dart';
 
 String _size(num bytes) {
@@ -308,61 +309,27 @@ class CleanPage extends StatefulWidget {
 }
 
 class _CleanPageState extends State<CleanPage> {
-  final TextEditingController _pathCtrl = TextEditingController();
-  final List<Map<String, dynamic>> _results = [];
   List<Map<String, dynamic>> _items = [];
   final Set<String> _checked = {};
   bool _scanning = false;
   bool _busy = false;
   String? _note;
-
-  Future<void> _autoScan() async {
-    final target = _pathCtrl.text.trim();
-    if (target.isEmpty) return;
-    setState(() {
-      _busy = true;
-      _results.clear();
-    });
-    final r = Api.scanAuto(target);
-    if (!mounted) return;
-    if (r['success'] == true && r['data'] is Map) {
-      final d = (r['data'] as Map).cast<String, dynamic>();
-      final list = ((d['engines'] as List?) ?? const []).map((e) => (e as Map).cast<String, dynamic>()).toList();
-      final subs = list.map((m) => engineZh[m['engine']] ?? m['engine']?.toString() ?? '').join(' · ');
-      final okCount = list.where((m) => m['ok'] == true).length;
-      final threats = list.expand((m) => (m['threats'] as List?) ?? const <dynamic>[]).toList();
-      final infected = d['infected'] == true;
-      setState(() {
-        if (list.isEmpty) {
-          _results.add({'engine': '清理扫描', 'ok': true,
-            'message': '已跳过（白名单）', 'infected': false, 'threats': const []});
-        } else {
-          _results.add({
-            'engine': '清理扫描',
-            'ok': okCount == list.length,
-            'message': '$okCount/${list.length} 子引擎完成（$subs）'
-                '${infected ? " · 发现 ${threats.length} 项威胁" : " · 未发现威胁"}',
-            'infected': infected,
-            'threats': threats,
-          });
-        }
-        _busy = false;
-      });
-      return;
-    }
-    setState(() {
-      _busy = false;
-      _results.add({'engine': '清理扫描', 'ok': false,
-        'message': r['message']?.toString() ?? '失败', 'infected': false, 'threats': const []});
-    });
-  }
+  double? _progress;
+  String _stage = '正在扫描可清理项';
+  String _detail = '';
+  int _hits = 0;
 
   Future<void> _scan() async {
     setState(() {
       _scanning = true;
       _note = null;
+      _progress = null;
+      _hits = 0;
+      _stage = '正在扫描可清理项';
+      _detail = '统计缓存 / 日志 / 临时文件';
     });
-    final res = Native.scanCleanup();
+    // 清理扫描同样放后台，界面保持可动
+    final res = await Isolate.run(() => Native.scanCleanup());
     if (!mounted) return;
     setState(() {
       _scanning = false;
@@ -429,7 +396,15 @@ class _CleanPageState extends State<CleanPage> {
           const SizedBox(height: 16),
           Expanded(
             child: _scanning
-                ? const Center(child: CircularProgressIndicator())
+                ? Center(
+                    child: ScanFx(
+                      stage: _stage,
+                      detail: _detail,
+                      progress: _progress,
+                      hits: _hits,
+                      size: 180,
+                    ),
+                  )
                 : _items.isEmpty
                     ? Center(child: Text(I18n.t('empty'), style: TextStyle(color: isDark ? Colors.white54 : Colors.black45)))
                     : ListView.separated(
@@ -520,6 +495,11 @@ class _ScanPageState extends State<ScanPage> {
   bool _busy = false;
   int _wlCount = 0;
   Map<String, dynamic> _rules = {};
+  // 扫描动效的实时数据（每次轮询刷新）
+  double? _progress;
+  String _stage = '正在启动查杀引擎';
+  String _detail = '';
+  int _hits = 0;
 
   @override
   void initState() {
@@ -930,7 +910,14 @@ class _ScanPageState extends State<ScanPage> {
           const SizedBox(height: 14),
           Expanded(
             child: _busy
-                ? const Center(child: CircularProgressIndicator())
+                ? Center(
+                    child: ScanFx(
+                      stage: _stage,
+                      detail: _detail,
+                      progress: _progress,
+                      hits: _hits,
+                    ),
+                  )
                 : _results.isEmpty
                     ? Center(child: Text(I18n.t('empty'), style: TextStyle(color: isDark ? Colors.white54 : Colors.black45)))
                     : ListView.separated(
@@ -1148,7 +1135,27 @@ class _ToolsPageState extends State<ToolsPage> {
 
   /// 运行库补全：先扫、再确认、再后台修，进度靠定时轮询
   Future<void> _runtime(BuildContext context) async {
-    final scan = Api.runtimeScan();
+    // 先亮扫描动效（扫描是同步 FFI，丢后台跑），扫完再弹结果
+    final overlay = showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => Dialog(
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        child: LiquidGlass(
+          radius: 28,
+          padding: const EdgeInsets.all(26),
+          child: const ScanFx(
+            stage: '正在扫描运行库',
+            detail: '核对 VC++ 运行时可再发行包 / DirectX 组件',
+            size: 168,
+          ),
+        ),
+      ),
+    );
+    final scan = await Isolate.run(() => Api.runtimeScan());
+    if (context.mounted) Navigator.of(context, rootNavigator: true).pop();
+    await overlay;
     if (scan['success'] != true) {
       _toast(context, scan['message']?.toString() ?? '扫描失败');
       return;

@@ -77,6 +77,8 @@ class Native {
 
   /// 规则库状态：哈希条数 / 文件名条数 / 内置 YARA 是否就绪
   static Map<String, dynamic> rulesStatus() => _callBuf('rules_status', cap: 8192) ?? <String, dynamic>{};
+  /// 查杀实时进度（前端 200ms 轮一次）
+  static Map<String, dynamic> scanProgress() => _callBuf('scan_progress', cap: 4096) ?? <String, dynamic>{};
 
   /// 从本地 txt 导入 SHA-256 黑名单
   static Map<String, dynamic> rulesImport(String path) => _str1('rules_import', path);

@@ -117,6 +117,8 @@ class LiquidGlass extends StatelessWidget {
   final double radius;
   final bool forceGlass;
   final VoidCallback? onTap;
+  /// 覆盖默认填充用的渐变（按钮这类需要品牌色，但又要保留玻璃模糊与折射）
+  final Gradient? gradient;
 
   const LiquidGlass({
     super.key,
@@ -127,6 +129,7 @@ class LiquidGlass extends StatelessWidget {
     this.radius = 24,
     this.forceGlass = false,
     this.onTap,
+    this.gradient,
   });
 
   @override
@@ -218,11 +221,17 @@ class LiquidGlass extends StatelessWidget {
           : [BoxShadow(color: Colors.black.withOpacity(isDark ? 0.30 : 0.08), blurRadius: 18, offset: const Offset(0, 6))];
     }
 
+    final tint = gradient;
     Widget box = Container(
       width: width,
       height: height,
       padding: padding,
-      decoration: ShapeDecoration(shape: shape, color: fill, gradient: grad, shadows: shadows),
+      decoration: ShapeDecoration(
+        shape: shape,
+        color: tint != null ? null : fill,
+        gradient: tint ?? grad,
+        shadows: shadows,
+      ),
       child: child,
     );
 
@@ -307,23 +316,21 @@ class _LiquidButtonState extends State<LiquidButton> {
         scale: _scale,
         duration: Ui.dur('buttonPress', 180),
         curve: Ui.curve('buttonPress'),
-        child: Container(
+        // 按钮不再是"假玻璃"：走 LiquidGlass，跟着材质档位实时模糊 + 折射 + 光追；
+        // 主按钮把品牌蓝渐变覆盖上去，玻璃质感还在
+        child: LiquidGlass(
+          radius: 999,
           padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 13),
-          decoration: BoxDecoration(
-            gradient: widget.primary
-                ? const LinearGradient(
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                    colors: [Color(0xFF4B96FF), Color(0xFF2F7BFF), Color(0xFF1C63E0)],
-                  )
-                : null,
-            color: widget.primary ? null : (isDark ? Colors.white.withOpacity(0.10) : Colors.white.withOpacity(0.70)),
-            borderRadius: BorderRadius.circular(999),
-            border: widget.primary ? null : Border.all(color: Colors.white.withOpacity(isDark ? 0.18 : 0.80), width: 1.1),
-            boxShadow: widget.primary
-                ? [BoxShadow(color: const Color(0xFF2F7BFF).withOpacity(enabled ? 0.42 : 0.15), blurRadius: 22, offset: const Offset(0, 9))]
-                : null,
-          ),
+          forceGlass: true,
+          gradient: widget.primary
+              ? LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: enabled
+                      ? const [Color(0xFF4B96FF), Color(0xFF2F7BFF), Color(0xFF1C63E0)]
+                      : const [Color(0xFF7FAEF5), Color(0xFF6597E0), Color(0xFF4E7CC0)],
+                )
+              : null,
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [

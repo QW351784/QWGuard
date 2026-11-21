@@ -7,6 +7,15 @@ use std::ffi::c_char;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
+use std::sync::Mutex;
+
+// ---- 查杀实时进度（前端 200ms 轮询一次，画那个旋转盾牌动效用的） ----
+static SCAN_RUNNING: AtomicBool = AtomicBool::new(false);
+static SCAN_TOTAL: AtomicU64 = AtomicU64::new(0);
+static SCAN_DONE: AtomicU64 = AtomicU64::new(0);
+static SCAN_HITS: AtomicU32 = AtomicU32::new(0);
+static SCAN_CUR: Mutex<String> = Mutex::new(String::new());
 
 use crate::{cstr, fail, ok, round1};
 
@@ -901,12 +910,24 @@ pub extern "C" fn scan_auto(target: *const c_char, buf: *mut u8, len: usize) -> 
     let mode = "deep";
     let engines: Vec<&str> = vec!["defender", "signature", "heuristic", "yara"];
 
+    let total = engines.len() as u64;
+    SCAN_TOTAL.store(total, Ordering::Relaxed);
+    SCAN_DONE.store(0, Ordering::Relaxed);
+    SCAN_HITS.store(0, Ordering::Relaxed);
+    SCAN_RUNNING.store(true, Ordering::Relaxed);
+    if let Ok(mut g) = SCAN_CUR.lock() {
+        *g = target.clone();
+    }
+
     let mut handles = Vec::new();
     for engine in engines {
         let engine_s = engine.to_string();
         let target_s = target.clone();
         handles.push(std::thread::spawn(move || {
-            match crate::run_engine(&engine_s, &target_s) {
+            if let Ok(mut g) = SCAN_CUR.lock() {
+                *g = format!("{} · {}", engine_s, target_s);
+            }
+            let outcome = match crate::run_engine(&engine_s, &target_s) {
                 Ok((infected, threats)) => EngineOutcome {
                     engine: engine_s,
                     ok: true,
@@ -921,7 +942,12 @@ pub extern "C" fn scan_auto(target: *const c_char, buf: *mut u8, len: usize) -> 
                     threats: Vec::new(),
                     message: e,
                 },
+            };
+            if outcome.infected {
+                SCAN_HITS.fetch_add(outcome.threats.len().max(1) as u32, Ordering::Relaxed);
             }
+            SCAN_DONE.fetch_add(1, Ordering::Relaxed);
+            outcome
         }));
     }
 
@@ -930,6 +956,8 @@ pub extern "C" fn scan_auto(target: *const c_char, buf: *mut u8, len: usize) -> 
         .filter_map(|h| h.join().ok())
         .collect();
 
+    SCAN_RUNNING.store(false, Ordering::Relaxed);
+    SCAN_DONE.store(SCAN_TOTAL.load(Ordering::Relaxed), Ordering::Relaxed);
     let any_infected = results.iter().any(|r| r.infected);
     ok(buf, len, "QW 引擎查杀完成", json!({
         "target": target,
@@ -941,6 +969,25 @@ pub extern "C" fn scan_auto(target: *const c_char, buf: *mut u8, len: usize) -> 
     }))
 }
 
+
+
+/// 查杀实时进度：前端每 200ms 拉一次，喂给扫描动效
+#[no_mangle]
+pub extern "C" fn scan_progress(buf: *mut u8, len: usize) -> i32 {
+    let total = SCAN_TOTAL.load(Ordering::Relaxed);
+    let done = SCAN_DONE.load(Ordering::Relaxed);
+    let cur = SCAN_CUR.lock().map(|s| s.clone()).unwrap_or_default();
+    let running = SCAN_RUNNING.load(Ordering::Relaxed);
+    let pct = if total > 0 { (done as f64 / total as f64).clamp(0.0, 1.0) } else { 0.0 };
+    ok(buf, len, "查杀进度", json!({
+        "running": running,
+        "total": total,
+        "done": done,
+        "hits": SCAN_HITS.load(Ordering::Relaxed),
+        "current": cur,
+        "progress": round1((pct * 100.0) as f32) / 100.0,
+    }))
+}
 
 // ================= 渲染显卡偏好（按厂商判定，写入系统 GPU 偏好） =================
 
