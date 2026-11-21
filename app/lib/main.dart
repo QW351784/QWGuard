@@ -534,23 +534,6 @@ class _ShellState extends State<Shell>
     } catch (_) {}
   }
 
-  Widget _page() {
-    switch (_index) {
-      case 1:
-        return const CleanPage();
-      case 2:
-        return const ScanPage();
-      case 3:
-        return const ToolsPage();
-      case 4:
-        return const QuarantinePage();
-      case 5:
-        return const SettingsPage();
-      default:
-        return const HardwarePage();
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     final brightness = Theme.of(context).brightness;
@@ -579,27 +562,27 @@ class _ShellState extends State<Shell>
               padding: const EdgeInsets.fromLTRB(18, 54, 18, 96),
               child: ClipRRect(
                 borderRadius: BorderRadius.circular(26),
-                child: AnimatedSwitcher(
-                  duration: Ui.dur('pageTransition', 340),
-                  switchInCurve: Ui.curve('pageTransition'),
-                  switchOutCurve: Ui.isOn('pageTransition') ? Ui.spring : Curves.linear,
-                  transitionBuilder: (child, anim) {
-                    if (!Ui.isOn('pageTransition')) return child;
-                    final curved = CurvedAnimation(parent: anim, curve: Ui.spring);
-                    return FadeTransition(
-                      opacity: curved,
-                      child: ScaleTransition(scale: Tween(begin: 0.96, end: 1.0).animate(curved), child: child),
-                    );
-                  },
-                  child: Container(
-                    key: ValueKey(_index),
-                    decoration: BoxDecoration(
-                      color: brightness == Brightness.dark
-                          ? const Color(0xFF11151D).withOpacity(Ui.glass.value ? 0.34 : 0.92)
-                          : Colors.white.withOpacity(Ui.glass.value ? 0.42 : 0.94),
-                      borderRadius: BorderRadius.circular(26),
-                    ),
-                    child: _page(),
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: brightness == Brightness.dark
+                        ? const Color(0xFF11151D).withOpacity(Ui.glass.value ? 0.34 : 0.92)
+                        : Colors.white.withOpacity(Ui.glass.value ? 0.42 : 0.94),
+                    borderRadius: BorderRadius.circular(26),
+                  ),
+                  // 用 IndexedStack 而不是 AnimatedSwitcher：切页时旧页不再被销毁，
+                  // 扫描进度、清理进度、已读到的硬件信息都留在原页面。
+                  // 之前切到「工具合集」扫描就停、切回来进度归零，就是 AnimatedSwitcher
+                  // 把页面 dispose 掉了。
+                  child: IndexedStack(
+                    index: _index,
+                    children: const [
+                      HardwarePage(),
+                      CleanPage(),
+                      ScanPage(),
+                      ToolsPage(),
+                      QuarantinePage(),
+                      SettingsPage(),
+                    ],
                   ),
                 ),
               ),
