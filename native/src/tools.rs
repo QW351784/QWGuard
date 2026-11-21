@@ -21,8 +21,8 @@ const EXPLORER_ADV: &str =
 
 fn refresh_explorer() {
     // 让资源管理器重新读注册表，不然要等下次登录
-    let _ = Command::new("ie4uinit.exe").arg("-show").output();
-    let _ = Command::new("taskkill")
+    let _ = crate::proc::cmd("ie4uinit.exe").arg("-show").output();
+    let _ = crate::proc::cmd("taskkill")
         .args(["/F", "/IM", "explorer.exe"])
         .output();
 }
@@ -37,7 +37,7 @@ pub extern "C" fn shortcut_arrow(on: i32, buf: *mut u8, len: usize) -> i32 {
     }
     let ok_flag = if on != 0 {
         // 值 29 是快捷方式角标，指向一个空图标就等于把它抹掉
-        Command::new("reg")
+        crate::proc::cmd("reg")
             .args([
                 "add", SHELL_ICONS, "/v", "29", "/t", "REG_SZ",
                 "/d", r"%SystemRoot%\System32\shell32.dll,50", "/f",
@@ -46,7 +46,7 @@ pub extern "C" fn shortcut_arrow(on: i32, buf: *mut u8, len: usize) -> i32 {
             .map(|o| o.status.success())
             .unwrap_or(false)
     } else {
-        Command::new("reg")
+        crate::proc::cmd("reg")
             .args(["delete", SHELL_ICONS, "/v", "29", "/f"])
             .output()
             .map(|o| o.status.success())
@@ -74,7 +74,7 @@ pub extern "C" fn file_ext_show(show: i32, buf: *mut u8, len: usize) -> i32 {
         return fail(buf, len, -3, "仅支持 Windows");
     }
     let v = if show != 0 { "0" } else { "1" };
-    let done = Command::new("reg")
+    let done = crate::proc::cmd("reg")
         .args([
             "add", EXPLORER_ADV, "/v", "HideFileExt", "/t", "REG_DWORD", "/d", v, "/f",
         ])
@@ -321,7 +321,7 @@ pub extern "C" fn env_check(buf: *mut u8, len: usize) -> i32 {
         }
         // 判定是否真的装过：卸载注册表项在不在
         if cfg!(windows) {
-            if let Ok(o) = Command::new("reg")
+            if let Ok(o) = crate::proc::cmd("reg")
                 .args([
                     "query",
                     r"HKCU\Software\Microsoft\Windows\CurrentVersion\Uninstall\QWGuard",
@@ -330,9 +330,11 @@ pub extern "C" fn env_check(buf: *mut u8, len: usize) -> i32 {
             {
                 installed = o.status.success();
             }
-            if !installed {
-                issues.push("未检测到安装记录，可能只是被单独提取出来的文件".into());
-            }
+            // 注意：这里不能把「没安装记录」当成环境错误。
+            // 免安装（portable）解压出来就是没有卸载项的，以前 push 进 issues
+            // 导致 portable 包一打开就被判「环境异常 → 缺少必要组件」直接退出，
+            // 用户看到的就是「单独提取出来无法正常安装」。
+            // 缺文件才算错误（上面三项），没安装记录只在结果里标记 portable。
         } else {
             installed = dir.join("toolkit_native.dll").exists();
         }
@@ -359,7 +361,7 @@ pub extern "C" fn is_installed(buf: *mut u8, len: usize) -> i32 {
     if !cfg!(windows) {
         return ok(buf, len, "非 Windows", json!({"installed": false}));
     }
-    let installed = Command::new("reg")
+    let installed = crate::proc::cmd("reg")
         .args([
             "query",
             r"HKCU\Software\Microsoft\Windows\CurrentVersion\Uninstall\QWGuard",
@@ -380,7 +382,7 @@ pub extern "C" fn os_version(buf: *mut u8, len: usize) -> i32 {
 
     if cfg!(windows) {
         for (key, slot) in [("CurrentBuildNumber", 0u8), ("ProductName", 1u8)] {
-            let Ok(o) = Command::new("reg")
+            let Ok(o) = crate::proc::cmd("reg")
                 .args([
                     "query",
                     r"HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion",

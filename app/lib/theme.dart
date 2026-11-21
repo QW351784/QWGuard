@@ -146,17 +146,19 @@ class LiquidGlass extends StatelessWidget {
     final blurOn = !solidLike && Ui.realtimeBlur.value;
 
     // iPhone 式 R 角：连续曲率，四角过渡比纯圆弧更顺
+    // 玻璃档不再画单色描边 —— 描边交给 _RefractionPainter 的渐变镜面高光，
+    // 两者叠加会变成「双重勾边」，那是廉价感的一部分。
     final shape = ContinuousRectangleBorder(
       borderRadius: BorderRadius.circular(radius),
       side: BorderSide(
-        color: solidLike
-            ? (isDark ? Colors.white.withOpacity(0.06) : Colors.black.withOpacity(0.06))
-            : aeroLike
-                ? Colors.white.withOpacity(isDark ? 0.28 : 0.90)
-                : micaLike
-                    ? (isDark ? Colors.white.withOpacity(0.10) : Colors.white.withOpacity(0.55))
-                    : (isDark ? Colors.white.withOpacity(0.16) : Colors.white.withOpacity(0.75)),
-        width: aeroLike ? 1.4 : 1.1,
+        color: glassLike
+            ? Colors.transparent
+            : solidLike
+                ? (isDark ? Colors.white.withOpacity(0.06) : Colors.black.withOpacity(0.06))
+                : aeroLike
+                    ? Colors.white.withOpacity(isDark ? 0.28 : 0.90)
+                    : (isDark ? Colors.white.withOpacity(0.10) : Colors.white.withOpacity(0.55)),
+        width: glassLike ? 0.0 : (aeroLike ? 1.4 : 1.1),
       ),
     );
     final clipper = ShapeBorderClipper(shape: shape, textDirection: TextDirection.ltr);
@@ -208,15 +210,22 @@ class LiquidGlass extends StatelessWidget {
                   : [Colors.white.withOpacity(0.92), Colors.white.withOpacity(0.55), const Color(0xFFDCEBFF).withOpacity(0.60)],
             )
           : null;
+      // 玻璃档阴影分三层，全部中性灰，不掺蓝：
+      //   ① 接触阴影：很小很近，给「贴住背景」的落地感
+      //   ② 中距离：主体投影
+      //   ③ 环境遮蔽：大而散，模拟周围环境的暗部
+      // 以前是「一层彩色大阴影」，玻璃才会显得像塑料板浮在半空。
       shadows = glass
           ? (isDark
               ? [
-                  BoxShadow(color: Colors.black.withOpacity(0.40), blurRadius: 34, offset: const Offset(0, 14)),
-                  BoxShadow(color: Colors.white.withOpacity(0.06), blurRadius: 14, offset: const Offset(-6, -6)),
+                  BoxShadow(color: Colors.black.withOpacity(0.28), blurRadius: 3, offset: const Offset(0, 1)),
+                  BoxShadow(color: Colors.black.withOpacity(0.22), blurRadius: 14, offset: const Offset(0, 6)),
+                  BoxShadow(color: Colors.black.withOpacity(0.18), blurRadius: 38, offset: const Offset(0, 16)),
                 ]
               : [
-                  BoxShadow(color: const Color(0xFF9DBBE0).withOpacity(0.28), blurRadius: 34, offset: const Offset(0, 14)),
-                  BoxShadow(color: Colors.white.withOpacity(0.65), blurRadius: 18, offset: const Offset(-8, -8)),
+                  BoxShadow(color: Colors.black.withOpacity(0.06), blurRadius: 3, offset: const Offset(0, 1)),
+                  BoxShadow(color: Colors.black.withOpacity(0.08), blurRadius: 14, offset: const Offset(0, 6)),
+                  BoxShadow(color: Colors.black.withOpacity(0.06), blurRadius: 38, offset: const Offset(0, 16)),
                 ])
           : [BoxShadow(color: Colors.black.withOpacity(isDark ? 0.30 : 0.08), blurRadius: 18, offset: const Offset(0, 6))];
     }
@@ -580,16 +589,24 @@ class _RefractionPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     final t = (Ui.tick.value / 6) % 1;
-    final rrect = RRect.fromRectAndRadius(Offset.zero & size, Radius.circular(radius));
+    // 形状必须跟 LiquidGlass 外层完全一致：外层用的是 ContinuousRectangleBorder
+    // （苹果式连续曲率 squircle），这里若用 RRect 普通圆角，
+    // 高光描边就会跟卡片边缘对不齐，四角出现错位毛刺 —— 也就是「圆角处理不行」。
+    final shape = ContinuousRectangleBorder(borderRadius: BorderRadius.circular(radius));
+    final path = shape.getOuterPath(Offset.zero & size, textDirection: TextDirection.ltr);
+    final innerPath = ContinuousRectangleBorder(
+      borderRadius: BorderRadius.circular(math.max(radius - 1.2, 1.0)),
+    ).getOuterPath((Offset.zero & size).deflate(0.6), textDirection: TextDirection.ltr);
 
     // 指针位置归一化到 -1..1；没有指针就退回左上角那套静态效果
     final p = pointer ?? Offset(size.width * 0.16, size.height * 0.10);
     final nx = size.width == 0 ? 0.0 : (p.dx / size.width - 0.5) * 2.0;
     final ny = size.height == 0 ? 0.0 : (p.dy / size.height - 0.5) * 2.0;
 
-    // 1. 边缘色散：方向随指针角度转，指针越靠边色散越明显
+    // 1. 边缘色散：真玻璃的色散只在边缘极窄的一线，而且要非常淡。
+    //    以前 2.0px 宽 + 0.28 透明度会看起来像「彩色描边」，那是塑料感。
     final dist = math.sqrt(nx * nx + ny * ny).clamp(0.0, 1.0).toDouble();
-    final amp = 0.8 + 1.4 * dist;
+    final amp = 0.35 + 0.55 * dist;
     var dirX = nx;
     var dirY = ny;
     if (dirX == 0 && dirY == 0) {
@@ -607,59 +624,42 @@ class _RefractionPainter extends CustomPainter {
     for (final (color, off) in offsets) {
       final paint = Paint()
         ..style = PaintingStyle.stroke
-        ..strokeWidth = 2.0
-        ..color = color.withOpacity(dark ? 0.22 : 0.28);
+        ..strokeWidth = 1.0
+        ..color = color.withOpacity(dark ? 0.07 : 0.08);
       canvas.save();
       canvas.translate(off.dx, off.dy);
-      canvas.drawRRect(rrect, paint);
+      canvas.drawPath(path, paint);
       canvas.restore();
     }
 
-    // 1.2 动态流光边：一圈彩虹色散沿边框旋转，不碰鼠标也在流动
-    //     这是"实时动态光线折射"的主体，色散按角度变化
-    final flow = SweepGradient(
-      startAngle: 0,
-      endAngle: math.pi * 2,
-      colors: [
-        const Color(0xFFFF4D6D).withOpacity(0.0),
-        const Color(0xFFFF4D6D).withOpacity(dark ? 0.24 : 0.34),
-        const Color(0xFFB58CFF).withOpacity(dark ? 0.16 : 0.22),
-        const Color(0xFF4DD2FF).withOpacity(dark ? 0.26 : 0.36),
-        const Color(0xFF7BFFB2).withOpacity(0.0),
-        const Color(0xFFFF4D6D).withOpacity(0.0),
-      ],
-      stops: const [0.0, 0.18, 0.40, 0.62, 0.84, 1.0],
-      transform: GradientRotation(t * math.pi * 2),
+    // 1.2 镜面描边：苹果液态玻璃只有「白色高光」这一道边，
+    //     角度固定从左上打来，上沿最亮、两侧渐弱、下沿最暗。
+    //     这里不用彩虹 SweepGradient —— 整圈彩光旋转是廉价感的最大来源，
+    //     真玻璃不会自己发出彩色光，它只反射环境。
+    final specular = LinearGradient(
+      begin: Alignment.topLeft,
+      end: Alignment.bottomRight,
+      colors: dark
+          ? [
+              Colors.white.withOpacity(0.52),
+              Colors.white.withOpacity(0.16),
+              Colors.white.withOpacity(0.04),
+              Colors.white.withOpacity(0.22),
+            ]
+          : [
+              Colors.white.withOpacity(0.98),
+              Colors.white.withOpacity(0.52),
+              Colors.white.withOpacity(0.16),
+              Colors.white.withOpacity(0.72),
+            ],
+      stops: const [0.0, 0.34, 0.66, 1.0],
     ).createShader(Offset.zero & size);
     canvas.drawRRect(
-      rrect,
-      Paint()
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 1.8
-        ..shader = flow,
-    );
-
-    // 1.3 第二层反向流光，慢一档，叠出玻璃厚度
-    final flow2 = SweepGradient(
-      startAngle: 0,
-      endAngle: math.pi * 2,
-      colors: [
-        Colors.white.withOpacity(0.0),
-        Colors.white.withOpacity(dark ? 0.16 : 0.30),
-        Colors.white.withOpacity(0.0),
-      ],
-      stops: const [0.0, 0.5, 1.0],
-      transform: GradientRotation(-t * math.pi * 2 + 1.6),
-    ).createShader(Offset.zero & size);
-    canvas.drawRRect(
-      RRect.fromRectAndRadius(
-        (Offset.zero & size).deflate(2.2),
-        Radius.circular(math.max(radius - 2.2, 1.0)),
-      ),
+      innerPath,
       Paint()
         ..style = PaintingStyle.stroke
         ..strokeWidth = 1.0
-        ..shader = flow2,
+        ..shader = specular,
     );
 
     // 1.5 玻璃切面：边缘一圈极细白线，做出玻璃厚度
@@ -686,11 +686,12 @@ class _RefractionPainter extends CustomPainter {
       stops: const [0.0, 0.46, 1.0],
     ).createShader(Offset.zero & size);
     canvas.save();
-    canvas.clipRRect(rrect);
+    canvas.clipPath(path);
     canvas.drawRect(Offset.zero & size, Paint()..shader = bodyGlow);
     canvas.restore();
 
-    // 2. 沿对角扫过的高光带（可关）
+    // 2. 沿对角缓慢扫过的高光带（可关）
+    //    透明度压到很低：它是「玻璃表面的环境反光」，不是舞台追光
     if (sweep) {
       final bandW = size.width * 0.42;
       final dy = t * (size.height + bandW * 2) - bandW * 2;
@@ -700,14 +701,14 @@ class _RefractionPainter extends CustomPainter {
         end: Alignment.bottomRight,
         colors: [
           Colors.white.withOpacity(0.0),
-          Colors.white.withOpacity(dark ? 0.10 : 0.26),
+          Colors.white.withOpacity(dark ? 0.045 : 0.085),
           Colors.white.withOpacity(0.0),
         ],
         stops: const [0.0, 0.5, 1.0],
       ).createShader(rect);
 
       canvas.save();
-      canvas.clipRRect(rrect);
+      canvas.clipPath(path);
       canvas.drawRect(rect, Paint()..shader = shader);
       canvas.restore();
     }
@@ -725,7 +726,7 @@ class _RefractionPainter extends CustomPainter {
         stops: const [0.0, 0.45, 1.0],
       ).createShader(Rect.fromCircle(center: center, radius: r));
     canvas.save();
-    canvas.clipRRect(rrect);
+    canvas.clipPath(path);
     canvas.drawCircle(center, r, glow);
     canvas.restore();
   }
@@ -783,11 +784,14 @@ class _RayTracePainter extends CustomPainter {
     final t = (Ui.tick.value / 14) % 1;
     if (size.isEmpty) return;
     final rrect = RRect.fromRectAndRadius(Offset.zero & size, Radius.circular(radius));
+    // 跟外层 LiquidGlass 同一个 squircle 形状，否则光追层四角会溢出到圆角外
+    final shape = ContinuousRectangleBorder(borderRadius: BorderRadius.circular(radius));
+    final path = shape.getOuterPath(Offset.zero & size, textDirection: TextDirection.ltr);
     final w = size.width;
     final h = size.height;
 
     canvas.save();
-    canvas.clipRRect(rrect);
+    canvas.clipPath(path);
 
     // ① 多次内反射：同一条反射线按 1/2/3 倍间距重复，透明度逐次衰减
     //    入射角随 t 缓慢摆动，看起来像光源在动

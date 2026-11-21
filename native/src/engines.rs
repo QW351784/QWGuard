@@ -662,7 +662,7 @@ fn http_post(url: &str, headers: &[(&str, &str)], form: &str) -> Result<String, 
         args.push("-d".into());
         args.push(pair.to_string());
     }
-    let out = std::process::Command::new("curl")
+    let out = crate::proc::cmd("curl")
         .args(&args)
         .output()
         .map_err(|e| format!("调 curl 失败（Windows 10 起自带）: {e}"))?;

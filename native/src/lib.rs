@@ -21,6 +21,7 @@ static CLEAN_CUR: Mutex<String> = Mutex::new(String::new());
 mod engines;
 mod ext;
 mod installer;
+mod proc;
 mod quarantine;
 mod runtime;
 mod security;
@@ -480,7 +481,7 @@ pub(crate) fn run_engine(engine: &str, target: &str) -> Result<(bool, Vec<String
             ]) else {
                 return Err("未找到 Windows Defender".into());
             };
-            std::process::Command::new(exe)
+            crate::proc::cmd(exe)
                 .args(["-Scan", "-ScanType", "3", "-File", target])
                 .output()
         }
@@ -497,7 +498,7 @@ pub(crate) fn run_engine(engine: &str, target: &str) -> Result<(bool, Vec<String
                 return Err("未找到 YARA 规则文件".into());
             }
             let rules_s = rules.to_string_lossy().to_string();
-            std::process::Command::new(exe).args([&rules_s, target]).output()
+            crate::proc::cmd(exe).args([&rules_s, target]).output()
         }
         "signature" => return Ok(crate::engines::signature_scan(target)),
         "heuristic" => return Ok(crate::engines::heuristic_scan(target)),
@@ -560,7 +561,7 @@ pub extern "C" fn launch_external(name: *const c_char, buf: *mut u8, len: usize)
         _ => return fail(buf, len, -1, "未知工具"),
     };
     let Some(exe) = find(candidates) else { return fail(buf, len, -3, "本机未安装该工具") };
-    match std::process::Command::new(&exe).spawn() {
+    match crate::proc::cmd(&exe).spawn() {
         Ok(_) => ok(buf, len, "已启动", serde_json::json!({"exe": exe})),
         Err(e) => fail(buf, len, -3, &format!("启动失败: {e}")),
     }

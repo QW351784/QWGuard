@@ -88,7 +88,7 @@ pub fn detect_gpus() -> Vec<Gpu> {
 
     if cfg!(windows) {
         let script = "Get-CimInstance Win32_VideoController | Select-Object Name,AdapterRAM | ConvertTo-Json -Compress";
-        if let Ok(o) = Command::new("powershell").args(["-NoProfile", "-Command", script]).output() {
+        if let Ok(o) = crate::proc::cmd("powershell").args(["-NoProfile", "-Command", script]).output() {
             let text = String::from_utf8_lossy(&o.stdout).to_string();
             if let Ok(v) = serde_json::from_str::<Value>(&text) {
                 let list = match v {
@@ -109,7 +109,7 @@ pub fn detect_gpus() -> Vec<Gpu> {
 
     if out.is_empty() {
         // Linux / 兜底
-        if let Ok(o) = Command::new("sh").args(["-c", "lspci 2>/dev/null | grep -Ei 'vga|3d|display'"]).output() {
+        if let Ok(o) = crate::proc::cmd("sh").args(["-c", "lspci 2>/dev/null | grep -Ei 'vga|3d|display'"]).output() {
             for line in String::from_utf8_lossy(&o.stdout).lines() {
                 let name = line.split(": ").last().unwrap_or(line).trim().to_string();
                 if !name.is_empty() {
@@ -238,7 +238,7 @@ struct AutoItem {
 pub extern "C" fn autostart_list(buf: *mut u8, len: usize) -> i32 {
     let mut items = Vec::new();
     if cfg!(windows) {
-        if let Ok(o) = Command::new("reg")
+        if let Ok(o) = crate::proc::cmd("reg")
             .args(["query", r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run"])
             .output()
         {
@@ -277,11 +277,11 @@ pub extern "C" fn autostart_set(name: *const c_char, exe: *const c_char, enabled
     if cfg!(windows) {
         let run = r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run";
         let res = if enabled != 0 {
-            Command::new("reg")
+            crate::proc::cmd("reg")
                 .args(["add", run, "/v", &name, "/t", "REG_SZ", "/d", &exe, "/f"])
                 .output()
         } else {
-            Command::new("reg").args(["delete", run, "/v", &name, "/f"]).output()
+            crate::proc::cmd("reg").args(["delete", run, "/v", &name, "/f"]).output()
         };
         match res {
             Ok(o) if o.status.success() => ok(buf, len, "已更新自启动", json!({"name": name, "enabled": enabled != 0})),
@@ -323,7 +323,7 @@ pub extern "C" fn usb_check(buf: *mut u8, len: usize) -> i32 {
 
     if cfg!(windows) {
         let script = "Get-Volume | Where-Object {$_.DriveType -eq 'Removable'} | Select-Object DriveLetter,FileSystemLabel,Size,FileSystem | ConvertTo-Json -Compress";
-        if let Ok(o) = Command::new("powershell").args(["-NoProfile", "-Command", script]).output() {
+        if let Ok(o) = crate::proc::cmd("powershell").args(["-NoProfile", "-Command", script]).output() {
             if let Ok(v) = serde_json::from_str::<Value>(&String::from_utf8_lossy(&o.stdout)) {
                 let list = match v { Value::Array(a) => a, other => vec![other] };
                 for item in list {
@@ -473,7 +473,7 @@ pub extern "C" fn recommend_install_dir(buf: *mut u8, len: usize) -> i32 {
 
     if cfg!(windows) {
         let script = r#"Get-Volume | Where-Object {$_.DriveLetter} | ForEach-Object { $v=$_; try { $p=Get-Partition -DriveLetter $v.DriveLetter; $d=Get-PhysicalDisk -DeviceNumber $p.DiskNumber; [pscustomobject]@{Letter=$v.DriveLetter;Free=[double]$v.SizeRemaining;Media=[string]$d.MediaType;Bus=[string]$d.BusType;Model=[string]$d.FriendlyName} } catch {} } | ConvertTo-Json -Compress"#;
-        if let Ok(o) = Command::new("powershell").args(["-NoProfile", "-Command", script]).output() {
+        if let Ok(o) = crate::proc::cmd("powershell").args(["-NoProfile", "-Command", script]).output() {
             if let Ok(v) = serde_json::from_str::<Value>(&String::from_utf8_lossy(&o.stdout)) {
                 let list = match v { Value::Array(a) => a, other => vec![other] };
                 for item in list {
@@ -655,7 +655,7 @@ fn http_json(url: &str, token: &str) -> Result<Value, String> {
     let script = format!(
         "$ProgressPreference='SilentlyContinue';$h=@{{{headers}}};try{{(Invoke-RestMethod -Uri '{url}' -Headers $h -TimeoutSec 12 | ConvertTo-Json -Depth 4 -Compress)}}catch{{Write-Output \"__ERR__ $($_.Exception.Message)\"}}"
     );
-    match Command::new("powershell").args(["-NoProfile", "-Command", &script]).output() {
+    match crate::proc::cmd("powershell").args(["-NoProfile", "-Command", &script]).output() {
         Ok(o) => {
             let text = String::from_utf8_lossy(&o.stdout).trim().to_string();
             if let Some(msg) = text.strip_prefix("__ERR__") {
@@ -958,7 +958,7 @@ pub(crate) fn drives(kind: &str) -> Vec<PathBuf> {
     let mut out: Vec<PathBuf> = Vec::new();
     if cfg!(windows) {
         let script = "Get-CimInstance Win32_LogicalDisk | Select-Object DeviceID,DriveType | ConvertTo-Json -Compress";
-        if let Ok(o) = Command::new("powershell").args(["-NoProfile", "-Command", script]).output() {
+        if let Ok(o) = crate::proc::cmd("powershell").args(["-NoProfile", "-Command", script]).output() {
             let text = String::from_utf8_lossy(&o.stdout).to_string();
             if let Ok(v) = serde_json::from_str::<Value>(&text) {
                 let list = match v {
@@ -1323,7 +1323,7 @@ pub extern "C" fn apply_gpu_preference(mode: *const c_char, buf: *mut u8, len: u
         .unwrap_or_default();
 
     if cfg!(windows) {
-        let out = Command::new("reg")
+        let out = crate::proc::cmd("reg")
             .args([
                 "add",
                 r"HKCU\Software\Microsoft\DirectX\UserGpuPreferences",
@@ -1406,7 +1406,7 @@ pub extern "C" fn scan_huorong(target: *const c_char, buf: *mut u8, len: usize) 
         return fail(buf, len, -3, "未找到火绒（可在设置里填 huorong_path）");
     };
 
-    match Command::new(&exe).arg(&target).output() {
+    match crate::proc::cmd(&exe).arg(&target).output() {
         Ok(o) => {
             let text = format!(
                 "{}{}",
@@ -1478,7 +1478,7 @@ pub extern "C" fn scan_pyas(target: *const c_char, buf: *mut u8, len: usize) -> 
     };
 
     let start = std::time::SystemTime::now();
-    let spawned = Command::new(&exe).arg(&target).spawn();
+    let spawned = crate::proc::cmd(&exe).arg(&target).spawn();
 
     // 等待最多 12 秒，轮询日志
     let mut dirs: Vec<std::path::PathBuf> = Vec::new();

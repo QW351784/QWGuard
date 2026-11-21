@@ -383,7 +383,7 @@ fn run_tool(exe: &Path, args: &[&str], log_name: &str, timeout: Duration) -> Res
         .map_err(|e| format!("日志打不开: {e}"))?;
     let _ = writeln!(log, "\n=== {log_name} | {} | args={:?}", exe.display(), args);
 
-    let mut cmd = Command::new(exe);
+    let mut cmd = crate::proc::cmd(exe);
     cmd.args(args)
         .current_dir(exe.parent().unwrap_or(Path::new(".")))
         .stdout(Stdio::piped())

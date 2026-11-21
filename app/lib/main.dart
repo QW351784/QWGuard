@@ -337,25 +337,25 @@ class _ShellState extends State<Shell> with WindowListener, TickerProviderStateM
     }
 
     final env = Api.envCheck();
+    // 只有「真的缺文件」才拦。没有安装记录（免安装解压版）不算错误，
+    // 以前拿 installed==false 就弹框退出，导致 portable 包根本打不开。
     if (env['success'] == true && env['data'] is Map && env['data']['ok'] == false) {
-      final installed = env['data']['installed'] == true;
-      if (!installed) {
-        if (!mounted) return;
-        await showDialog(
-          context: context,
-          barrierDismissible: false,
-          builder: (_) => QDialog(
-            icon: Icons.folder_off_rounded,
-            title: '安装错误',
-            body: '检测到本程序只是被单独提取出来的文件，没有走安装流程，缺少必要组件，无法正常工作。\n'
-                '缺的东西：${(env['data']['issues'] as List?)?.join('、') ?? '未知'}\n\n'
-                '点确定后本程序会关闭，请先运行安装包完成安装，再从安装目录打开。',
-            okText: '确定',
-          ),
-        );
-        // 点确认直接关掉，不留下一个跑不起来的空壳
-        exit(0);
-      }
+      final issues = (env['data']['issues'] as List?)?.join('、') ?? '未知';
+      if (!mounted) return;
+      await showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (_) => QDialog(
+          icon: Icons.folder_off_rounded,
+          title: '缺少必要文件',
+          body: '程序目录里少了运行所需的文件，无法启动。\n'
+              '缺的东西：$issues\n\n'
+              '请重新解压完整压缩包，或运行安装包重新安装。',
+          okText: '确定',
+        ),
+      );
+      // 文件都不齐，留着也跑不起来
+      exit(0);
     }
   }
 

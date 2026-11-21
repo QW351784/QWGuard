@@ -83,7 +83,7 @@ fn make_shortcut(lnk: &Path, target: &Path, workdir: &Path, desc: &str) -> Resul
          $s.Description='{desc}';\
          $s.Save()"
     );
-    match Command::new("powershell")
+    match crate::proc::cmd("powershell")
         .args(["-NoProfile", "-NonInteractive", "-Command", &script])
         .output()
     {
@@ -149,7 +149,7 @@ pub extern "C" fn install_run(
     // 自启动
     if autostart != 0 {
         let run = r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run";
-        let _ = Command::new("reg")
+        let _ = crate::proc::cmd("reg")
             .args([
                 "add",
                 run,
@@ -180,11 +180,11 @@ pub extern "C" fn install_run(
         ("UninstallString", uninst_cmd),
         ("Publisher", "QW".to_string()),
     ] {
-        let _ = Command::new("reg")
+        let _ = crate::proc::cmd("reg")
             .args(["add", uninst_key, "/v", name, "/t", "REG_SZ", "/d", &value, "/f"])
             .output();
     }
-    let _ = Command::new("reg")
+    let _ = crate::proc::cmd("reg")
         .args([
             "add",
             uninst_key,
@@ -223,7 +223,7 @@ pub extern "C" fn uninstall_run(app_dir: *const c_char, keep_config: i32, buf: *
     let app = PathBuf::from(&dir);
 
     // 先关掉自己，不然文件被占用删不掉
-    let _ = Command::new("taskkill")
+    let _ = crate::proc::cmd("taskkill")
         .args(["/F", "/IM", EXE_NAME])
         .output();
     std::thread::sleep(std::time::Duration::from_millis(800));
@@ -253,7 +253,7 @@ pub extern "C" fn uninstall_run(app_dir: *const c_char, keep_config: i32, buf: *
     }
 
     // 注册表
-    let _ = Command::new("reg")
+    let _ = crate::proc::cmd("reg")
         .args([
             "delete",
             r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run",
@@ -262,7 +262,7 @@ pub extern "C" fn uninstall_run(app_dir: *const c_char, keep_config: i32, buf: *
             "/f",
         ])
         .output();
-    let _ = Command::new("reg")
+    let _ = crate::proc::cmd("reg")
         .args([
             "delete",
             r"HKCU\Software\Microsoft\Windows\CurrentVersion\Uninstall\QWGuard",
@@ -278,7 +278,7 @@ pub extern "C" fn uninstall_run(app_dir: *const c_char, keep_config: i32, buf: *
 pub extern "C" fn system_theme(buf: *mut u8, len: usize) -> i32 {
     let mut dark = false;
     if cfg!(windows) {
-        if let Ok(o) = Command::new("reg")
+        if let Ok(o) = crate::proc::cmd("reg")
             .args([
                 "query",
                 r"HKCU\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize",
