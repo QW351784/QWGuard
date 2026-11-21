@@ -106,6 +106,48 @@ flutter build windows --enable-impeller
 
 ---
 
+## 三之二、ARM64 版：现在编不出来，原因在 Flutter 官方
+
+想编原生 Windows ARM64 版，实测两轮都失败，不是配置问题：
+
+**第一次**，用 `flutter build windows --release --target-platform windows-arm64`：
+
+```
+Could not find an option named "--target-platform".
+```
+
+`flutter build windows` 根本没有这个参数。
+
+**第二次**，换 GitHub 的 `windows-11-arm` 原生 ARM64 runner（Rust 那边正常，`host: aarch64-pc-windows-msvc`、rustc 1.100.0），挂在装 Flutter 这步：
+
+```
+Unable to determine Flutter version for channel: stable version: any architecture: arm64
+```
+
+**根因**：查 Flutter 官方发布清单 `releases_windows.json`，751 条 release 里 **arm64 条目为 0 条**，最新 stable `3.50.1` 的 `dart_sdk_arch` 是 `x64`。
+
+官方文档写的 `Windows — arch x64, Arm64, supported 10, 11`，含义是 **ARM64 的 Windows 能运行 Flutter 应用**（走微软 Prism 的 x64 模拟），不是官方发了 ARM64 的 Flutter SDK。没有 ARM64 的 engine（`flutter_windows.dll`），就产不出 ARM64 的 exe。
+
+**当前做法**
+
+- 只发 x64 包，在 Windows 11 ARM64 上通过 Prism 模拟层正常运行，功能不缺，代价是启动和 CPU 密集扫描慢一些
+- `.github/workflows/build-windows-arm64.yml` 保留但改为手动触发，文件头写明阻塞原因；等 Flutter 官方发 arm64 SDK 再打开
+
+---
+
+## 三之三、安装包
+
+两种交付形态，内容一样：
+
+| 文件 | 说明 |
+|---|---|
+| `QWGuard-Setup-1.0.0.exe` | 单文件安装器（Inno Setup），装到 `Program Files\QW 安全电脑管家`，建开始菜单/桌面快捷方式/卸载项 |
+| `QW安全电脑管家-1.0.1-portable.zip` | 免安装，解压后双击 `QWGuard.exe` 或 `安装 QW 安全电脑管家.bat` |
+
+> 注意：Flutter 的 Windows runner 是按 `pubspec.yaml` 的 `name` 出 exe 的，原来叫 `system_toolbox.exe`，所以 CI 里构建后会 `Move-Item` 成 `QWGuard.exe`。（依据：https://docs.flutter.dev/reference/supported-platforms）
+
+---
+
 ## 四、下一步
 
 1. 在 Windows 上跑通 UI（`flutter create` + `cargo build`）
