@@ -233,7 +233,7 @@ pub extern "C" fn install_run(
     };
     for (name, value) in [
         ("DisplayName", APP_NAME.to_string()),
-        ("DisplayVersion", "1.0.2".to_string()),
+        ("DisplayVersion", "1.0".to_string()),
         ("DisplayIcon", exe.to_string_lossy().to_string()),
         ("InstallLocation", to.to_string_lossy().to_string()),
         ("UninstallString", uninst_cmd),

@@ -9,7 +9,7 @@
 ; 这样安装器和卸载器跟主程序是同一套技术栈，动画完全一致。
 
 #define MyAppName "QW 安全电脑管家"
-#define MyAppVersion "1.0.2"
+#define MyAppVersion "1.0"
 #define MyAppPublisher "QW"
 #define MyAppExeName "QWGuard.exe"
 #define MySetupExeName "QWGuard-Setup.exe"

@@ -2095,7 +2095,7 @@ class _SettingsPageState extends State<SettingsPage> {
   String _gpuMode = 'auto';
   bool _autoStart = false;
   String _repo = '';
-  String _current = '1.0.2';
+  String _current = '1.0';
   String _updateMsg = '';
   List<String> _wl = [];
   String _runtimeMsg = '';
@@ -2127,7 +2127,7 @@ class _SettingsPageState extends State<SettingsPage> {
     setState(() {
       _autoStart = sp.getBool('autostart') ?? false;
       _repo = sp.getString('github_repo') ?? '';
-      _current = sp.getString('app_version') ?? '1.0.2';
+      _current = sp.getString('app_version') ?? '1.0';
       _desktopFloat = sp.getBool('ui_desktop_float') ?? false;
       final g = Api.gpu();
       if (g['success'] == true && g['data'] is Map) {
