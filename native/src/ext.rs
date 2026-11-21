@@ -896,25 +896,10 @@ pub extern "C" fn scan_auto(target: *const c_char, buf: *mut u8, len: usize) -> 
     // 不该决定杀毒跑几个引擎。以前按独显分数选引擎是错的，这里改掉。
     let cores = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4);
 
-    // 档位决定"用几把刀"，跟显卡无关。ClamAV 已摘除（国内拉不到病毒库，空壳引擎没有意义），
-    // 四引擎全部自带，用户零安装。
-    //   quick    ：Defender + 启发式      —— 快，不解全文件哈希
-    //   standard ：Defender + 特征库 + 启发式
-    //   deep     ：再叠加 YARA 规则
-    let level = load_config()
-        .get("scan_level")
-        .and_then(|v| v.as_str())
-        .map(|s| s.to_string())
-        .unwrap_or_else(|| "deep".to_string());
-
-    let (mode, engines): (&str, Vec<&str>) = match level.as_str() {
-        "quick" => ("quick", vec!["defender", "heuristic"]),
-        "deep" => (
-            "deep",
-            vec!["defender", "signature", "heuristic", "yara"],
-        ),
-        _ => ("standard", vec!["defender", "signature", "heuristic"]),
-    };
+    // 只有一档：深度查杀。四个子引擎（Defender / 特征库 / 启发式 / YARA）不再拆档，
+    // 对外合并成一个整体——QW 安全电脑管家 · 查杀引擎。全部自带，用户零安装。
+    let mode = "deep";
+    let engines: Vec<&str> = vec!["defender", "signature", "heuristic", "yara"];
 
     let mut handles = Vec::new();
     for engine in engines {
@@ -948,7 +933,7 @@ pub extern "C" fn scan_auto(target: *const c_char, buf: *mut u8, len: usize) -> 
     let any_infected = results.iter().any(|r| r.infected);
     ok(buf, len, "QW 引擎查杀完成", json!({
         "target": target,
-        "engine": "QW",
+        "engine": "QW 安全电脑管家 · 查杀引擎",
         "mode": mode,
         "cores": cores,
         "infected": any_infected,

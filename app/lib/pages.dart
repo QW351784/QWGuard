@@ -327,20 +327,24 @@ class _CleanPageState extends State<CleanPage> {
     if (!mounted) return;
     if (r['success'] == true && r['data'] is Map) {
       final d = (r['data'] as Map).cast<String, dynamic>();
-      final list = (d['engines'] as List?) ?? const [];
+      final list = ((d['engines'] as List?) ?? const []).map((e) => (e as Map).cast<String, dynamic>()).toList();
+      final subs = list.map((m) => engineZh[m['engine']] ?? m['engine']?.toString() ?? '').join(' · ');
+      final okCount = list.where((m) => m['ok'] == true).length;
+      final threats = list.expand((m) => (m['threats'] as List?) ?? const <dynamic>[]).toList();
+      final infected = d['infected'] == true;
       setState(() {
-        for (final e in list) {
-          final m = (e as Map).cast<String, dynamic>();
-          _results.add({
-            'engine': 'QW 引擎 · ${engineZh[m['engine']] ?? m['engine']}',
-            'ok': m['ok'] == true,
-            'message': m['message']?.toString() ?? '',
-            'infected': m['infected'] == true,
-            'threats': (m['threats'] as List?) ?? const [],
-          });
-        }
         if (list.isEmpty) {
-          _results.add({'engine': '智能查杀', 'ok': true, 'message': '已跳过（白名单）', 'infected': false, 'threats': const []});
+          _results.add({'engine': '清理扫描', 'ok': true,
+            'message': '已跳过（白名单）', 'infected': false, 'threats': const []});
+        } else {
+          _results.add({
+            'engine': '清理扫描',
+            'ok': okCount == list.length,
+            'message': '$okCount/${list.length} 子引擎完成（$subs）'
+                '${infected ? " · 发现 ${threats.length} 项威胁" : " · 未发现威胁"}',
+            'infected': infected,
+            'threats': threats,
+          });
         }
         _busy = false;
       });
@@ -348,7 +352,8 @@ class _CleanPageState extends State<CleanPage> {
     }
     setState(() {
       _busy = false;
-      _results.add({'engine': '智能查杀', 'ok': false, 'message': r['message']?.toString() ?? '失败', 'infected': false, 'threats': const []});
+      _results.add({'engine': '清理扫描', 'ok': false,
+        'message': r['message']?.toString() ?? '失败', 'infected': false, 'threats': const []});
     });
   }
 
@@ -510,14 +515,6 @@ class ScanPage extends StatefulWidget {
 
 class _ScanPageState extends State<ScanPage> {
   final _pathCtrl = TextEditingController();
-  final Map<String, bool> _engines = {
-    'signature': true,
-    'heuristic': true,
-    'defender': true,
-    'yara': true,
-    'huorong': false,
-    'pyas': false,
-  };
 
   final List<Map<String, dynamic>> _results = [];
   bool _busy = false;
@@ -575,71 +572,37 @@ class _ScanPageState extends State<ScanPage> {
     if (!mounted) return;
     if (r['success'] == true && r['data'] is Map) {
       final d = (r['data'] as Map).cast<String, dynamic>();
-      final list = (d['engines'] as List?) ?? const [];
+      final list = ((d['engines'] as List?) ?? const []).map((e) => (e as Map).cast<String, dynamic>()).toList();
+      final subs = list.map((m) => engineZh[m['engine']] ?? m['engine']?.toString() ?? '').join(' · ');
+      final okCount = list.where((m) => m['ok'] == true).length;
+      final threats = list.expand((m) => (m['threats'] as List?) ?? const <dynamic>[]).toList();
+      final infected = d['infected'] == true;
       setState(() {
-        for (final e in list) {
-          final m = (e as Map).cast<String, dynamic>();
-          _results.add({
-            'engine': 'QW 引擎 · ${engineZh[m['engine']] ?? m['engine']}',
-            'ok': m['ok'] == true,
-            'message': m['message']?.toString() ?? '',
-            'infected': m['infected'] == true,
-            'threats': (m['threats'] as List?) ?? const [],
-          });
-        }
         if (list.isEmpty) {
-          _results.add({'engine': '智能查杀', 'ok': true, 'message': '已跳过（白名单）', 'infected': false, 'threats': const []});
+          _results.add({'engine': 'QW 安全电脑管家 · 查杀引擎', 'ok': true,
+            'message': '已跳过（白名单）', 'infected': false, 'threats': const []});
+        } else {
+          _results.add({
+            'engine': 'QW 安全电脑管家 · 查杀引擎',
+            'ok': okCount == list.length,
+            'message': '$okCount/${list.length} 子引擎完成（$subs）'
+                '${infected ? " · 发现 ${threats.length} 项威胁" : " · 未发现威胁"}',
+            'infected': infected,
+            'threats': threats,
+          });
         }
         _busy = false;
       });
+      await _handleThreats(target);
       return;
     }
     setState(() {
       _busy = false;
-      _results.add({'engine': '智能查杀', 'ok': false, 'message': r['message']?.toString() ?? '失败', 'infected': false, 'threats': const []});
+      _results.add({'engine': 'QW 安全电脑管家 · 查杀引擎', 'ok': false,
+        'message': r['message']?.toString() ?? '失败', 'infected': false, 'threats': const []});
     });
   }
 
-  Future<void> _scan() async {
-    final target = _pathCtrl.text.trim();
-    if (target.isEmpty) return;
-    setState(() {
-      _busy = true;
-      _results.clear();
-    });
-    final keys = _engines.entries.where((e) => e.value == true).map((e) => e.key).toList();
-    // 每个引擎一个 task 并发跑，不再逐个排队；重活丢到 isolate，主线程不卡
-    final rows = await Future.wait(keys.map((k) async {
-      Map<String, dynamic> res;
-      switch (k) {
-        case 'huorong':
-          res = Api.scanHuorong(target);
-          break;
-        case 'pyas':
-          res = Api.scanPyas(target);
-          break;
-        default:
-          res = await Isolate.run(() => Native.scanFile(k, target));
-      }
-      final d = res['data'];
-      final note = (d is Map ? (d['note']?.toString() ?? '') : '');
-      return <String, dynamic>{
-        'engine': k,
-        'ok': res['success'] == true,
-        'message': res['success'] == true
-            ? (note.isNotEmpty ? note : (d is Map && d['mode'] == 'launched' ? '已启动，结果见火绒界面' : ''))
-            : (res['message']?.toString() ?? ''),
-        'infected': (d is Map) ? (d['infected'] == true) : false,
-        'threats': (d is Map) ? ((d['threats'] as List?) ?? const []) : const [],
-      };
-    }));
-    if (!mounted) return;
-    setState(() {
-      _results.addAll(rows);
-      _busy = false;
-    });
-    await _handleThreats(target);
-  }
 
   Widget _rulesCard() {
     final isDark = Theme.of(context).brightness == Brightness.dark;
@@ -919,23 +882,11 @@ class _ScanPageState extends State<ScanPage> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('内置引擎 · 4 把全部自带，用户无需安装', style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
-                const SizedBox(height: 10),
-                Wrap(spacing: 10, runSpacing: 8, children: [
-                  for (final e in _engines.keys.toList())
-                    FilterChip(
-                      label: Text({
-                        'signature': '特征库',
-                        'heuristic': '启发式',
-                        'defender': 'Defender',
-                        'yara': 'YARA（内置）',
-                        'huorong': '火绒 hrscan',
-                        'pyas': 'PYAS',
-                      }[e]!),
-                      selected: _engines[e] == true,
-                      onSelected: (v) => setState(() => _engines[e] = v),
-                    ),
-                ]),
+                const Text('QW 安全电脑管家 · 查杀引擎',
+                    style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700)),
+                const SizedBox(height: 6),
+                Text('四个子引擎合并工作：特征库 · 启发式 · Defender · YARA —— 全部内置，无需另装',
+                    style: TextStyle(fontSize: 11, color: Colors.grey.shade600)),
                 const SizedBox(height: 10),
                 _rulesCard(),
                 const SizedBox(height: 14),
@@ -968,11 +919,9 @@ class _ScanPageState extends State<ScanPage> {
                   LiquidButton(text: 'PYAS', icon: Icons.open_in_new_rounded, primary: false,
                       onTap: () { Native.launch('pyas'); }),
                   const SizedBox(width: 12),
-                  LiquidButton(text: I18n.t('scanNow'), icon: Icons.security_rounded, onTap: _busy ? null : _scan),
-                  const SizedBox(width: 10),
                   LiquidButton(
-                    text: I18n.lang == 'zh' ? '智能查杀' : 'Smart scan',
-                    icon: Icons.auto_awesome_rounded,
+                    text: I18n.lang == 'zh' ? '深度查杀' : 'Deep scan',
+                    icon: Icons.security_rounded,
                     onTap: _busy ? null : _autoScan,
                   ),
                 ]),
@@ -1992,7 +1941,6 @@ class SettingsPage extends StatefulWidget {
 
 class _SettingsPageState extends State<SettingsPage> {
   String _gpuMode = 'auto';
-  String _scanLevel = 'deep';
   bool _autoStart = false;
   String _repo = '';
   String _current = '1.0.0';
@@ -2029,7 +1977,6 @@ class _SettingsPageState extends State<SettingsPage> {
       _repo = sp.getString('github_repo') ?? '';
       _current = sp.getString('app_version') ?? '1.0.0';
       _desktopFloat = sp.getBool('ui_desktop_float') ?? false;
-      _scanLevel = sp.getString('scan_level') ?? 'deep';
       final g = Api.gpu();
       if (g['success'] == true && g['data'] is Map) {
         _gpus = ((g['data']['gpus'] as List?) ?? const [])
@@ -2122,7 +2069,6 @@ class _SettingsPageState extends State<SettingsPage> {
                   padding: const EdgeInsets.only(top: 6, left: 4),
                   child: Text(_renderMsg, style: const TextStyle(fontSize: 11, color: Color(0xFF2F7BFF))),
                 ),
-              _scanLevelRow(),
               _actionRow(Icons.bolt_rounded, I18n.t('cpuSchedule'), _cpuMsg, () async {
                 final r = Api.cpuProfile();
                 setState(() => _cpuMsg = r['success'] == true ? '${r['data']['cores']} 核 · ${r['data']['note']}' : '不可用');
@@ -2699,50 +2645,6 @@ class _SettingsPageState extends State<SettingsPage> {
     );
   }
 
-  Widget _scanLevelRow() {
-    const labels = {'quick': '快速', 'standard': '标准', 'deep': '深度'};
-    const combo = {
-      'quick': 'Defender + 启发式（2 把）',
-      'standard': 'Defender + 特征库 + 启发式（3 把）',
-      'deep': 'Defender + 特征库 + 启发式 + YARA（4 把并发）',
-    };
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 10),
-      child: LiquidGlass(
-        radius: 26,
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Row(children: [
-            const Icon(Icons.shield_rounded, size: 20, color: Color(0xFF2F7BFF)),
-            const SizedBox(width: 12),
-            const Text('查杀档位', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
-            const Spacer(),
-            for (final m in ['quick', 'standard', 'deep']) ...[
-              ChoiceChip(
-                label: Text(labels[m]!),
-                selected: _scanLevel == m,
-                onSelected: (_) => _applyScanLevel(m),
-              ),
-              const SizedBox(width: 6),
-            ],
-          ]),
-          const SizedBox(height: 6),
-          Padding(
-            padding: const EdgeInsets.only(left: 32),
-            child: Text('当前：${combo[_scanLevel]}',
-                style: TextStyle(fontSize: 11, color: Colors.grey.shade600)),
-          ),
-        ]),
-      ),
-    );
-  }
-
-  Future<void> _applyScanLevel(String m) async {
-    setState(() => _scanLevel = m);
-    final sp = await SharedPreferences.getInstance();
-    await sp.setString('scan_level', m);
-    Api.setSetting('scan_level', m);
-  }
 
   Widget _metricRow() {
     const opts = {'cpu': 'CPU', 'mem': '内存', 'gpu': 'GPU', 'npu': 'NPU', 'temp': '温度'};

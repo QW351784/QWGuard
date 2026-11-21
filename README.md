@@ -52,8 +52,8 @@ execute_cleanup   -> 0             dry-run 模式正常，只统计不删除
 - 悬浮监控浮层（CPU/内存/GPU/温度/NPU，DIY，默认关）
 - 桌面级置顶监控窗口：`desktop_multi_window` 第二引擎窗口 + Rust `set_topmost`（已交叉检查 Windows 目标编译）
 - 三语言：简体（默认）/ 繁體 / English
-- 六引擎：Defender / 特征库 / 启发式 / YARA（这四把全部自带，用户零安装）/ 火绒 hrscan / PYAS（可选，需自装）
-- 智能查杀：按 `scan_level` 档位决定用哪几把刀，并发数 = CPU 逻辑核数；显卡不参与查杀判定
+- 查杀引擎：**QW 安全电脑管家 · 查杀引擎** —— 四个子引擎（Defender / 特征库 / 启发式 / YARA）合并为一个整体，全部内置、用户零安装；另有火绒 hrscan / PYAS 外部唤起（可选）
+- 无档位：只有一个「深度查杀」，四子引擎固定全开并发，并发数 = CPU 逻辑核数；显卡不参与查杀判定
 - 动画全部可在设置关闭，默认全开：玻璃、实时模糊、折射、扫光带、粒子、光斑漂浮、Dock 弹簧、页面切换、按钮按压、卡片入场
 
 > 本机是 Linux 且无 Flutter SDK，Flutter 部分只做了代码编写，**没有编译验证**。首次在 Windows 上跑如遇 API 差异，改一两行即可。
