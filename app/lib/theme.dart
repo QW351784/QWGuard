@@ -781,14 +781,21 @@ class _RayTraceState extends State<_RayTrace> with SingleTickerProviderStateMixi
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    return IgnorePointer(
-      child: AnimatedBuilder(
-        animation: _c,
-        builder: (_, __) => CustomPaint(
-          painter: _RayTracePainter(t: _c.value, radius: widget.radius, dark: isDark),
-          size: Size.infinite,
-        ),
-      ),
+    // 只有大块玻璃才开光追：设置页那种列表每行都是一个 LiquidGlass，
+    // 几十个 painter 一起跑会拖帧，小块直接不挂
+    return LayoutBuilder(
+      builder: (ctx, c) {
+        if (c.maxWidth < 420 || c.maxHeight < 200) return const SizedBox.shrink();
+        return IgnorePointer(
+          child: AnimatedBuilder(
+            animation: _c,
+            builder: (_, __) => CustomPaint(
+              painter: _RayTracePainter(t: _c.value, radius: widget.radius, dark: isDark),
+              size: Size.infinite,
+            ),
+          ),
+        );
+      },
     );
   }
 }
