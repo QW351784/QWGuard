@@ -2067,7 +2067,7 @@ class _WelcomeSheetState extends State<WelcomeSheet> {
                 SwitchListTile(
                   contentPadding: EdgeInsets.zero,
                   dense: true,
-                  title: Text(I18n.lang == 'en' ? a.zh : a.en,
+                  title: Text(I18n.lang == 'en' ? a.en : a.zh,
                       style: const TextStyle(fontSize: 12.5)),
                   value: _anim[a.key] ?? a.defaultOn,
                   onChanged: (v) => setState(() => _anim[a.key] = v),
