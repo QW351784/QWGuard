@@ -243,8 +243,8 @@ class LiquidGlass extends StatelessWidget {
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
               colors: isDark
-                  ? [Colors.white.withOpacity(0.09), Colors.white.withOpacity(0.03), const Color(0xFF3A5E96).withOpacity(0.07)]
-                  : [Colors.white.withOpacity(0.62), Colors.white.withOpacity(0.24), const Color(0xFFE8F2FF).withOpacity(0.30)],
+                  ? [Colors.white.withOpacity(0.11), Colors.white.withOpacity(0.035), const Color(0xFF3A5E96).withOpacity(0.09)]
+                  : [Colors.white.withOpacity(0.44), Colors.white.withOpacity(0.13), const Color(0xFFE8F2FF).withOpacity(0.18)],
               stops: const [0.0, 0.55, 1.0],
             )
           : null;
@@ -256,14 +256,14 @@ class LiquidGlass extends StatelessWidget {
       shadows = glass
           ? (isDark
               ? [
-                  BoxShadow(color: Colors.black.withOpacity(0.28), blurRadius: 3, offset: const Offset(0, 1)),
-                  BoxShadow(color: Colors.black.withOpacity(0.22), blurRadius: 14, offset: const Offset(0, 6)),
-                  BoxShadow(color: Colors.black.withOpacity(0.18), blurRadius: 38, offset: const Offset(0, 16)),
+                  BoxShadow(color: Colors.black.withOpacity(0.20), blurRadius: 3, offset: const Offset(0, 1)),
+                  BoxShadow(color: Colors.black.withOpacity(0.15), blurRadius: 14, offset: const Offset(0, 6)),
+                  BoxShadow(color: Colors.black.withOpacity(0.12), blurRadius: 38, offset: const Offset(0, 16)),
                 ]
               : [
-                  BoxShadow(color: Colors.black.withOpacity(0.06), blurRadius: 3, offset: const Offset(0, 1)),
-                  BoxShadow(color: Colors.black.withOpacity(0.08), blurRadius: 14, offset: const Offset(0, 6)),
-                  BoxShadow(color: Colors.black.withOpacity(0.06), blurRadius: 38, offset: const Offset(0, 16)),
+                  BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 3, offset: const Offset(0, 1)),
+                  BoxShadow(color: Colors.black.withOpacity(0.06), blurRadius: 14, offset: const Offset(0, 6)),
+                  BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 38, offset: const Offset(0, 16)),
                 ])
           : [BoxShadow(color: Colors.black.withOpacity(isDark ? 0.30 : 0.08), blurRadius: 18, offset: const Offset(0, 6))];
     }
