@@ -36,7 +36,13 @@ pub struct Gpu {
 fn classify(name: &str) -> &'static str {
     // 不绑型号：只看名字里的通用标记，4080/4090/RX 7900/Arc A770 都能认出来。
     // 先判独显再判核显 —— 否则 "Intel(R) Arc(TM) A770" 因为带括号匹配不上 "arc a"，会被当成核显。
-    let n = name.to_lowercase().replace(['(', ')', '™', '®'], "").replace("  ", " ");
+    let n = name
+        .to_lowercase()
+        .replace('(', "")
+        .replace(')', "")
+        .replace('™', "")
+        .replace('®', "")
+        .replace("  ", " ");
     const DISCRETE: [&str; 15] = [
         "nvidia", "geforce", "rtx", "gtx", "quadro", "radeon rx", "rx 5", "rx 6", "rx 7", "rx 9", "radeon vii",
         "arc a", "arc b", "intel arc", "arc graphics", "geforce mx",
