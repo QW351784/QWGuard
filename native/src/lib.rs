@@ -9,6 +9,14 @@ use serde_json::Value;
 use std::ffi::{c_char, CStr};
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::Mutex;
+
+// ---- 清理扫描实时进度（前端轮询，画文件名滚动用） ----
+static CLEAN_RUNNING: AtomicBool = AtomicBool::new(false);
+static CLEAN_FILES: AtomicU64 = AtomicU64::new(0);
+static CLEAN_BYTES: AtomicU64 = AtomicU64::new(0);
+static CLEAN_CUR: Mutex<String> = Mutex::new(String::new());
 
 mod engines;
 mod ext;
@@ -226,6 +234,144 @@ pub(crate) fn rules() -> Vec<(&'static str, &'static str, &'static str, &'static
             ("user_cache", "~/.cache", "BleachBit", "用户缓存"),
         ]
     }
+}
+
+/// 逐文件统计体积，顺便把当前文件写进进度（前端拿它滚动显示）
+pub(crate) fn walk_stat(dir: &Path, files: &mut u64, bytes: &mut u64, depth: usize) {
+    if depth > 14 || *files > 2_000_000 {
+        return;
+    }
+    let Ok(rd) = fs::read_dir(dir) else { return };
+    for e in rd.flatten() {
+        let Ok(md) = e.metadata() else { continue };
+        if md.is_dir() {
+            walk_stat(&e.path(), files, bytes, depth + 1);
+        } else {
+            *files += 1;
+            *bytes += md.len();
+            if *files % 40 == 0 {
+                if let Ok(mut g) = CLEAN_CUR.lock() {
+                    *g = e.path().to_string_lossy().to_string();
+                }
+                CLEAN_FILES.store(*files, Ordering::Relaxed);
+                CLEAN_BYTES.store(*bytes, Ordering::Relaxed);
+            }
+        }
+    }
+}
+
+/// 清理范围扫描：quick 内置垃圾目录 / full 全部固定盘的系统级垃圾 / custom 指定目录
+#[no_mangle]
+pub extern "C" fn cleanup_scan_mode(mode: *const c_char, path: *const c_char, buf: *mut u8, len: usize) -> i32 {
+    let Some(mode) = cstr(mode) else { return fail(buf, len, -1, "模式为空") };
+    let extra = cstr(path).unwrap_or_default();
+
+    CLEAN_RUNNING.store(true, Ordering::Relaxed);
+    CLEAN_FILES.store(0, Ordering::Relaxed);
+    CLEAN_BYTES.store(0, Ordering::Relaxed);
+
+    let mut items = Vec::new();
+    let mut total = 0u64;
+
+    // 1) 内置垃圾目录：两种模式都要过一遍
+    for (id, raw, source, category) in rules() {
+        if let Ok(mut g) = CLEAN_CUR.lock() {
+            *g = format!("定位 {}", category);
+        }
+        let Some(p) = expand(raw) else { continue };
+        if !p.exists() {
+            continue;
+        }
+        let (mut f, mut b) = (0u64, 0u64);
+        walk_stat(&p, &mut f, &mut b, 0);
+        if b == 0 {
+            continue;
+        }
+        total += b;
+        items.push(CleanItem {
+            id: id.into(),
+            category: category.into(),
+            path: p.to_string_lossy().into(),
+            size_bytes: b,
+            default_checked: true,
+            source: source.into(),
+        });
+    }
+
+    // 2) 全盘：各固定盘上的系统级垃圾
+    if mode == "full" {
+        for root in ext::drives("fixed") {
+            for sub in [
+                "$Recycle.Bin",
+                "Windows\\Temp",
+                "Temp",
+                "Windows\\SoftwareDistribution\\Download",
+                "Windows\\Logs",
+                "Windows\\Prefetch",
+                "ProgramData\\Package Cache",
+            ] {
+                let p = root.join(sub);
+                if !p.exists() {
+                    continue;
+                }
+                let (mut f, mut b) = (0u64, 0u64);
+                walk_stat(&p, &mut f, &mut b, 0);
+                if b == 0 {
+                    continue;
+                }
+                total += b;
+                items.push(CleanItem {
+                    id: format!("full:{}", sub),
+                    category: "系统级垃圾".into(),
+                    path: p.to_string_lossy().into(),
+                    size_bytes: b,
+                    default_checked: !sub.contains("$Recycle.Bin"),
+                    source: "全盘扫描".into(),
+                });
+            }
+        }
+    }
+
+    // 3) 指定目录
+    if mode == "custom" {
+        let p = PathBuf::from(&extra);
+        if !p.exists() {
+            CLEAN_RUNNING.store(false, Ordering::Relaxed);
+            return fail(buf, len, -3, "路径不存在");
+        }
+        let (mut f, mut b) = (0u64, 0u64);
+        walk_stat(&p, &mut f, &mut b, 0);
+        if b > 0 {
+            total += b;
+            items.push(CleanItem {
+                id: "custom".into(),
+                category: "指定位置".into(),
+                path: p.to_string_lossy().into(),
+                size_bytes: b,
+                default_checked: true,
+                source: "指定位置".into(),
+            });
+        }
+    }
+
+    CLEAN_RUNNING.store(false, Ordering::Relaxed);
+    ok(buf, len, "扫描完成", serde_json::json!({
+        "total_bytes": total,
+        "files": CLEAN_FILES.load(Ordering::Relaxed),
+        "items": items,
+        "scope": if mode == "full" { "全盘清理" } else if mode == "custom" { "指定位置清理" } else { "快速清理" },
+    }))
+}
+
+#[no_mangle]
+pub extern "C" fn cleanup_progress(buf: *mut u8, len: usize) -> i32 {
+    let cur = CLEAN_CUR.lock().map(|s| s.clone()).unwrap_or_default();
+    ok(buf, len, "清理进度", serde_json::json!({
+        "running": CLEAN_RUNNING.load(Ordering::Relaxed),
+        "files": CLEAN_FILES.load(Ordering::Relaxed),
+        "bytes": CLEAN_BYTES.load(Ordering::Relaxed),
+        "current": cur,
+    }))
 }
 
 #[no_mangle]

@@ -76,6 +76,13 @@ class Api {
 
   static Map<String, dynamic> setTopmost(String title) => _one('set_topmost', title);
   static Map<String, dynamic> scanAuto(String target) => _one('scan_auto', target, cap: 16384);
+  /// 四种扫描模式：quick / full / usb / custom
+  static Map<String, dynamic> scanByMode(String mode, String path) =>
+      _str('scan_by_mode', [mode, path], cap: 65536);
+  static void scanCancel() => _str('scan_cancel', ['']);
+  static Map<String, dynamic> cleanupScanMode(String mode, String path) =>
+      Native.cleanupScanMode(mode, path);
+  static Map<String, dynamic> cleanupProgress() => Native.cleanupProgress();
   static Map<String, dynamic> applyGpuPreference(String mode) => _one('apply_gpu_preference', mode);
   static Map<String, dynamic> scanHuorong(String target) => _one('scan_huorong', target, cap: 16384);
   static Map<String, dynamic> scanPyas(String target) => _one('scan_pyas', target, cap: 16384);

@@ -16,6 +16,8 @@ static SCAN_TOTAL: AtomicU64 = AtomicU64::new(0);
 static SCAN_DONE: AtomicU64 = AtomicU64::new(0);
 static SCAN_HITS: AtomicU32 = AtomicU32::new(0);
 static SCAN_CUR: Mutex<String> = Mutex::new(String::new());
+static SCAN_SCOPE: Mutex<String> = Mutex::new(String::new());
+static SCAN_CANCEL: AtomicBool = AtomicBool::new(false);
 
 use crate::{cstr, fail, ok, round1};
 
@@ -889,87 +891,342 @@ struct EngineOutcome {
     message: String,
 }
 
+// ================= 查杀范围（快速 / 全盘 / 指定位置 / U 盘）=================
+
+/// 系统级垃圾目录，全盘扫描时一律跳过，扫进去纯属浪费
+fn skip_dir(name: &str) -> bool {
+    matches!(
+        name.to_lowercase().as_str(),
+        "winsxs"
+            | "$recycle.bin"
+            | "system volume information"
+            | "installer"
+            | "servicing"
+            | "package cache"
+            | "node_modules"
+            | ".git"
+            | ".svn"
+            | ".hg"
+            | "windows.old"
+            | "recovery"
+            | "msocache"
+            | "$windows.~bt"
+            | "$windows.~ws"
+            | "driverstore"
+            | "assembly"
+            | "softwaredistribution"
+            | "catroot"
+            | "catroot2"
+    )
+}
+
+/// 快速扫描：只打常见落地位置，命中率高、耗时短
+fn quick_dirs() -> Vec<PathBuf> {
+    let user = std::env::var("USERPROFILE").unwrap_or_default();
+    let appdata = std::env::var("APPDATA").unwrap_or_default();
+    let local = std::env::var("LOCALAPPDATA").unwrap_or_default();
+    let temp = std::env::var("TEMP").unwrap_or_default();
+    let programdata = std::env::var("ProgramData").unwrap_or_else(|_| "C:\\ProgramData".to_string());
+    let windir = std::env::var("WINDIR").unwrap_or_else(|_| "C:\\Windows".to_string());
+
+    let candidates = vec![
+        temp,
+        format!("{}\\Temp", windir),
+        format!("{}\\Downloads", user),
+        format!("{}\\Desktop", user),
+        format!("{}\\Documents", user),
+        format!("{}\\Microsoft\\Windows\\Start Menu\\Programs\\Startup", appdata),
+        local,
+        appdata,
+        programdata,
+    ];
+    let mut out = Vec::new();
+    for c in candidates {
+        if c.is_empty() {
+            continue;
+        }
+        let p = PathBuf::from(&c);
+        if p.exists() {
+            out.push(p);
+        }
+    }
+    out
+}
+
+/// 按类型枚举盘符：fixed 固定盘 / removable 可移动盘（U 盘、移动硬盘）
+pub(crate) fn drives(kind: &str) -> Vec<PathBuf> {
+    let mut out: Vec<PathBuf> = Vec::new();
+    if cfg!(windows) {
+        let script = "Get-CimInstance Win32_LogicalDisk | Select-Object DeviceID,DriveType | ConvertTo-Json -Compress";
+        if let Ok(o) = Command::new("powershell").args(["-NoProfile", "-Command", script]).output() {
+            let text = String::from_utf8_lossy(&o.stdout).to_string();
+            if let Ok(v) = serde_json::from_str::<Value>(&text) {
+                let list = match v {
+                    Value::Array(a) => a,
+                    other => vec![other],
+                };
+                for it in list {
+                    let id = it.get("DeviceID").and_then(|x| x.as_str()).unwrap_or("");
+                    let dt = it.get("DriveType").and_then(|x| x.as_u64()).unwrap_or(0);
+                    let want = if kind == "removable" { dt == 2 } else { dt == 3 };
+                    if want && !id.is_empty() {
+                        let root = format!("{}\\", id);
+                        if Path::new(&root).exists() {
+                            out.push(PathBuf::from(root));
+                        }
+                    }
+                }
+            }
+        }
+    }
+    if out.is_empty() {
+        let p = PathBuf::from("/");
+        if p.exists() {
+            out.push(p);
+        }
+    }
+    out
+}
+
+/// 递归收集待扫文件；带上限、跳过超大文件、随时可取消
+fn collect_files(roots: &[PathBuf], limit: usize, max_size: u64) -> Vec<PathBuf> {
+    let mut out: Vec<PathBuf> = Vec::new();
+    let mut stack: Vec<PathBuf> = roots.to_vec();
+    let mut dirs: u64 = 0;
+    while let Some(dir) = stack.pop() {
+        if SCAN_CANCEL.load(Ordering::Relaxed) {
+            break;
+        }
+        dirs += 1;
+        if dirs % 100 == 0 {
+            if let Ok(mut g) = SCAN_CUR.lock() {
+                *g = format!("正在枚举目录 · {}", dir.to_string_lossy());
+            }
+        }
+        let Ok(rd) = fs::read_dir(&dir) else { continue };
+        for e in rd.flatten() {
+            let Ok(md) = e.metadata() else { continue };
+            if md.is_dir() {
+                let n = e.file_name().to_string_lossy().to_string();
+                if skip_dir(&n) || n.starts_with('$') {
+                    continue;
+                }
+                stack.push(e.path());
+            } else if md.is_file() {
+                let sz = md.len();
+                if sz == 0 || sz > max_size {
+                    continue;
+                }
+                out.push(e.path());
+                if out.len() >= limit {
+                    return out;
+                }
+            }
+        }
+    }
+    out
+}
+
+/// 真正干活的地方：逐文件跑两个纯 Rust 引擎，可疑文件再交给 YARA / Defender 复核
+fn do_scan(files: Vec<PathBuf>, scope: String, buf: *mut u8, len: usize) -> i32 {
+    crate::engines::ensure_default_rules();
+
+    let total = files.len() as u64;
+    SCAN_CANCEL.store(false, Ordering::Relaxed);
+    SCAN_TOTAL.store(total, Ordering::Relaxed);
+    SCAN_DONE.store(0, Ordering::Relaxed);
+    SCAN_HITS.store(0, Ordering::Relaxed);
+    SCAN_RUNNING.store(true, Ordering::Relaxed);
+    if let Ok(mut g) = SCAN_SCOPE.lock() {
+        *g = scope.clone();
+    }
+
+    let mut sig_hits = 0u64;
+    let mut heu_hits = 0u64;
+    let mut yara_hits = 0u64;
+    let mut def_hits = 0u64;
+    let mut threats: Vec<Value> = Vec::new();
+    let mut suspects: Vec<PathBuf> = Vec::new();
+
+    // ---- 阶段一：纯 Rust 快引擎，全量过一遍 ----
+    for f in files.iter() {
+        if SCAN_CANCEL.load(Ordering::Relaxed) {
+            break;
+        }
+        let s = f.to_string_lossy().to_string();
+        if let Ok(mut g) = SCAN_CUR.lock() {
+            *g = s.clone();
+        }
+        if is_whitelisted(&s) {
+            SCAN_DONE.fetch_add(1, Ordering::Relaxed);
+            continue;
+        }
+        let (hit, th) = crate::engines::signature_scan(&s);
+        if hit {
+            sig_hits += 1;
+            SCAN_HITS.fetch_add(1, Ordering::Relaxed);
+            threats.push(json!({"file": s, "engine": "signature", "threats": th}));
+        }
+        let (heu, hth) = crate::engines::heuristic_scan(&s);
+        if heu {
+            heu_hits += 1;
+            SCAN_HITS.fetch_add(1, Ordering::Relaxed);
+            threats.push(json!({"file": s, "engine": "heuristic", "threats": hth}));
+            if suspects.len() < 300 {
+                suspects.push(f.clone());
+            }
+        } else {
+            let low = s.to_lowercase();
+            if (low.ends_with(".exe") || low.ends_with(".dll") || low.ends_with(".sys")) && suspects.len() < 300 {
+                suspects.push(f.clone());
+            }
+        }
+        SCAN_DONE.fetch_add(1, Ordering::Relaxed);
+    }
+
+    // ---- 阶段二：只对可疑文件起子进程（YARA 全量、Defender 前 60 个）----
+    let examined = suspects.len();
+    for (i, f) in suspects.iter().enumerate() {
+        if SCAN_CANCEL.load(Ordering::Relaxed) {
+            break;
+        }
+        let s = f.to_string_lossy().to_string();
+        if let Ok(mut g) = SCAN_CUR.lock() {
+            *g = format!("深度复核 · {}", s);
+        }
+        match crate::run_engine("yara", &s) {
+            Ok((hit, th)) => {
+                if hit {
+                    yara_hits += 1;
+                    SCAN_HITS.fetch_add(1, Ordering::Relaxed);
+                    threats.push(json!({"file": s, "engine": "yara", "threats": th}));
+                }
+            }
+            Err(_) => {}
+        }
+        if i < 60 {
+            if let Ok((hit, th)) = crate::run_engine("defender", &s) {
+                if hit {
+                    def_hits += 1;
+                    SCAN_HITS.fetch_add(1, Ordering::Relaxed);
+                    threats.push(json!({"file": s, "engine": "defender", "threats": th}));
+                }
+            }
+        }
+    }
+
+    SCAN_RUNNING.store(false, Ordering::Relaxed);
+    SCAN_DONE.store(SCAN_TOTAL.load(Ordering::Relaxed), Ordering::Relaxed);
+    let canceled = SCAN_CANCEL.load(Ordering::Relaxed);
+
+    // 每个子引擎的 threats 给前端的是"文件 · 描述"字符串，便于直接展示与定位
+    let pick = |name: &str, src: &[Value]| -> Vec<String> {
+        src.iter()
+            .filter(|t| t.get("engine").and_then(|e| e.as_str()) == Some(name))
+            .filter_map(|t| {
+                let file = t.get("file").and_then(|f| f.as_str()).unwrap_or("").to_string();
+                let items: Vec<String> = t
+                    .get("threats")
+                    .and_then(|v| v.as_array())
+                    .map(|a| a.iter().filter_map(|x| x.as_str().map(|z| z.to_string())).collect())
+                    .unwrap_or_default();
+                Some(format!("{} · {}", file, items.join(" / ")))
+            })
+            .collect()
+    };
+    let infected = sig_hits + heu_hits + yara_hits + def_hits > 0;
+
+    ok(buf, len, "查杀完成", json!({
+        "target": scope,
+        "scope": scope,
+        "engine": "QW 安全电脑管家 · 查杀引擎",
+        "files": total,
+        "examined": examined,
+        "infected": infected,
+        "hits": SCAN_HITS.load(Ordering::Relaxed),
+        "canceled": canceled,
+        "threats": threats.clone(),
+        "engines": [
+            {"engine": "signature", "ok": true, "infected": sig_hits > 0,
+             "threats": pick("signature", &threats),
+             "message": format!("哈希库比对 {} 个文件，命中 {}", total, sig_hits)},
+            {"engine": "heuristic", "ok": true, "infected": heu_hits > 0,
+             "threats": pick("heuristic", &threats),
+             "message": format!("启发式解析 {} 个文件，可疑 {} 个", total, heu_hits)},
+            {"engine": "yara", "ok": true, "infected": yara_hits > 0,
+             "threats": pick("yara", &threats),
+             "message": format!("YARA 深度复核 {} 个可疑文件，命中 {}", examined, yara_hits)},
+            {"engine": "defender", "ok": true, "infected": def_hits > 0,
+             "threats": pick("defender", &threats),
+             "message": format!("Defender 复核前 {} 个可疑文件，命中 {}", examined.min(60), def_hits)},
+        ]
+    }))
+}
+
 #[no_mangle]
 pub extern "C" fn scan_auto(target: *const c_char, buf: *mut u8, len: usize) -> i32 {
     let Some(target) = cstr(target) else { return fail(buf, len, -1, "参数为空") };
-    // 每次查杀前确保规则库落地（首次运行会写入内置 YARA 与空哈希库）
-    crate::engines::ensure_default_rules();
-    if !Path::new(&target).exists() {
+    let p = PathBuf::from(&target);
+    if !p.exists() {
         return fail(buf, len, -3, "目标路径不存在");
     }
     if is_whitelisted(&target) {
         return ok(buf, len, "已跳过（白名单）", json!({"skipped": true, "engines": []}));
     }
-
-    // 并发度看 CPU 核心数，跟显卡无关：显卡只决定渲染偏好（apply_gpu_preference），
-    // 不该决定杀毒跑几个引擎。以前按独显分数选引擎是错的，这里改掉。
-    let cores = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4);
-
-    // 只有一档：深度查杀。四个子引擎（Defender / 特征库 / 启发式 / YARA）不再拆档，
-    // 对外合并成一个整体——QW 安全电脑管家 · 查杀引擎。全部自带，用户零安装。
-    let mode = "deep";
-    let engines: Vec<&str> = vec!["defender", "signature", "heuristic", "yara"];
-
-    let total = engines.len() as u64;
-    SCAN_TOTAL.store(total, Ordering::Relaxed);
-    SCAN_DONE.store(0, Ordering::Relaxed);
-    SCAN_HITS.store(0, Ordering::Relaxed);
-    SCAN_RUNNING.store(true, Ordering::Relaxed);
-    if let Ok(mut g) = SCAN_CUR.lock() {
-        *g = target.clone();
+    let files = if p.is_file() {
+        vec![p]
+    } else {
+        collect_files(std::slice::from_ref(&p), 30000, 500u64 << 20)
+    };
+    if files.is_empty() {
+        return ok(buf, len, "没有可扫描的文件", json!({"empty": true, "engines": []}));
     }
-
-    let mut handles = Vec::new();
-    for engine in engines {
-        let engine_s = engine.to_string();
-        let target_s = target.clone();
-        handles.push(std::thread::spawn(move || {
-            if let Ok(mut g) = SCAN_CUR.lock() {
-                *g = format!("{} · {}", engine_s, target_s);
-            }
-            let outcome = match crate::run_engine(&engine_s, &target_s) {
-                Ok((infected, threats)) => EngineOutcome {
-                    engine: engine_s,
-                    ok: true,
-                    infected,
-                    threats,
-                    message: String::new(),
-                },
-                Err(e) => EngineOutcome {
-                    engine: engine_s,
-                    ok: false,
-                    infected: false,
-                    threats: Vec::new(),
-                    message: e,
-                },
-            };
-            if outcome.infected {
-                SCAN_HITS.fetch_add(outcome.threats.len().max(1) as u32, Ordering::Relaxed);
-            }
-            SCAN_DONE.fetch_add(1, Ordering::Relaxed);
-            outcome
-        }));
-    }
-
-    let results: Vec<EngineOutcome> = handles
-        .into_iter()
-        .filter_map(|h| h.join().ok())
-        .collect();
-
-    SCAN_RUNNING.store(false, Ordering::Relaxed);
-    SCAN_DONE.store(SCAN_TOTAL.load(Ordering::Relaxed), Ordering::Relaxed);
-    let any_infected = results.iter().any(|r| r.infected);
-    ok(buf, len, "QW 引擎查杀完成", json!({
-        "target": target,
-        "engine": "QW 安全电脑管家 · 查杀引擎",
-        "mode": mode,
-        "cores": cores,
-        "infected": any_infected,
-        "engines": results
-    }))
+    do_scan(files, "指定位置扫描".to_string(), buf, len)
 }
 
+/// 四种扫描模式：quick 快速 / full 全盘 / usb U 盘 / custom 指定位置
+#[no_mangle]
+pub extern "C" fn scan_by_mode(mode: *const c_char, path: *const c_char, buf: *mut u8, len: usize) -> i32 {
+    let Some(mode) = cstr(mode) else { return fail(buf, len, -1, "模式为空") };
+    let path = cstr(path).unwrap_or_default();
 
+    let (roots, limit, max_size, label): (Vec<PathBuf>, usize, u64, String) = match mode.as_str() {
+        "quick" => (quick_dirs(), 8000, 300u64 << 20, "快速扫描".to_string()),
+        "full" => (drives("fixed"), 30000, 500u64 << 20, "全盘扫描".to_string()),
+        "usb" => (drives("removable"), 20000, 500u64 << 20, "U 盘扫描".to_string()),
+        _ => {
+            let p = PathBuf::from(&path);
+            if !p.exists() {
+                return fail(buf, len, -3, "路径不存在");
+            }
+            (vec![p], 30000, 500u64 << 20, "指定位置扫描".to_string())
+        }
+    };
+
+    if roots.is_empty() {
+        return fail(buf, len, -3, "没有找到可扫描的磁盘");
+    }
+
+    SCAN_CANCEL.store(false, Ordering::Relaxed);
+    if let Ok(mut g) = SCAN_SCOPE.lock() {
+        *g = label.clone();
+    }
+    if let Ok(mut g) = SCAN_CUR.lock() {
+        *g = "正在枚举文件".to_string();
+    }
+    let files = collect_files(&roots, limit, max_size);
+    if files.is_empty() {
+        return ok(buf, len, "没有可扫描的文件", json!({"empty": true, "engines": []}));
+    }
+    do_scan(files, label, buf, len)
+}
+
+/// 停止扫描：遍历和逐文件循环都会看这个标志
+#[no_mangle]
+pub extern "C" fn scan_cancel(_buf: *mut u8, _len: usize) -> i32 {
+    SCAN_CANCEL.store(true, Ordering::Relaxed);
+    0
+}
 
 /// 查杀实时进度：前端每 200ms 拉一次，喂给扫描动效
 #[no_mangle]
@@ -985,6 +1242,7 @@ pub extern "C" fn scan_progress(buf: *mut u8, len: usize) -> i32 {
         "done": done,
         "hits": SCAN_HITS.load(Ordering::Relaxed),
         "current": cur,
+        "scope": SCAN_SCOPE.lock().map(|s| s.clone()).unwrap_or_default(),
         "progress": round1((pct * 100.0) as f32) / 100.0,
     }))
 }

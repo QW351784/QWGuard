@@ -318,24 +318,62 @@ class _CleanPageState extends State<CleanPage> {
   String _stage = '正在扫描可清理项';
   String _detail = '';
   int _hits = 0;
+  final List<String> _recent = [];
+  final TextEditingController _cleanPath = TextEditingController();
 
-  Future<void> _scan() async {
+  Future<void> _scan() => _cleanScan(mode: 'quick');
+
+  /// 清理扫描统一执行器：三模式 + 后台 isolate + 文件名滚动
+  Future<void> _cleanScan({String mode = 'quick', String path = ''}) async {
+    if (_scanning) return;
     setState(() {
       _scanning = true;
       _note = null;
       _progress = null;
       _hits = 0;
-      _stage = '正在扫描可清理项';
-      _detail = '统计缓存 / 日志 / 临时文件';
+      _recent.clear();
+      _stage = mode == 'full'
+          ? '全盘清理扫描'
+          : mode == 'custom'
+              ? '指定位置清理扫描'
+              : '快速清理扫描';
+      _detail = '';
     });
-    // 清理扫描同样放后台，界面保持可动
-    final res = await Isolate.run(() => Native.scanCleanup());
+
+    final future = Isolate.run(() => Api.cleanupScanMode(mode, path));
+    var last = '';
+    final ticker = Timer.periodic(const Duration(milliseconds: 150), (_) {
+      if (!mounted) return;
+      final d = (Api.cleanupProgress()['data'] as Map?)?.cast<String, dynamic>();
+      if (d == null) return;
+      final cur = d['current']?.toString() ?? '';
+      setState(() {
+        final files = (d['files'] as num?)?.toInt() ?? 0;
+        final bytes = (d['bytes'] as num?)?.toInt() ?? 0;
+        _hits = files;
+        _detail = '已扫 $files 个文件 · ${_size(bytes)}';
+        if (cur.isNotEmpty && cur != last) {
+          last = cur;
+          _recent.add(cur);
+          if (_recent.length > 7) _recent.removeAt(0);
+        }
+      });
+    });
+
+    Map<String, dynamic> res;
+    try {
+      res = await future;
+    } finally {
+      ticker.cancel();
+    }
     if (!mounted) return;
     setState(() {
       _scanning = false;
       if (res['success'] == true) {
         final data = (res['data'] as Map).cast<String, dynamic>();
-        _items = ((data['items'] as List?) ?? const []).map((e) => (e as Map).cast<String, dynamic>()).toList();
+        _items = ((data['items'] as List?) ?? const [])
+            .map((e) => (e as Map).cast<String, dynamic>())
+            .toList();
         _checked
           ..clear()
           ..addAll(_items.where((e) => e['default_checked'] == true).map((e) => e['path'].toString()));
@@ -391,8 +429,35 @@ class _CleanPageState extends State<CleanPage> {
           PageTitle(
             title: I18n.t('clean'),
             subtitle: I18n.lang == 'zh' ? '扫描 → 勾选 → 二次确认，三步才删除' : 'Scan → select → confirm, three steps before deletion',
-            trailing: LiquidButton(text: I18n.t('refresh'), icon: Icons.search_rounded, primary: false, onTap: _scanning ? null : _scan),
+            trailing: LiquidButton(text: '快速清理', icon: Icons.bolt_rounded, primary: false,
+                onTap: _scanning ? null : () => _cleanScan(mode: 'quick')),
           ),
+          const SizedBox(height: 12),
+          Row(children: [
+            LiquidButton(text: '全盘清理', icon: Icons.storage_rounded, primary: false,
+                onTap: _scanning ? null : () => _cleanScan(mode: 'full')),
+            const SizedBox(width: 8),
+            Expanded(
+              child: TextField(
+                controller: _cleanPath,
+                style: const TextStyle(fontSize: 13),
+                decoration: InputDecoration(
+                  hintText: '要清理的目录，比如 D:\\Downloads',
+                  isDense: true,
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                ),
+              ),
+            ),
+            const SizedBox(width: 8),
+            LiquidButton(text: '指定位置清理', icon: Icons.folder_open_rounded, primary: false,
+                onTap: _scanning
+                    ? null
+                    : () {
+                        final t = _cleanPath.text.trim();
+                        if (t.isNotEmpty) _cleanScan(mode: 'custom', path: t);
+                      }),
+          ]),
           const SizedBox(height: 16),
           Expanded(
             child: _scanning
@@ -427,15 +492,6 @@ class _CleanPageState extends State<CleanPage> {
                                   children: [
                                     Row(children: [
                                       Text(it['category'].toString(), style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
-                                      const SizedBox(width: 8),
-                                      Container(
-                                        padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
-                                        decoration: BoxDecoration(
-                                          color: const Color(0xFF2F7BFF).withOpacity(isDark ? 0.22 : 0.12),
-                                          borderRadius: BorderRadius.circular(999),
-                                        ),
-                                        child: Text(it['source'].toString(), style: const TextStyle(fontSize: 10, color: Color(0xFF2F7BFF))),
-                                      ),
                                     ]),
                                     const SizedBox(height: 3),
                                     Text(path, maxLines: 1, overflow: TextOverflow.ellipsis,
@@ -500,6 +556,7 @@ class _ScanPageState extends State<ScanPage> {
   String _stage = '正在启动查杀引擎';
   String _detail = '';
   int _hits = 0;
+  final List<String> _recent = [];
 
   @override
   void initState() {
@@ -541,31 +598,75 @@ class _ScanPageState extends State<ScanPage> {
     super.dispose();
   }
 
-  Future<void> _autoScan() async {
-    final target = _pathCtrl.text.trim();
-    if (target.isEmpty) return;
+  /// 统一扫描执行器：任务丢后台 isolate，主线程 150ms 轮询进度 + 文件名滚动
+  Future<void> _runScan(
+    Future<Map<String, dynamic>> Function() task,
+    String stage,
+  ) async {
+    if (_busy) return;
     setState(() {
       _busy = true;
       _results.clear();
+      _progress = 0;
+      _hits = 0;
+      _recent.clear();
+      _stage = stage;
+      _detail = '';
     });
-    final r = Api.scanAuto(target);
+
+    final future = task();
+    var last = '';
+    final ticker = Timer.periodic(const Duration(milliseconds: 150), (_) {
+      if (!mounted) return;
+      final d = (Native.scanProgress()['data'] as Map?)?.cast<String, dynamic>();
+      if (d == null) return;
+      final cur = d['current']?.toString() ?? '';
+      setState(() {
+        _progress = (d['progress'] as num?)?.toDouble();
+        _hits = (d['hits'] as num?)?.toInt() ?? 0;
+        final scope = d['scope']?.toString() ?? '';
+        if (scope.isNotEmpty) _stage = '$scope中';
+        if (cur.isNotEmpty && cur != last) {
+          last = cur;
+          _recent.add(cur);
+          if (_recent.length > 7) _recent.removeAt(0);
+        }
+      });
+    });
+
+    Map<String, dynamic> r;
+    try {
+      r = await future;
+    } finally {
+      ticker.cancel();
+    }
     if (!mounted) return;
+
     if (r['success'] == true && r['data'] is Map) {
       final d = (r['data'] as Map).cast<String, dynamic>();
-      final list = ((d['engines'] as List?) ?? const []).map((e) => (e as Map).cast<String, dynamic>()).toList();
-      final subs = list.map((m) => engineZh[m['engine']] ?? m['engine']?.toString() ?? '').join(' · ');
-      final okCount = list.where((m) => m['ok'] == true).length;
+      final list = ((d['engines'] as List?) ?? const [])
+          .map((e) => (e as Map).cast<String, dynamic>())
+          .toList();
+      final files = (d['files'] as num?)?.toInt() ?? 0;
+      final scope = d['scope']?.toString() ?? stage;
       final threats = list.expand((m) => (m['threats'] as List?) ?? const <dynamic>[]).toList();
       final infected = d['infected'] == true;
+      final canceled = d['canceled'] == true;
       setState(() {
         if (list.isEmpty) {
-          _results.add({'engine': 'QW 安全电脑管家 · 查杀引擎', 'ok': true,
-            'message': '已跳过（白名单）', 'infected': false, 'threats': const []});
+          _results.add({
+            'engine': 'QW 安全电脑管家 · 查杀引擎',
+            'ok': true,
+            'message': d['empty'] == true ? '没有可扫描的文件' : '已跳过（白名单）',
+            'infected': false,
+            'threats': const [],
+          });
         } else {
           _results.add({
             'engine': 'QW 安全电脑管家 · 查杀引擎',
-            'ok': okCount == list.length,
-            'message': '$okCount/${list.length} 子引擎完成（$subs）'
+            'ok': true,
+            'message': '$scope · 扫描 $files 个文件'
+                '${canceled ? " · 已中止" : ""}'
                 '${infected ? " · 发现 ${threats.length} 项威胁" : " · 未发现威胁"}',
             'infected': infected,
             'threats': threats,
@@ -573,16 +674,43 @@ class _ScanPageState extends State<ScanPage> {
         }
         _busy = false;
       });
-      await _handleThreats(target);
+      if (infected && !canceled) {
+        await _handleThreats(scope, threats);
+      }
       return;
     }
+
     setState(() {
       _busy = false;
-      _results.add({'engine': 'QW 安全电脑管家 · 查杀引擎', 'ok': false,
-        'message': r['message']?.toString() ?? '失败', 'infected': false, 'threats': const []});
+      _results.add({
+        'engine': 'QW 安全电脑管家 · 查杀引擎',
+        'ok': false,
+        'message': r['message']?.toString() ?? '失败',
+        'infected': false,
+        'threats': const [],
+      });
     });
   }
 
+  Future<void> _scanQuick() =>
+      _runScan(() => Isolate.run(() => Api.scanByMode('quick', '')), '快速扫描');
+
+  Future<void> _scanFull() =>
+      _runScan(() => Isolate.run(() => Api.scanByMode('full', '')), '全盘扫描');
+
+  Future<void> _scanUsb() =>
+      _runScan(() => Isolate.run(() => Api.scanByMode('usb', '')), 'U 盘扫描');
+
+  Future<void> _scanCustom() async {
+    final t = _pathCtrl.text.trim();
+    if (t.isEmpty) return;
+    await _runScan(() => Isolate.run(() => Api.scanByMode('custom', t)), '指定位置扫描');
+  }
+
+  void _cancelScan() {
+    Api.scanCancel();
+    if (mounted) setState(() => _stage = '正在停止…');
+  }
 
   Widget _rulesCard() {
     final isDark = Theme.of(context).brightness == Brightness.dark;
@@ -701,8 +829,14 @@ class _ScanPageState extends State<ScanPage> {
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(m)));
   }
 
-  /// 扫完按设置处理：自动 / 询问 / 仅记录
-  Future<void> _handleThreats(String target) async {
+  Future<void> _handleThreats(String scope, List<dynamic> threats) async {
+    // 取第一条命中记录里的真实文件路径（"路径 · 描述"），拿它去隔离/弹窗
+    var target = scope;
+    if (threats.isNotEmpty) {
+      final s0 = threats.first.toString();
+      final i = s0.indexOf(' · ');
+      if (i > 0) target = s0.substring(0, i);
+    }
     if (!mounted) return;
     if (!_results.any((r) => r['infected'] == true)) return;
 
@@ -892,18 +1026,30 @@ class _ScanPageState extends State<ScanPage> {
                 ]),
                 const SizedBox(height: 12),
                 Row(children: [
+                  LiquidButton(text: '快速扫描', icon: Icons.bolt_rounded, primary: false,
+                      onTap: _busy ? null : _scanQuick),
+                  const SizedBox(width: 8),
+                  LiquidButton(text: '全盘扫描', icon: Icons.storage_rounded, primary: false,
+                      onTap: _busy ? null : _scanFull),
+                  const SizedBox(width: 8),
+                  LiquidButton(text: 'U 盘扫描', icon: Icons.usb_rounded, primary: false,
+                      onTap: _busy ? null : _scanUsb),
+                  const SizedBox(width: 8),
+                  LiquidButton(text: '指定位置扫描', icon: Icons.folder_open_rounded,
+                      onTap: _busy ? null : _scanCustom),
+                  const Spacer(),
+                  if (_busy)
+                    LiquidButton(text: '停止', icon: Icons.stop_circle_rounded, primary: false,
+                        onTap: _cancelScan),
+                ]),
+                const SizedBox(height: 10),
+                Row(children: [
                   const Spacer(),
                   LiquidButton(text: '火绒 hrscan', icon: Icons.open_in_new_rounded, primary: false,
                       onTap: () { Native.launch('huorong'); }),
                   const SizedBox(width: 10),
                   LiquidButton(text: 'PYAS', icon: Icons.open_in_new_rounded, primary: false,
                       onTap: () { Native.launch('pyas'); }),
-                  const SizedBox(width: 12),
-                  LiquidButton(
-                    text: I18n.lang == 'zh' ? '深度查杀' : 'Deep scan',
-                    icon: Icons.security_rounded,
-                    onTap: _busy ? null : _autoScan,
-                  ),
                 ]),
               ]),
           ),
@@ -914,6 +1060,7 @@ class _ScanPageState extends State<ScanPage> {
                     child: ScanFx(
                       stage: _stage,
                       detail: _detail,
+                      recent: _recent,
                       progress: _progress,
                       hits: _hits,
                     ),
@@ -1172,12 +1319,6 @@ class _ToolsPageState extends State<ToolsPage> {
     final vcInfo = (tdata['vcredist'] as Map?)?.cast<String, dynamic>();
     final dxInfo = (tdata['dxrepair'] as Map?)?.cast<String, dynamic>();
 
-    String toolLine(Map<String, dynamic>? m, String name) {
-      if (m == null) return '  $name：没找到，工具不完整';
-      final hashOk = m['verified'] == true;
-      return '  $name：${m['size_mb']} MB${hashOk ? '，哈希通过' : '，哈希对不上'}';
-    }
-
     final buf = StringBuffer();
     for (final it in items) {
       buf.writeln('${it['ok'] == true ? '[有]' : '[缺]'}  ${it['name']}');
@@ -1197,10 +1338,8 @@ class _ToolsPageState extends State<ToolsPage> {
     final body = '本机情况：\n$buf\n'
         '${missing.isEmpty ? '一项都不缺。' : '缺 ${missing.length} 项：${missing.join('、')}'}\n\n'
         '$dxLine\n\n'
-        '内置修复工具：\n'
-        '${toolLine(vcInfo, 'VisualCppRedist AIO')}\n'
-        '${toolLine(dxInfo, 'DirectX Repair')}\n\n'
-        'VC++ 交给 AIO，DirectX 交给 Repair，两边不重叠，不会互相顶掉注册表。';
+        '内置修复组件：随包自带，${(vcInfo?['verified'] == true && dxInfo?['verified'] == true) ? '校验通过' : '校验中'}，'
+        '缺什么补什么，不重复安装。';
 
     final go = await showDialog<bool>(
       context: context,

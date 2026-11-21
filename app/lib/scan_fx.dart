@@ -15,6 +15,9 @@ class ScanFx extends StatelessWidget {
   /// 副文本：当前文件名 / 当前子引擎
   final String detail;
 
+  /// 文件名滚动列表（最新在最后），360 / 火绒那种疯狂往下刷的效果
+  final List<String> recent;
+
   /// 0..1；null 表示不确定进度（只转圈）
   final double? progress;
 
@@ -27,6 +30,7 @@ class ScanFx extends StatelessWidget {
     super.key,
     required this.stage,
     this.detail = '',
+    this.recent = const [],
     this.progress,
     this.hits = 0,
     this.size = 196,
@@ -58,7 +62,38 @@ class ScanFx extends StatelessWidget {
             color: isDark ? Colors.white : Colors.black87,
           ),
         ),
-        if (detail.isNotEmpty) ...[
+        if (recent.isNotEmpty) ...[
+          const SizedBox(height: 8),
+          SizedBox(
+            height: 104,
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.end,
+              children: [
+                for (var i = 0; i < recent.length; i++)
+                  Opacity(
+                    opacity: (0.16 + 0.84 * ((i + 1) / recent.length)).clamp(0.0, 1.0),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 1.6, horizontal: 22),
+                      child: SizedBox(
+                        width: double.infinity,
+                        child: Text(
+                          recent[i],
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            fontSize: 10.5,
+                            height: 1.15,
+                            color: Colors.grey.shade600,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ] else if (detail.isNotEmpty) ...[
           const SizedBox(height: 5),
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 28),

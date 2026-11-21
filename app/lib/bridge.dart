@@ -124,6 +124,32 @@ class Native {
     }
   }
 
+  /// 清理范围扫描：quick / full / custom
+  static Map<String, dynamic> cleanupScanMode(String mode, String path) {
+    final l = lib;
+    if (l == null) return {'success': false, 'message': loadError ?? 'native library missing'};
+    final f = l.lookupFunction<
+        ffi.Int32 Function(ffi.Pointer<ffi.Char>, ffi.Pointer<ffi.Char>, ffi.Pointer<ffi.Uint8>, ffi.Size),
+        int Function(ffi.Pointer<ffi.Char>, ffi.Pointer<ffi.Char>, ffi.Pointer<ffi.Uint8>, int)>('cleanup_scan_mode');
+    final a = mode.toNativeUtf8();
+    final b = path.toNativeUtf8();
+    final buf = calloc<ffi.Uint8>(16384);
+    try {
+      final ret = f(a.cast(), b.cast(), buf, 16384);
+      final text = buf.cast<ffi.Char>().cast<Utf8>().toDartString();
+      if (text.trim().isEmpty) return {'success': false, 'code': ret};
+      return jsonDecode(text) as Map<String, dynamic>;
+    } finally {
+      calloc.free(a);
+      calloc.free(b);
+      calloc.free(buf);
+    }
+  }
+
+  /// 清理扫描实时进度
+  static Map<String, dynamic> cleanupProgress() =>
+      _callBuf('cleanup_progress', cap: 4096) ?? <String, dynamic>{};
+
   static Map<String, dynamic> scanFile(String engine, String target) {
     final l = lib;
     if (l == null) return {'success': false, 'message': loadError ?? 'native library missing'};
