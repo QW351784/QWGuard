@@ -216,7 +216,7 @@ fn hex_sha256(data: &[u8]) -> String {
 fn verify_manifest(dir: &Path) -> Result<usize, String> {
     let mf = dir.join("manifest.json");
     let text = fs::read_to_string(&mf)
-        .map_err(|e| format!("安装包缺少校验清单 manifest.json（{e}）"))?;
+        .map_err(|e| format!("本安装程序缺少校验清单 manifest.json（{e}）"))?;
     let v: serde_json::Value =
         serde_json::from_str(&text).map_err(|e| format!("校验清单格式损坏：{e}"))?;
     let files = v
@@ -237,7 +237,7 @@ fn verify_manifest(dir: &Path) -> Result<usize, String> {
         };
         let full = dir.join(p);
         if !full.exists() {
-            return Err(format!("安装包缺少文件：{p}"));
+            return Err(format!("安装文件缺失：{p}"));
         }
         let data = fs::read(&full).map_err(|e| format!("读取 {p} 失败：{e}"))?;
         let got = hex_sha256(&data);
@@ -301,7 +301,7 @@ pub extern "C" fn install_run(
     // ① 完整性校验：manifest.json 里每个文件的 SHA-256 必须对上
     let verified = match verify_manifest(&from) {
         Ok(n) => n,
-        Err(e) => return fail(buf, len, -4, &format!("安装包完整性校验失败：{e}")),
+        Err(e) => return fail(buf, len, -4, &format!("安装文件完整性校验失败：{e}")),
     };
 
     let mut warnings: Vec<String> = Vec::new();
@@ -310,14 +310,14 @@ pub extern "C" fn install_run(
     match signature_status(&from.join(EXE_NAME)) {
         Ok(s) if s.eq_ignore_ascii_case("Valid") => {}
         Ok(s) if s.eq_ignore_ascii_case("NotSigned") || s.eq_ignore_ascii_case("Unknown") => {
-            warnings.push("安装包未做数字签名（自编译版本），已跳过签名验证".into());
+            warnings.push("本安装程序未做数字签名（自编译版本），已跳过签名验证".into());
         }
         Ok(s) => {
             return fail(
                 buf,
                 len,
                 -4,
-                &format!("数字签名校验失败（状态 {s}）：安装包可能被篡改"),
+                &format!("数字签名校验失败（状态 {s}）：安装文件可能被篡改"),
             );
         }
         Err(e) => warnings.push(format!("签名检测未执行：{e}")),

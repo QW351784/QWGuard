@@ -84,7 +84,11 @@ jobs:
       - name: 生成 SHA-256 校验清单
         shell: pwsh
         run: |
-          $rel = 'app\build\windows\x64\runner\Release'
+          # 必须取绝对路径。Substring 是拿 $rel.Length 去切 $_.FullName（绝对路径），
+          # 用「相对字符串」的长度去切绝对路径，切点会落在路径中间 ——
+          # 之前切出来的是 s/x64/runner/Release/dartjni.dll（那个 s 是 windows 的末字母），
+          # 安装器按这份清单逐个找文件，找不到就报「缺少文件」。
+          $rel = (Resolve-Path 'app\build\windows\x64\runner\Release').Path
           $items = Get-ChildItem $rel -Recurse -File |
             Where-Object { $_.Name -ne 'manifest.json' } |
             ForEach-Object {

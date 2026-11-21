@@ -16,6 +16,51 @@ MatStyle currentMatStyle() => switch (Ui.material.value) {
       _ => MatStyle.auto,
     };
 
+/// 苹果式连续曲率圆角（squircle）的路径
+///
+/// 不用 Flutter 的 ContinuousRectangleBorder：
+/// 它的 getOuterPath 在大半径时控制点比例固定，画出来角部偏「方」，
+/// 而且视觉半径和 BorderRadius.circular 不一致 —— 同样填 24，
+/// 用它的卡片角看起来比别处小一圈，这就是「R 角一直不对」的原因。
+///
+/// 这里直接用三次贝塞尔，控制点系数取 0.45
+/// （普通圆弧是 0.5523：系数越小，角越「鼓」、曲率过渡越长，
+///  越接近 iOS 图标那种连续曲率；系数大就是普通圆角）。
+/// 四角用同一个函数算，所以四个角严格一致，不会出现左下角漏成直角。
+Path squirclePath(Rect r, double radius) {
+  // 半径不能超过短边的一半，否则会自交
+  final rr = math.max(0.0, math.min(radius, math.min(r.width, r.height) / 2));
+  const c = 0.45;
+  final l = r.left;
+  final t = r.top;
+  final rt = r.right;
+  final b = r.bottom;
+  final p = Path()
+    ..moveTo(l + rr, t)
+    ..lineTo(rt - rr, t)
+    ..cubicTo(rt - rr * c, t, rt, t + rr * c, rt, t + rr)
+    ..lineTo(rt, b - rr)
+    ..cubicTo(rt, b - rr * c, rt - rr * c, b, rt - rr, b)
+    ..lineTo(l + rr, b)
+    ..cubicTo(l + rr * c, b, l, b - rr * c, l, b - rr)
+    ..lineTo(l, t + rr)
+    ..cubicTo(l, t + rr * c, l + rr * c, t, l + rr, t)
+    ..close();
+  return p;
+}
+
+/// 用 squirclePath 裁形状
+class SquircleClipper extends CustomClipper<Path> {
+  final double radius;
+  const SquircleClipper(this.radius);
+
+  @override
+  Path getClip(Size size) => squirclePath(Offset.zero & size, radius);
+
+  @override
+  bool shouldReclip(covariant SquircleClipper old) => old.radius != radius;
+}
+
 /// iOS 27 液态玻璃 + 澎湃 OS 4 布局 + Win11 云母 / Win7 Aero 混搭
 class AppTheme {
   static ThemeData light() => _base(Brightness.light, const Color(0xFF2F7BFF));
@@ -145,23 +190,11 @@ class LiquidGlass extends StatelessWidget {
     final glass = glassLike && (forceGlass || Ui.glass.value);
     final blurOn = !solidLike && Ui.realtimeBlur.value;
 
-    // iPhone 式 R 角：连续曲率，四角过渡比纯圆弧更顺
-    // 玻璃档不再画单色描边 —— 描边交给 _RefractionPainter 的渐变镜面高光，
-    // 两者叠加会变成「双重勾边」，那是廉价感的一部分。
-    final shape = ContinuousRectangleBorder(
-      borderRadius: BorderRadius.circular(radius),
-      side: BorderSide(
-        color: glassLike
-            ? Colors.transparent
-            : solidLike
-                ? (isDark ? Colors.white.withOpacity(0.06) : Colors.black.withOpacity(0.06))
-                : aeroLike
-                    ? Colors.white.withOpacity(isDark ? 0.28 : 0.90)
-                    : (isDark ? Colors.white.withOpacity(0.10) : Colors.white.withOpacity(0.55)),
-        width: glassLike ? 0.0 : (aeroLike ? 1.4 : 1.1),
-      ),
-    );
-    final clipper = ShapeBorderClipper(shape: shape, textDirection: TextDirection.ltr);
+    // iPhone 式 R 角：四角统一走 squirclePath。
+    // 不用 ContinuousRectangleBorder —— 它在大半径下角部偏方，
+    // 视觉半径比 BorderRadius.circular 小一圈，四角还可能漏一条边，
+    // 这正是「R 角一直不对」的根源。
+    final clipper = SquircleClipper(radius);
 
     // 各档的填充、渐变与阴影
     Color? fill;
@@ -597,18 +630,19 @@ class _RefractionPainter extends CustomPainter {
     required this.dark,
     required this.sweep,
     this.pointer,
-  }) : super(repaint: Ui.tick);
+  });
 
   @override
   void paint(Canvas canvas, Size size) {
     // 形状必须跟 LiquidGlass 外层完全一致：外层用的是 ContinuousRectangleBorder
     // （苹果式连续曲率 squircle），这里若用 RRect 普通圆角，
     // 高光描边就会跟卡片边缘对不齐，四角出现错位毛刺 —— 也就是「圆角处理不行」。
-    final shape = ContinuousRectangleBorder(borderRadius: BorderRadius.circular(radius));
-    final path = shape.getOuterPath(Offset.zero & size, textDirection: TextDirection.ltr);
-    final innerPath = ContinuousRectangleBorder(
-      borderRadius: BorderRadius.circular(math.max(radius - 1.2, 1.0)),
-    ).getOuterPath((Offset.zero & size).deflate(0.6), textDirection: TextDirection.ltr);
+    // 跟 LiquidGlass 用同一个 squirclePath，四角和边缘才能严丝合缝
+    final path = squirclePath(Offset.zero & size, radius);
+    final innerPath = squirclePath(
+      (Offset.zero & size).deflate(0.6),
+      math.max(radius - 1.2, 1.0),
+    );
 
     // 指针位置归一化到 -1..1；没有指针就退回左上角那套静态效果
     final p = pointer ?? Offset(size.width * 0.16, size.height * 0.10);
@@ -674,12 +708,11 @@ class _RefractionPainter extends CustomPainter {
         ..shader = specular,
     );
 
-    // 1.5 玻璃切面：边缘一圈极细白线，做出玻璃厚度
-    canvas.drawRRect(
-      RRect.fromRectAndRadius(
-        (Offset.zero & size).deflate(0.8),
-        Radius.circular(math.max(radius - 0.8, 1.0)),
-      ),
+    // 1.5 玻璃切面：边缘一圈极细白线，做出玻璃厚度。
+    // 这里原来用 RRect（普通圆弧），跟外层的 squircle 对不上，
+    // 四个角会出现「圆弧盖在 squircle 上」的错位毛刺 —— 也换成 squirclePath。
+    canvas.drawPath(
+      squirclePath((Offset.zero & size).deflate(0.8), math.max(radius - 0.8, 1.0)),
       Paint()
         ..style = PaintingStyle.stroke
         ..strokeWidth = 1.2
@@ -771,101 +804,33 @@ class _RayTracePainter extends CustomPainter {
   final double radius;
   final bool dark;
 
-  _RayTracePainter({required this.radius, required this.dark}) : super(repaint: Ui.tick);
+  _RayTracePainter({required this.radius, required this.dark});
 
   @override
   void paint(Canvas canvas, Size size) {
-    final t = (Ui.tick.value / 14) % 1;
     if (size.isEmpty) return;
-    final rrect = RRect.fromRectAndRadius(Offset.zero & size, Radius.circular(radius));
-    // 跟外层 LiquidGlass 同一个 squircle 形状，否则光追层四角会溢出到圆角外
-    final shape = ContinuousRectangleBorder(borderRadius: BorderRadius.circular(radius));
-    final path = shape.getOuterPath(Offset.zero & size, textDirection: TextDirection.ltr);
-    final w = size.width;
-    final h = size.height;
-
-    canvas.save();
-    canvas.clipPath(path);
-
-    // ① 多次内反射：同一条反射线按 1/2/3 倍间距重复，透明度逐次衰减
-    //    入射角随 t 缓慢摆动，看起来像光源在动
-    final theta = 0.55 + 0.18 * math.sin(t * math.pi * 2);
-    final dx = math.cos(theta);
-    final dy = math.sin(theta);
-    for (var k = 1; k <= 3; k++) {
-      final p = Paint()
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 1.2
-        ..color = Colors.white.withOpacity((dark ? 0.10 : 0.30) / k);
-      final off = k * 7.0;
-      canvas.drawLine(Offset(off * dx, off * dy), Offset(w - off, h * 0.52 + off * dy), p);
-    }
-
-    // ② 镜面高光扫过：一道窄亮带斜着穿过整块玻璃
-    final s = (t * 2.0) % 1.0;
-    final sx = -w * 0.4 + s * (w * 1.8);
-    canvas.save();
-    canvas.translate(sx, 0);
-    canvas.rotate(-0.35);
-    final rectB = Rect.fromLTWH(-46, -h, 92, h * 3);
-    final band = Paint()
-      ..shader = LinearGradient(
-        begin: Alignment.topCenter,
-        end: Alignment.bottomCenter,
-        colors: [
-          Colors.white.withOpacity(0.0),
-          Colors.white.withOpacity(dark ? 0.11 : 0.30),
-          Colors.white.withOpacity(0.0),
-        ],
-      ).createShader(rectB);
-    canvas.drawRect(rectB, band);
-    canvas.restore();
-
-    // ③ 焦散聚光：光穿过玻璃在角上汇成亮斑，两颗沿椭圆轨道游走
-    for (var i = 0; i < 2; i++) {
-      final p = (t + i * 0.5) % 1.0;
-      final cx = (i == 0 ? 0.12 : 0.88) * w + math.sin(p * math.pi * 2) * w * 0.06;
-      final cy = (i == 0 ? 0.16 : 0.84) * h + math.cos(p * math.pi * 2) * h * 0.05;
-      final r = math.min(w, h) * 0.17;
-      final paint = Paint()
-        ..shader = RadialGradient(
-          colors: [
-            (dark ? const Color(0xFF9BE7FF) : Colors.white).withOpacity(dark ? 0.20 : 0.52),
-            Colors.transparent,
-          ],
-        ).createShader(Rect.fromCircle(center: Offset(cx, cy), radius: r));
-      canvas.drawCircle(Offset(cx, cy), r, paint);
-    }
-
-    // ④ 表面微观起伏：极低透明度斜纹整体平移，模拟玻璃面反射的细碎起伏
-    final hatch = Paint()
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 0.8
-      ..color = Colors.white.withOpacity(dark ? 0.030 : 0.075);
-    const step = 7.0;
-    final shift = (t * step * 2) % step;
-    for (var x = -h; x < w + h; x += step) {
-      canvas.drawLine(Offset(x + shift, 0), Offset(x + shift - h * 0.6, h), hatch);
-    }
-
-    // ⑤ 菲涅耳边缘：掠射角处反射更强，绕着边框转
+    // 这里只留一道边缘反射。
+    //
+    // 原来有 5 层：多次内反射的直线、扫过去的高光带、
+    // 两颗沿椭圆游走的焦散光斑、整片细斜纹、绕边旋转的菲涅耳。
+    // 你截图里的「两个圆点」就是那两颗焦散，
+    // 「那点线段」是内反射的 drawLine，满屏细纹是 hatch 斜纹。
+    // 苹果玻璃表面是干净的，这些只会让画面显脏，全部删掉。
+    final path = squirclePath(Offset.zero & size, radius);
     final edge = Paint()
       ..style = PaintingStyle.stroke
-      ..strokeWidth = 2.4
-      ..shader = SweepGradient(
+      ..strokeWidth = 1.6
+      ..shader = LinearGradient(
+        begin: Alignment.topLeft,
+        end: Alignment.bottomRight,
         colors: [
-          Colors.white.withOpacity(0.0),
-          Colors.white.withOpacity(dark ? 0.12 : 0.34),
-          Colors.white.withOpacity(0.0),
-          Colors.white.withOpacity(dark ? 0.10 : 0.26),
+          Colors.white.withOpacity(dark ? 0.16 : 0.50),
+          Colors.white.withOpacity(dark ? 0.05 : 0.14),
           Colors.white.withOpacity(0.0),
         ],
-        stops: const [0.0, 0.12, 0.45, 0.82, 1.0],
-        transform: GradientRotation(t * math.pi * 2),
+        stops: const [0.0, 0.45, 1.0],
       ).createShader(Offset.zero & size);
-    canvas.drawRRect(rrect, edge);
-
-    canvas.restore();
+    canvas.drawPath(path, edge);
   }
 
   @override

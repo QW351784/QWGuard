@@ -34,6 +34,10 @@ class _SetupAppState extends State<SetupApp> {
   bool _busy = false;
   String _hint = '';
   String _result = '';
+  /// 上一步到底是成功还是失败。
+  /// 以前没有这个字段，完成页不管结果如何都画绿勾 +「安装完成」，
+  /// 失败原因只塞进正文小字里 —— 用户只看到那四个字，以为装好了。
+  bool _ok = false;
 
   /// 卸载的两层确认
   bool _confirm1 = false;
@@ -118,11 +122,13 @@ class _SetupAppState extends State<SetupApp> {
       return;
     }
     final r = Api.installRun(src, _dir, desktopIcon: _desktopIcon, autostart: _autostart);
+    final ok = r['success'] == true;
     setState(() {
       _busy = false;
       _step = 3;
-      _result = r['success'] == true
-          ? '安装完成，已写入 ${r['data']['copied'] ?? 0} 个文件'
+      _ok = ok;
+      _result = ok
+          ? '已写入 ${r['data']?['copied'] ?? 0} 个文件'
           : (r['message']?.toString() ?? '安装失败');
     });
   }
@@ -135,16 +141,22 @@ class _SetupAppState extends State<SetupApp> {
     });
     final appDir = File(Platform.resolvedExecutable).parent.path;
     final r = Api.uninstallRun(appDir);
+    final ok = r['success'] == true;
     setState(() {
       _busy = false;
       _step = 3;
-      _result = r['success'] == true ? '卸载完成，保护已取消' : (r['message']?.toString() ?? '卸载失败');
+      _ok = ok;
+      _result = ok ? '保护已取消，安装目录与注册表已清理' : (r['message']?.toString() ?? '卸载失败');
     });
   }
 
   @override
   Widget build(BuildContext context) {
-    final theme = _dark ? ThemeData.dark(useMaterial3: true) : ThemeData.light(useMaterial3: true);
+    // 必须用 AppTheme，不能裸 ThemeData.light()：
+    // 裸的没设 fontFamily，Flutter 默认 Roboto，中文全走系统回退字体，
+    // 「包」这种带「巳」的字会被画得口不封、末笔竖折走形。
+    // AppTheme 里 fontFamily 是 Microsoft YaHei，字形正常。
+    final theme = _dark ? AppTheme.dark() : AppTheme.light();
     return MaterialApp(
       debugShowCheckedModeBanner: false,
       theme: theme,
@@ -321,36 +333,56 @@ class _SetupAppState extends State<SetupApp> {
   }
 
   Widget _done(Color accent) {
+    // 成不成功必须一眼看出来：失败是红叉 +「安装失败」，不是绿勾 +「安装完成」。
+    // 之前不管结果都画绿勾，用户装坏了也以为装好了。
+    final failed = !_ok;
+    final color = failed ? const Color(0xFFE5484D) : accent;
+    final title = failed
+        ? (widget.uninstall ? '卸载失败' : '安装失败')
+        : (widget.uninstall ? '卸载完成' : '安装完成');
+
     return Column(
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Row(children: [
-          Icon(Icons.check_circle_rounded, color: accent, size: 26),
+          Icon(failed ? Icons.error_rounded : Icons.check_circle_rounded, color: color, size: 26),
           const SizedBox(width: 10),
-          Text(widget.uninstall ? '卸载完成' : '安装完成',
-              style: const TextStyle(fontSize: 19, fontWeight: FontWeight.w700)),
+          Text(title, style: const TextStyle(fontSize: 19, fontWeight: FontWeight.w700)),
         ]),
         const SizedBox(height: 14),
         Text(_result, style: const TextStyle(fontSize: 13, height: 1.6)),
         const SizedBox(height: 24),
         Align(
           alignment: Alignment.centerRight,
-          child: LiquidButton(
-            text: widget.uninstall ? '关闭' : '立即启动',
-            icon: widget.uninstall ? Icons.close_rounded : Icons.play_arrow_rounded,
-            onTap: () {
-              if (widget.uninstall) {
-                exit(0);
-              } else {
-                final exe = '$_dir\\system_toolbox.exe';
-                if (File(exe).existsSync()) {
-                  Process.start(exe, [], mode: ProcessStartMode.detached);
-                }
-                exit(0);
-              }
-            },
-          ),
+          child: failed
+              // 失败就给「返回重试」，不给「立即启动」——
+              // 装坏了还让人去启动，等于把人往坑里推
+              ? LiquidButton(
+                  text: '返回重试',
+                  icon: Icons.refresh_rounded,
+                  onTap: () => setState(() {
+                    _step = 1;
+                    _result = '';
+                  }),
+                )
+              : LiquidButton(
+                  text: widget.uninstall ? '关闭' : '立即启动',
+                  icon: widget.uninstall ? Icons.close_rounded : Icons.play_arrow_rounded,
+                  onTap: () {
+                    if (widget.uninstall) {
+                      exit(0);
+                    }
+                    // 之前这里写的是 system_toolbox.exe —— 那是脚手架工程名，
+                    // CI 早把主程序改名成 QWGuard.exe 了，这个路径根本不存在，
+                    // 点「立即启动」等于什么都不做然后静默退出
+                    final exe = '$_dir\\QWGuard.exe';
+                    if (File(exe).existsSync()) {
+                      Process.start(exe, [], mode: ProcessStartMode.detached);
+                    }
+                    exit(0);
+                  },
+                ),
         ),
       ],
     );
