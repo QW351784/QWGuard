@@ -69,3 +69,120 @@ Type: filesandordirs; Name: "{localappdata}\QWGuard"
 Type: filesandordirs; Name: "{userappdata}\..\Local\QWGuard"
 Type: dirifempty;      Name: "{autopf}\QWGuard"
 Type: files;           Name: "{userdesktop}\{#MyAppName}.lnk"
+
+; ===================================================================
+; 安装位置推荐：SSD(NVMe) 优先 → 避开系统盘 → 剩余容量最大
+; 与 native/src/ext.rs 的 recommend_install_dir 同一套排序规则。
+; Inno 是独立进程调不到 Rust 函数，这里用 Pascal 复刻：
+;   · GetDriveType 枚举固定盘
+;   · GetSpaceOnDisk64 取剩余空间
+;   · 一次 PowerShell 批量取 MediaType/BusType（失败就当 HDD，有兜底）
+; ===================================================================
+[Code]
+const
+  QWFolder = 'QW 安全电脑管家';
+
+function IsSystemDrive(D: Char): Boolean;
+var
+  Sys: String;
+begin
+  Sys := Uppercase(Copy(ExpandConstant('{sd}'), 1, 1));
+  Result := (Uppercase(D) = Sys) or (Uppercase(D) = 'C');
+end;
+
+function FreeGB(D: Char): Int64;
+var
+  FreeBytes, TotalBytes: Int64;
+begin
+  Result := -1;
+  if GetSpaceOnDisk64(D + ':\', FreeBytes, TotalBytes) then
+    Result := FreeBytes div 1073741824;
+end;
+
+procedure LoadMediaMap(Map: TStringList);
+var
+  OutFile, Cmd, Line, D, M: String;
+  RCode, I: Integer;
+  Lines: TArrayOfString;
+begin
+  Map.Clear;
+  OutFile := ExpandConstant('{tmp}\qw_media.txt');
+  Cmd := '/c powershell -NoProfile -Command "Get-Volume | Where-Object {$_.DriveLetter} | ForEach-Object { $v=$_; try { $p=Get-Partition -DriveLetter $v.DriveLetter; $d=Get-PhysicalDisk -DeviceNumber $p.DiskNumber; Write-Output ($v.DriveLetter + ''='' + $d.MediaType + '','' + $d.BusType) } catch {} }" > "' + OutFile + '" 2>nul';
+  Exec('cmd.exe', Cmd, '', SW_HIDE, ewWaitUntilTerminated, RCode);
+  if LoadStringsFromFile(OutFile, Lines) then
+    for I := 0 to GetArrayLength(Lines) - 1 do
+    begin
+      Line := Trim(Lines[I]);
+      if (Length(Line) >= 2) and (Line[2] = '=') then
+      begin
+        D := Uppercase(Copy(Line, 1, 1));
+        M := Uppercase(Copy(Line, 3, Length(Line)));
+        Map.Values[D] := M;
+      end;
+    end;
+  DeleteFile(OutFile);
+end;
+
+function BestDir(): String;
+var
+  Map: TStringList;
+  D: Char;
+  Media: String;
+  Free, BestFree: Int64;
+  Tier, BestTier: Integer;
+  IsSys, BestIsSys, Found: Boolean;
+  BestDrive: Char;
+begin
+  Map := TStringList.Create;
+  try
+    LoadMediaMap(Map);
+    Found := False;
+    BestDrive := 'C';
+    BestTier := 99;
+    BestFree := -1;
+    BestIsSys := True;
+
+    for D := 'C' to 'Z' do
+    begin
+      if GetDriveType(D + ':\') <> DRIVE_FIXED then
+        Continue;
+      Free := FreeGB(D);
+      if Free < 0 then
+        Continue;
+
+      Media := Uppercase(Map.Values[D]);
+      if Pos('NVME', Media) > 0 then
+        Tier := 0
+      else if Pos('SSD', Media) > 0 then
+        Tier := 1
+      else
+        Tier := 2;
+
+      IsSys := IsSystemDrive(D);
+
+      if (not Found)
+         or (Tier < BestTier)
+         or ((Tier = BestTier) and BestIsSys and (not IsSys))
+         or ((Tier = BestTier) and (BestIsSys = IsSys) and (Free > BestFree)) then
+      begin
+        BestDrive := D;
+        BestTier := Tier;
+        BestFree := Free;
+        BestIsSys := IsSys;
+        Found := True;
+      end;
+    end;
+
+    if Found then
+      Result := BestDrive + ':\' + QWFolder
+    else
+      Result := ExpandConstant('{autopf}\' + QWFolder);
+  finally
+    Map.Free;
+  end;
+end;
+
+procedure InitializeWizard();
+begin
+  WizardForm.DirEdit.Text := BestDir();
+end;
