@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:isolate';
 import 'dart:io';
 
 import 'package:desktop_drop/desktop_drop.dart';
@@ -513,7 +514,7 @@ class _ScanPageState extends State<ScanPage> {
     'signature': true,
     'heuristic': true,
     'defender': true,
-    'yara': false,
+    'yara': true,
     'huorong': false,
     'pyas': false,
   };
@@ -606,10 +607,11 @@ class _ScanPageState extends State<ScanPage> {
       _busy = true;
       _results.clear();
     });
-    for (final entry in _engines.entries) {
-      if (entry.value != true) continue;
+    final keys = _engines.entries.where((e) => e.value == true).map((e) => e.key).toList();
+    // 每个引擎一个 task 并发跑，不再逐个排队；重活丢到 isolate，主线程不卡
+    final rows = await Future.wait(keys.map((k) async {
       Map<String, dynamic> res;
-      switch (entry.key) {
+      switch (k) {
         case 'huorong':
           res = Api.scanHuorong(target);
           break;
@@ -617,24 +619,25 @@ class _ScanPageState extends State<ScanPage> {
           res = Api.scanPyas(target);
           break;
         default:
-          res = Native.scanFile(entry.key, target);
+          res = await Isolate.run(() => Native.scanFile(k, target));
       }
-      if (!mounted) return;
       final d = res['data'];
       final note = (d is Map ? (d['note']?.toString() ?? '') : '');
-      setState(() {
-        _results.add({
-          'engine': entry.key,
-          'ok': res['success'] == true,
-          'message': res['success'] == true
-              ? (note.isNotEmpty ? note : (d is Map && d['mode'] == 'launched' ? '已启动，结果见火绒界面' : ''))
-              : (res['message']?.toString() ?? ''),
-          'infected': (d is Map) ? (d['infected'] == true) : false,
-          'threats': (d is Map) ? ((d['threats'] as List?) ?? const []) : const [],
-        });
-      });
-    }
-    if (mounted) setState(() => _busy = false);
+      return <String, dynamic>{
+        'engine': k,
+        'ok': res['success'] == true,
+        'message': res['success'] == true
+            ? (note.isNotEmpty ? note : (d is Map && d['mode'] == 'launched' ? '已启动，结果见火绒界面' : ''))
+            : (res['message']?.toString() ?? ''),
+        'infected': (d is Map) ? (d['infected'] == true) : false,
+        'threats': (d is Map) ? ((d['threats'] as List?) ?? const []) : const [],
+      };
+    }));
+    if (!mounted) return;
+    setState(() {
+      _results.addAll(rows);
+      _busy = false;
+    });
     await _handleThreats(target);
   }
 
@@ -916,7 +919,7 @@ class _ScanPageState extends State<ScanPage> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(I18n.t('builtin'), style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
+                Text('内置引擎 · 4 把全部自带，用户无需安装', style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
                 const SizedBox(height: 10),
                 Wrap(spacing: 10, runSpacing: 8, children: [
                   for (final e in _engines.keys.toList())
@@ -1989,7 +1992,7 @@ class SettingsPage extends StatefulWidget {
 
 class _SettingsPageState extends State<SettingsPage> {
   String _gpuMode = 'auto';
-  String _scanLevel = 'standard';
+  String _scanLevel = 'deep';
   bool _autoStart = false;
   String _repo = '';
   String _current = '1.0.0';
@@ -2026,7 +2029,7 @@ class _SettingsPageState extends State<SettingsPage> {
       _repo = sp.getString('github_repo') ?? '';
       _current = sp.getString('app_version') ?? '1.0.0';
       _desktopFloat = sp.getBool('ui_desktop_float') ?? false;
-      _scanLevel = sp.getString('scan_level') ?? 'standard';
+      _scanLevel = sp.getString('scan_level') ?? 'deep';
       final g = Api.gpu();
       if (g['success'] == true && g['data'] is Map) {
         _gpus = ((g['data']['gpus'] as List?) ?? const [])
@@ -2698,23 +2701,39 @@ class _SettingsPageState extends State<SettingsPage> {
 
   Widget _scanLevelRow() {
     const labels = {'quick': '快速', 'standard': '标准', 'deep': '深度'};
-    return LiquidGlass(
-      radius: 26,
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-      child: Row(children: [
-        const Icon(Icons.shield_rounded, size: 20, color: Color(0xFF2F7BFF)),
-        const SizedBox(width: 12),
-        const Text('查杀档位', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
-        const Spacer(),
-        for (final m in ['quick', 'standard', 'deep']) ...[
-          ChoiceChip(
-            label: Text(labels[m]!),
-            selected: _scanLevel == m,
-            onSelected: (_) => _applyScanLevel(m),
+    const combo = {
+      'quick': 'Defender + 启发式（2 把）',
+      'standard': 'Defender + 特征库 + 启发式（3 把）',
+      'deep': 'Defender + 特征库 + 启发式 + YARA（4 把并发）',
+    };
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: LiquidGlass(
+        radius: 26,
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Row(children: [
+            const Icon(Icons.shield_rounded, size: 20, color: Color(0xFF2F7BFF)),
+            const SizedBox(width: 12),
+            const Text('查杀档位', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
+            const Spacer(),
+            for (final m in ['quick', 'standard', 'deep']) ...[
+              ChoiceChip(
+                label: Text(labels[m]!),
+                selected: _scanLevel == m,
+                onSelected: (_) => _applyScanLevel(m),
+              ),
+              const SizedBox(width: 6),
+            ],
+          ]),
+          const SizedBox(height: 6),
+          Padding(
+            padding: const EdgeInsets.only(left: 32),
+            child: Text('当前：${combo[_scanLevel]}',
+                style: TextStyle(fontSize: 11, color: Colors.grey.shade600)),
           ),
-          const SizedBox(width: 6),
-        ],
-      ]),
+        ]),
+      ),
     );
   }
 

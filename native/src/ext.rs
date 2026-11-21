@@ -905,7 +905,7 @@ pub extern "C" fn scan_auto(target: *const c_char, buf: *mut u8, len: usize) -> 
         .get("scan_level")
         .and_then(|v| v.as_str())
         .map(|s| s.to_string())
-        .unwrap_or_else(|| "standard".to_string());
+        .unwrap_or_else(|| "deep".to_string());
 
     let (mode, engines): (&str, Vec<&str>) = match level.as_str() {
         "quick" => ("quick", vec!["defender", "heuristic"]),

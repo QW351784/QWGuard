@@ -20,12 +20,18 @@ class Native {
   static ffi.DynamicLibrary? get lib {
     if (_lib != null) return _lib;
     try {
+      // 用 exe 同目录的绝对路径加载：引擎扫描跑在后台 isolate 里，
+      // 相对名在 isolate 中可能解析不到，绝对路径最稳
+      final dir = File(Platform.resolvedExecutable).parent.path;
       if (Platform.isWindows) {
-        _lib = ffi.DynamicLibrary.open('toolkit_native.dll');
+        final abs = File('$dir/toolkit_native.dll');
+        _lib = ffi.DynamicLibrary.open(abs.existsSync() ? abs.path : 'toolkit_native.dll');
       } else if (Platform.isLinux) {
-        _lib = ffi.DynamicLibrary.open('libtoolkit_native.so');
+        final abs = File('$dir/libtoolkit_native.so');
+        _lib = ffi.DynamicLibrary.open(abs.existsSync() ? abs.path : 'libtoolkit_native.so');
       } else if (Platform.isMacOS) {
-        _lib = ffi.DynamicLibrary.open('libtoolkit_native.dylib');
+        final abs = File('$dir/libtoolkit_native.dylib');
+        _lib = ffi.DynamicLibrary.open(abs.existsSync() ? abs.path : 'libtoolkit_native.dylib');
       }
     } catch (e) {
       loadError = e.toString();
