@@ -55,7 +55,7 @@ class Ui {
   /// - solid：纯色最省性能
   static final material = ValueNotifier<String>('auto');
 
-  /// 全局动画时钟：0..1，60 秒一轮。
+  /// 全局动画时钟：单调递增的秒数（不回绕）。
   /// 全窗口只留这一个 Ticker，画笔用 `super(repaint: Ui.tick)` 订阅它——
   /// 只走重绘、不走 widget 重建；几十个玻璃控件叠加时也不会各开一个 vsync。
   static final ValueNotifier<double> tick = ValueNotifier<double>(0);

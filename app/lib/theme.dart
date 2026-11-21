@@ -442,7 +442,7 @@ class _ParticlePainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
-    final t = (Ui.tick.value * 60 / 22) % 1;
+    final t = (Ui.tick.value / 22) % 1;
     final center = Offset(size.width * 0.5, size.height * 0.46);
     final rx = size.width * 0.54;
     final ry = size.height * 0.42;
@@ -572,7 +572,7 @@ class _RefractionPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
-    final t = (Ui.tick.value * 60 / 6) % 1;
+    final t = (Ui.tick.value / 6) % 1;
     final rrect = RRect.fromRectAndRadius(Offset.zero & size, Radius.circular(radius));
 
     // 指针位置归一化到 -1..1；没有指针就退回左上角那套静态效果
@@ -773,7 +773,7 @@ class _RayTracePainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
-    final t = (Ui.tick.value * 60 / 14) % 1;
+    final t = (Ui.tick.value / 14) % 1;
     if (size.isEmpty) return;
     final rrect = RRect.fromRectAndRadius(Offset.zero & size, Radius.circular(radius));
     final w = size.width;
@@ -1004,7 +1004,7 @@ class _BreathingGlowState extends State<BreathingGlow> {
         animation: Ui.tick,
         builder: (_, __) {
           // 4.6 秒一个来回：0→1→0 呼吸
-          final raw = (Ui.tick.value * 60 / 4.6) % 1;
+          final raw = (Ui.tick.value / 4.6) % 1;
           final half = raw <= 0.5 ? raw * 2 : (1.0 - raw) * 2;
           final t = Curves.easeInOut.transform(half);
           final scale = 0.88 + 0.22 * t;
@@ -1058,7 +1058,7 @@ class _FloatingBlobState extends State<FloatingBlob> {
     return AnimatedBuilder(
       animation: Ui.tick,
       builder: (_, child) {
-        final t = (Ui.tick.value * 60 / 20) * math.pi * 2 + widget.phase;
+        final t = (Ui.tick.value / 20) * math.pi * 2 + widget.phase;
         return Transform.translate(
           offset: Offset(math.sin(t) * 22, math.cos(t * 1.2) * 16),
           child: child,

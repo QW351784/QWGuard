@@ -137,8 +137,9 @@ class _ShellState extends State<Shell> with WindowListener, TickerProviderStateM
   void initState() {
     super.initState();
     // 全局唯一动画时钟：60 秒一轮，所有动态层共用
+    // 单调递增的秒数，不回绕：回绕会让 22s/14s 这种非整除周期在接缝处跳一帧
     _ticker = createTicker((elapsed) {
-      Ui.tick.value = (elapsed.inMilliseconds % 60000) / 60000.0;
+      Ui.tick.value = elapsed.inMilliseconds / 1000.0;
     })..start();
     SchedulerBinding.instance.addTimingsCallback(_onFrameTimings);
     for (final a in Ui.anims) {
