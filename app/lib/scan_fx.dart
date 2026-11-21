@@ -24,6 +24,9 @@ class ScanFx extends StatelessWidget {
   /// 已命中数
   final int hits;
 
+  /// 已扫描文件数（流式扫描没有总数，就靠这个体现进度）
+  final int scanned;
+
   final double size;
 
   const ScanFx({
@@ -33,6 +36,7 @@ class ScanFx extends StatelessWidget {
     this.recent = const [],
     this.progress,
     this.hits = 0,
+    this.scanned = 0,
     this.size = 196,
   });
 
@@ -109,9 +113,12 @@ class ScanFx extends StatelessWidget {
         const SizedBox(height: 7),
         Text(
           progress == null
-              ? (hits > 0 ? '扫描中 · 已发现 $hits 项' : '扫描中…')
+              ? (scanned > 0
+                  ? '已扫 $scanned 个文件${hits > 0 ? " · 已发现 $hits 项" : ""}'
+                  : '扫描中…')
               : '${(progress! * 100).clamp(0, 100).toStringAsFixed(1)}%'
-                  '${hits > 0 ? " · 已发现 $hits 项" : " · 暂未发现威胁"}',
+                  '${scanned > 0 ? " · 已扫 $scanned 个文件" : ""}'
+                  '${hits > 0 ? " · 已发现 $hits 项" : ""}',
           style: const TextStyle(
             fontSize: 12,
             fontWeight: FontWeight.w600,

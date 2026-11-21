@@ -1027,13 +1027,47 @@ fn collect_files(roots: &[PathBuf], limit: usize, max_size: u64) -> Vec<PathBuf>
     out
 }
 
-/// 真正干活的地方：逐文件跑两个纯 Rust 引擎，可疑文件再交给 YARA / Defender 复核
-fn do_scan(files: Vec<PathBuf>, scope: String, buf: *mut u8, len: usize) -> i32 {
+/// 单个文件的快筛：两个纯 Rust 引擎（哈希库 + 启发式），命中就记账
+fn scan_one_file(
+    f: &Path,
+    suspects: &mut Vec<PathBuf>,
+    threats: &mut Vec<Value>,
+    sig_hits: &mut u64,
+    heu_hits: &mut u64,
+) {
+    let s = f.to_string_lossy().to_string();
+    if is_whitelisted(&s) {
+        return;
+    }
+    let (hit, th) = crate::engines::signature_scan(&s);
+    if hit {
+        *sig_hits += 1;
+        SCAN_HITS.fetch_add(1, Ordering::Relaxed);
+        threats.push(json!({"file": s, "engine": "signature", "threats": th}));
+    }
+    let (heu, hth) = crate::engines::heuristic_scan(&s);
+    if heu {
+        *heu_hits += 1;
+        SCAN_HITS.fetch_add(1, Ordering::Relaxed);
+        threats.push(json!({"file": s, "engine": "heuristic", "threats": hth}));
+        if suspects.len() < 300 {
+            suspects.push(f.to_path_buf());
+        }
+    } else {
+        let low = s.to_lowercase();
+        if (low.ends_with(".exe") || low.ends_with(".dll") || low.ends_with(".sys")) && suspects.len() < 300 {
+            suspects.push(f.to_path_buf());
+        }
+    }
+}
+
+/// 边遍历边扫：不预先收集文件列表，所以没有"文件数上限"这回事
+/// （360 / 火绒也是这么走的，文件来了就扫，扫完就丢）
+fn scan_roots(roots: Vec<PathBuf>, scope: String, max_size: u64, buf: *mut u8, len: usize) -> i32 {
     crate::engines::ensure_default_rules();
 
-    let total = files.len() as u64;
     SCAN_CANCEL.store(false, Ordering::Relaxed);
-    SCAN_TOTAL.store(total, Ordering::Relaxed);
+    SCAN_TOTAL.store(0, Ordering::Relaxed); // 0 表示总数未知，进度按已扫数递增
     SCAN_DONE.store(0, Ordering::Relaxed);
     SCAN_HITS.store(0, Ordering::Relaxed);
     SCAN_RUNNING.store(true, Ordering::Relaxed);
@@ -1043,48 +1077,61 @@ fn do_scan(files: Vec<PathBuf>, scope: String, buf: *mut u8, len: usize) -> i32 
 
     let mut sig_hits = 0u64;
     let mut heu_hits = 0u64;
-    let mut yara_hits = 0u64;
-    let mut def_hits = 0u64;
     let mut threats: Vec<Value> = Vec::new();
     let mut suspects: Vec<PathBuf> = Vec::new();
+    let mut done: u64 = 0;
+    let mut skipped: u64 = 0;
 
-    // ---- 阶段一：纯 Rust 快引擎，全量过一遍 ----
-    for f in files.iter() {
+    let mut stack: Vec<PathBuf> = roots;
+    while let Some(node) = stack.pop() {
         if SCAN_CANCEL.load(Ordering::Relaxed) {
             break;
         }
-        let s = f.to_string_lossy().to_string();
-        if let Ok(mut g) = SCAN_CUR.lock() {
-            *g = s.clone();
-        }
-        if is_whitelisted(&s) {
+        let Ok(md) = fs::metadata(&node) else { continue };
+        if md.is_file() {
+            let sz = md.len();
+            if sz == 0 || sz > max_size {
+                skipped += 1;
+                continue;
+            }
+            if let Ok(mut g) = SCAN_CUR.lock() {
+                *g = node.to_string_lossy().to_string();
+            }
+            scan_one_file(&node, &mut suspects, &mut threats, &mut sig_hits, &mut heu_hits);
+            done += 1;
             SCAN_DONE.fetch_add(1, Ordering::Relaxed);
             continue;
         }
-        let (hit, th) = crate::engines::signature_scan(&s);
-        if hit {
-            sig_hits += 1;
-            SCAN_HITS.fetch_add(1, Ordering::Relaxed);
-            threats.push(json!({"file": s, "engine": "signature", "threats": th}));
-        }
-        let (heu, hth) = crate::engines::heuristic_scan(&s);
-        if heu {
-            heu_hits += 1;
-            SCAN_HITS.fetch_add(1, Ordering::Relaxed);
-            threats.push(json!({"file": s, "engine": "heuristic", "threats": hth}));
-            if suspects.len() < 300 {
-                suspects.push(f.clone());
+        let Ok(rd) = fs::read_dir(&node) else { continue };
+        for e in rd.flatten() {
+            if SCAN_CANCEL.load(Ordering::Relaxed) {
+                break;
             }
-        } else {
-            let low = s.to_lowercase();
-            if (low.ends_with(".exe") || low.ends_with(".dll") || low.ends_with(".sys")) && suspects.len() < 300 {
-                suspects.push(f.clone());
+            let Ok(md) = e.metadata() else { continue };
+            if md.is_dir() {
+                let n = e.file_name().to_string_lossy().to_string();
+                if skip_dir(&n) || n.starts_with('$') {
+                    continue;
+                }
+                stack.push(e.path());
+            } else if md.is_file() {
+                let sz = md.len();
+                if sz == 0 || sz > max_size {
+                    skipped += 1;
+                    continue;
+                }
+                let path = e.path();
+                if let Ok(mut g) = SCAN_CUR.lock() {
+                    *g = path.to_string_lossy().to_string();
+                }
+                scan_one_file(&path, &mut suspects, &mut threats, &mut sig_hits, &mut heu_hits);
+                done += 1;
+                SCAN_DONE.fetch_add(1, Ordering::Relaxed);
             }
         }
-        SCAN_DONE.fetch_add(1, Ordering::Relaxed);
     }
 
-    // ---- 阶段二：只对可疑文件起子进程（YARA 全量、Defender 前 60 个）----
+    // 第二阶段：可疑文件才起子进程
     let examined = suspects.len();
     for (i, f) in suspects.iter().enumerate() {
         if SCAN_CANCEL.load(Ordering::Relaxed) {
@@ -1094,20 +1141,15 @@ fn do_scan(files: Vec<PathBuf>, scope: String, buf: *mut u8, len: usize) -> i32 
         if let Ok(mut g) = SCAN_CUR.lock() {
             *g = format!("深度复核 · {}", s);
         }
-        match crate::run_engine("yara", &s) {
-            Ok((hit, th)) => {
-                if hit {
-                    yara_hits += 1;
-                    SCAN_HITS.fetch_add(1, Ordering::Relaxed);
-                    threats.push(json!({"file": s, "engine": "yara", "threats": th}));
-                }
+        if let Ok((hit, th)) = crate::run_engine("yara", &s) {
+            if hit {
+                SCAN_HITS.fetch_add(1, Ordering::Relaxed);
+                threats.push(json!({"file": s, "engine": "yara", "threats": th}));
             }
-            Err(_) => {}
         }
         if i < 60 {
             if let Ok((hit, th)) = crate::run_engine("defender", &s) {
                 if hit {
-                    def_hits += 1;
                     SCAN_HITS.fetch_add(1, Ordering::Relaxed);
                     threats.push(json!({"file": s, "engine": "defender", "threats": th}));
                 }
@@ -1116,10 +1158,8 @@ fn do_scan(files: Vec<PathBuf>, scope: String, buf: *mut u8, len: usize) -> i32 
     }
 
     SCAN_RUNNING.store(false, Ordering::Relaxed);
-    SCAN_DONE.store(SCAN_TOTAL.load(Ordering::Relaxed), Ordering::Relaxed);
     let canceled = SCAN_CANCEL.load(Ordering::Relaxed);
 
-    // 每个子引擎的 threats 给前端的是"文件 · 描述"字符串，便于直接展示与定位
     let pick = |name: &str, src: &[Value]| -> Vec<String> {
         src.iter()
             .filter(|t| t.get("engine").and_then(|e| e.as_str()) == Some(name))
@@ -1134,31 +1174,37 @@ fn do_scan(files: Vec<PathBuf>, scope: String, buf: *mut u8, len: usize) -> i32 
             })
             .collect()
     };
-    let infected = sig_hits + heu_hits + yara_hits + def_hits > 0;
+
+    let sig_hits_c = pick("signature", &threats).len() as u64;
+    let heu_hits_c = pick("heuristic", &threats).len() as u64;
+    let yara_hits_c = pick("yara", &threats).len() as u64;
+    let def_hits_c = pick("defender", &threats).len() as u64;
+    let infected = !threats.is_empty();
 
     ok(buf, len, "查杀完成", json!({
         "target": scope,
         "scope": scope,
         "engine": "QW 安全电脑管家 · 查杀引擎",
-        "files": total,
+        "files": done,
+        "skipped": skipped,
         "examined": examined,
         "infected": infected,
         "hits": SCAN_HITS.load(Ordering::Relaxed),
         "canceled": canceled,
         "threats": threats.clone(),
         "engines": [
-            {"engine": "signature", "ok": true, "infected": sig_hits > 0,
+            {"engine": "signature", "ok": true, "infected": sig_hits_c > 0,
              "threats": pick("signature", &threats),
-             "message": format!("哈希库比对 {} 个文件，命中 {}", total, sig_hits)},
-            {"engine": "heuristic", "ok": true, "infected": heu_hits > 0,
+             "message": format!("哈希库比对 {} 个文件，命中 {}", done, sig_hits_c)},
+            {"engine": "heuristic", "ok": true, "infected": heu_hits_c > 0,
              "threats": pick("heuristic", &threats),
-             "message": format!("启发式解析 {} 个文件，可疑 {} 个", total, heu_hits)},
-            {"engine": "yara", "ok": true, "infected": yara_hits > 0,
+             "message": format!("启发式解析 {} 个文件，可疑 {}", done, heu_hits_c)},
+            {"engine": "yara", "ok": true, "infected": yara_hits_c > 0,
              "threats": pick("yara", &threats),
-             "message": format!("YARA 深度复核 {} 个可疑文件，命中 {}", examined, yara_hits)},
-            {"engine": "defender", "ok": true, "infected": def_hits > 0,
+             "message": format!("YARA 深度复核 {} 个可疑文件，命中 {}", examined, yara_hits_c)},
+            {"engine": "defender", "ok": true, "infected": def_hits_c > 0,
              "threats": pick("defender", &threats),
-             "message": format!("Defender 复核前 {} 个可疑文件，命中 {}", examined.min(60), def_hits)},
+             "message": format!("Defender 复核前 {} 个可疑文件，命中 {}", examined.min(60), def_hits_c)},
         ]
     }))
 }
@@ -1173,15 +1219,7 @@ pub extern "C" fn scan_auto(target: *const c_char, buf: *mut u8, len: usize) -> 
     if is_whitelisted(&target) {
         return ok(buf, len, "已跳过（白名单）", json!({"skipped": true, "engines": []}));
     }
-    let files = if p.is_file() {
-        vec![p]
-    } else {
-        collect_files(std::slice::from_ref(&p), 30000, 500u64 << 20)
-    };
-    if files.is_empty() {
-        return ok(buf, len, "没有可扫描的文件", json!({"empty": true, "engines": []}));
-    }
-    do_scan(files, "指定位置扫描".to_string(), buf, len)
+    scan_roots(vec![p], "指定位置扫描".to_string(), 2u64 << 30, buf, len)
 }
 
 /// 四种扫描模式：quick 快速 / full 全盘 / usb U 盘 / custom 指定位置
@@ -1190,35 +1228,26 @@ pub extern "C" fn scan_by_mode(mode: *const c_char, path: *const c_char, buf: *m
     let Some(mode) = cstr(mode) else { return fail(buf, len, -1, "模式为空") };
     let path = cstr(path).unwrap_or_default();
 
-    let (roots, limit, max_size, label): (Vec<PathBuf>, usize, u64, String) = match mode.as_str() {
-        "quick" => (quick_dirs(), 8000, 300u64 << 20, "快速扫描".to_string()),
-        "full" => (drives("fixed"), 30000, 500u64 << 20, "全盘扫描".to_string()),
-        "usb" => (drives("removable"), 20000, 500u64 << 20, "U 盘扫描".to_string()),
+    let (roots, max_size, label): (Vec<PathBuf>, u64, String) = match mode.as_str() {
+        "quick" => (quick_dirs(), 1u64 << 30, "快速扫描".to_string()),
+        "full" => (drives("fixed"), 2u64 << 30, "全盘扫描".to_string()),
+        "usb" => (drives("removable"), 2u64 << 30, "U 盘扫描".to_string()),
         _ => {
             let p = PathBuf::from(&path);
             if !p.exists() {
                 return fail(buf, len, -3, "路径不存在");
             }
-            (vec![p], 30000, 500u64 << 20, "指定位置扫描".to_string())
+            (vec![p], 2u64 << 30, "指定位置扫描".to_string())
         }
     };
 
     if roots.is_empty() {
         return fail(buf, len, -3, "没有找到可扫描的磁盘");
     }
-
-    SCAN_CANCEL.store(false, Ordering::Relaxed);
-    if let Ok(mut g) = SCAN_SCOPE.lock() {
-        *g = label.clone();
-    }
     if let Ok(mut g) = SCAN_CUR.lock() {
         *g = "正在枚举文件".to_string();
     }
-    let files = collect_files(&roots, limit, max_size);
-    if files.is_empty() {
-        return ok(buf, len, "没有可扫描的文件", json!({"empty": true, "engines": []}));
-    }
-    do_scan(files, label, buf, len)
+    scan_roots(roots, label, max_size, buf, len)
 }
 
 /// 停止扫描：遍历和逐文件循环都会看这个标志

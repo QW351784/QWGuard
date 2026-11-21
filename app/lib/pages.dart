@@ -556,6 +556,7 @@ class _ScanPageState extends State<ScanPage> {
   String _stage = '正在启动查杀引擎';
   String _detail = '';
   int _hits = 0;
+  int _scanned = 0;
   final List<String> _recent = [];
 
   @override
@@ -621,8 +622,12 @@ class _ScanPageState extends State<ScanPage> {
       final d = (Native.scanProgress()['data'] as Map?)?.cast<String, dynamic>();
       if (d == null) return;
       final cur = d['current']?.toString() ?? '';
+      final total = (d['total'] as num?)?.toInt() ?? 0;
+      final done = (d['done'] as num?)?.toInt() ?? 0;
       setState(() {
-        _progress = (d['progress'] as num?)?.toDouble();
+        // 流式扫描没有总数，就别假造百分比
+        _progress = total > 0 ? done / total : null;
+        _scanned = done;
         _hits = (d['hits'] as num?)?.toInt() ?? 0;
         final scope = d['scope']?.toString() ?? '';
         if (scope.isNotEmpty) _stage = '$scope中';
@@ -1063,6 +1068,7 @@ class _ScanPageState extends State<ScanPage> {
                       recent: _recent,
                       progress: _progress,
                       hits: _hits,
+                      scanned: _scanned,
                     ),
                   )
                 : _results.isEmpty
