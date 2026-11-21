@@ -380,7 +380,7 @@ class _ShellState extends State<Shell>
       builder: (_) => QDialog(
         icon: Icons.power_settings_new_rounded,
         title: '确定要关闭吗？',
-        body: '关闭后这台电脑将处于不安全环境，实时防护和后台查杀都会停止。',
+        body: '退出后实时防护和后台查杀会停止，这台电脑就不再受保护了。',
         okText: '仍然关闭',
         cancelText: '继续保护',
       ),
