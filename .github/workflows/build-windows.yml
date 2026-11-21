@@ -89,20 +89,13 @@ jobs:
           $iscc = 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe'
           if (Test-Path $iscc) { & $iscc installer\setup.iss } else { Write-Warning 'ISCC 不在预期路径' }
 
-      - name: Package portable zip
-        shell: pwsh
-        run: |
-          New-Item -ItemType Directory -Force -Path dist | Out-Null
-          $rel = 'app\build\windows\x64\runner\Release'
-          Compress-Archive -Path "$rel\*" -DestinationPath 'dist\QWGuard-portable.zip' -Force
-          Get-ChildItem dist | Select-Object Name, Length
-
+      # 只发安装版：不再产 portable（解压即用）包。
+      # 原因：工具箱里的运行库工具、yara 规则等会被单独提取出去，
+      # 脱离安装目录就是缺依赖的残包，用户拿到手只会报「缺少必要文件」。
       - name: Upload build
         uses: actions/upload-artifact@v4
         with:
           name: QWGuard-windows-x64
           path: |
-            app/build/windows/x64/runner/Release/**
-            dist/*.zip
             dist/*.exe
           if-no-files-found: warn

@@ -319,25 +319,13 @@ pub extern "C" fn env_check(buf: *mut u8, len: usize) -> i32 {
                 issues.push(format!("缺少 {need}"));
             }
         }
-        // 判定是否真的装过：卸载注册表项在不在
-        if cfg!(windows) {
-            if let Ok(o) = crate::proc::cmd("reg")
-                .args([
-                    "query",
-                    r"HKCU\Software\Microsoft\Windows\CurrentVersion\Uninstall\QWGuard",
-                ])
-                .output()
-            {
-                installed = o.status.success();
-            }
-            // 注意：这里不能把「没安装记录」当成环境错误。
-            // 免安装（portable）解压出来就是没有卸载项的，以前 push 进 issues
-            // 导致 portable 包一打开就被判「环境异常 → 缺少必要组件」直接退出，
-            // 用户看到的就是「单独提取出来无法正常安装」。
-            // 缺文件才算错误（上面三项），没安装记录只在结果里标记 portable。
-        } else {
-            installed = dir.join("toolkit_native.dll").exists();
-        }
+        // 装没装过，不能拿注册表说了算：
+        //   · Inno 写的是 Uninstall\{GUID}_is1，跟这里的 QWGuard 永远对不上
+        //   · 免安装版压根没有卸载项
+        //   · 换台机器拷贝过去的、系统还原后注册表丢了的，文件其实都是齐的
+        // 只要三个文件在，就说明是一份完整的程序，能跑。装没装过只影响
+        // 「有没有卸载入口」，不影响能不能启动。
+        installed = dir.join("toolkit_native.dll").exists() && dir.join("data").exists();
     } else {
         issues.push("拿不到自身路径".into());
     }
