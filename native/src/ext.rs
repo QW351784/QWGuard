@@ -34,19 +34,23 @@ pub struct Gpu {
 }
 
 fn classify(name: &str) -> &'static str {
-    let n = name.to_lowercase();
-    const DISCRETE: [&str; 12] = [
-        "nvidia", "geforce", "rtx", "gtx", "quadro", "radeon rx", "rx 5", "rx 6", "rx 7",
-        "arc a", "arc b", "intel arc",
+    // 不绑型号：只看名字里的通用标记，4080/4090/RX 7900/Arc A770 都能认出来。
+    // 先判独显再判核显 —— 否则 "Intel(R) Arc(TM) A770" 因为带括号匹配不上 "arc a"，会被当成核显。
+    let n = name.to_lowercase().replace(['(', ')', '™', '®'], "").replace("  ", " ");
+    const DISCRETE: [&str; 15] = [
+        "nvidia", "geforce", "rtx", "gtx", "quadro", "radeon rx", "rx 5", "rx 6", "rx 7", "rx 9", "radeon vii",
+        "arc a", "arc b", "intel arc", "arc graphics", "geforce mx",
     ];
-    const INTEGRATED: [&str; 8] = [
-        "intel uhd", "intel iris", "hd graphics", "uhd graphics", "radeon graphics",
-        "vega", "apple m", "microsoft basic",
+    const INTEGRATED: [&str; 9] = [
+        "intel uhd", "intel iris", "xe graphics", "hd graphics", "uhd graphics",
+        "radeon graphics", "radeon vega", "vega 8", "apple m",
     ];
-    if INTEGRATED.iter().any(|k| n.contains(k)) {
-        "integrated"
-    } else if DISCRETE.iter().any(|k| n.contains(k)) {
+    if DISCRETE.iter().any(|k| n.contains(k)) {
         "discrete"
+    } else if INTEGRATED.iter().any(|k| n.contains(k)) {
+        "integrated"
+    } else if n.contains("microsoft basic") || n.contains("remote") {
+        "integrated"
     } else {
         "integrated"
     }
@@ -72,8 +76,9 @@ fn score_of(name: &str, kind: &str, vram_mb: u32) -> u32 {
     }
     let mut base = 80 + (vram_mb / 1024) * 5;
     for (k, add) in [
-        ("rtx 50", 40), ("rtx 40", 30), ("rtx 30", 20), ("rtx 20", 12),
-        ("gtx 16", 8), ("gtx 10", 4), ("rx 9", 32), ("rx 7", 22), ("rx 6", 14), ("arc b", 18),
+        ("rtx 50", 40), ("rtx 40", 32), ("rtx 30", 22), ("rtx 20", 12),
+        ("gtx 16", 8), ("gtx 10", 4), ("rx 9", 34), ("rx 7", 24), ("rx 6", 14),
+        ("arc b", 20), ("arc a", 14), ("radeon vii", 10),
     ] {
         if n.contains(k) {
             base += add;
