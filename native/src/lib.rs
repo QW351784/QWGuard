@@ -315,6 +315,15 @@ fn find(paths: &[&str]) -> Option<String> {
     paths.iter().find(|p| Path::new(p).exists()).map(|s| s.to_string())
 }
 
+/// 找跟着 exe 一起分发的东西（安装目录 / 便携包里的相对路径）
+fn find_near_exe(rel: &str) -> Option<String> {
+    std::env::current_exe()
+        .ok()
+        .and_then(|p| p.parent().map(|d| d.join(rel)))
+        .filter(|p| p.exists())
+        .map(|p| p.to_string_lossy().to_string())
+}
+
 /// 单引擎执行：返回（是否感染，威胁列表，原始输出）
 pub(crate) fn run_engine(engine: &str, target: &str) -> Result<(bool, Vec<String>), String> {
     let output = match engine {
@@ -336,9 +345,10 @@ pub(crate) fn run_engine(engine: &str, target: &str) -> Result<(bool, Vec<String
             std::process::Command::new(exe).args(["--no-summary", target]).output()
         }
         "yara" => {
-            let Some(exe) = find(&["yara-x.exe", "yara.exe", "yr"]) else {
-                return Err("未找到 YARA".into());
-            };
+            // 优先用随包内置的 yara64.exe（安装目录\yara\），其次才是用户自己装的
+            let exe = find_near_exe("yara/yara64.exe")
+                .or_else(|| find(&["yara64.exe", "yara.exe", "yara-x.exe", "yr"]))
+                .ok_or_else(|| "未找到 YARA（内置 yara64.exe 缺失）".to_string())?;
             // 优先用内置的 qw_basic.yar（首次启动自动落地），环境变量可覆盖
             let rules = std::env::var("TOOLBOX_YARA_RULES")
                 .map(std::path::PathBuf::from)

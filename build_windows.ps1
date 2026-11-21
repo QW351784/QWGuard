@@ -33,6 +33,15 @@ if ($LASTEXITCODE -ne 0) { throw "Flutter 打包失败" }
 
 $out = "$root\app\build\windows\x64\runner\Release"
 Copy-Item "$root\native\target\release\toolkit_native.dll" $out -Force
+# 内置引擎与运行库工具要跟着 exe 走
+foreach ($d in @('runtime', 'yara')) {
+    $src = Join-Path $root "vendor\$d"
+    if (Test-Path $src) {
+        Copy-Item $src -Destination (Join-Path $out $d) -Recurse -Force
+    } else {
+        Write-Warning "vendor\$d 不存在"
+    }
+}
 Write-Host "==> 完成：$out"
 Write-Host "==> 可执行文件：$out\system_toolbox.exe"
 Pop-Location

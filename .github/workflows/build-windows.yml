@@ -57,6 +57,11 @@ jobs:
             Copy-Item 'vendor\runtime' -Destination (Join-Path $rel 'runtime') -Recurse -Force
             Get-ChildItem (Join-Path $rel 'runtime') | Select-Object Name, Length
           } else { Write-Warning 'vendor\runtime 不存在' }
+          # 内置 YARA：不依赖用户机器是否装过，直接跟着 exe 走
+          if (Test-Path 'vendor\yara') {
+            Copy-Item 'vendor\yara' -Destination (Join-Path $rel 'yara') -Recurse -Force
+            Get-ChildItem (Join-Path $rel 'yara') | Select-Object Name, Length
+          } else { Write-Warning 'vendor/yara 不存在' }
           # 自绘安装器入口：双击这个 bat 就走 system_toolbox.exe --setup
           $bat = Join-Path $rel 'install.bat'
           "@echo off`r`nstart `"`" `"%~dp0system_toolbox.exe`" --setup" | Set-Content -Path $bat -Encoding ASCII
