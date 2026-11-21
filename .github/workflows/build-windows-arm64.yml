@@ -1,13 +1,10 @@
 name: Build Windows ARM64
 
+# 注意：Flutter 官方还没发布 Windows arm64 SDK（releases_windows.json 里 arm64 条目为 0），
+# subosito/flutter-action 在 arm64 runner 上直接报 "Unable to determine Flutter version ... architecture: arm64"。
+# 等官方发 arm64 SDK 再启用。这里只留手动触发，不跟着每次 push 跑。
 on:
   workflow_dispatch:
-  push:
-    branches: [ main ]
-    paths:
-      - '.github/workflows/build-windows-arm64.yml'
-      - 'app/**'
-      - 'native/**'
 
 jobs:
   build-arm64:
