@@ -29,6 +29,26 @@ Future<void> main(List<String> args) async {
     return;
   }
 
+  // 同一份二进制按「文件名」分流：
+  //   QWGuard-Setup.exe      → 安装向导
+  //   QWGuard-Uninstall.exe  → 卸载向导
+  // 这样装包 / 卸包都是独立的 exe，用户双击就进对应界面，
+  // 不用带参数、不用记命令行，也共用同一套 Flutter 引擎和玻璃动画。
+  if (Platform.isWindows) {
+    final exeName = Platform.resolvedExecutable
+        .split(Platform.pathSeparator)
+        .last
+        .toLowerCase();
+    if (exeName.contains('setup')) {
+      runApp(const SetupApp(uninstall: false));
+      return;
+    }
+    if (exeName.contains('uninstall')) {
+      runApp(const SetupApp(uninstall: true));
+      return;
+    }
+  }
+
   // 第二个引擎窗口（桌面级监控）
   if (args.isNotEmpty && args.first == 'multi_window') {
     final id = args.length > 1 ? int.tryParse(args[1]) ?? 0 : 0;

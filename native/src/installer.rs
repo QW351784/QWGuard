@@ -13,7 +13,12 @@ use crate::ext::cfg_dir;
 use crate::{cstr, fail, ok};
 
 const APP_NAME: &str = "QW 安全电脑管家";
-const EXE_NAME: &str = "system_toolbox.exe";
+// 必须跟 CI 改名后的实际文件名一致：flutter 项目名是 system_toolbox，
+// 但构建脚本会把它改名成 QWGuard.exe，这里再写旧名字就会导致
+// 快捷方式 / 卸载项 / taskkill 全部指向不存在的文件，安装看起来“装了个空壳”。
+const EXE_NAME: &str = "QWGuard.exe";
+// 卸载走独立的卸载器 exe（同一份二进制按文件名分流进卸载向导）
+const UNINST_EXE: &str = "QWGuard-Uninstall.exe";
 
 fn copy_tree(src: &Path, dst: &Path, copied: &mut u64, bytes: &mut u64) -> Result<(), String> {
     fs::create_dir_all(dst).map_err(|e| format!("创建目录失败 {}: {e}", dst.display()))?;
@@ -159,9 +164,14 @@ pub extern "C" fn install_run(
             .output();
     }
 
-    // 控制面板的卸载入口
+    // 控制面板的卸载入口：优先指向独立卸载器，退回主程序 --uninstall
     let uninst_key = r"HKCU\Software\Microsoft\Windows\CurrentVersion\Uninstall\QWGuard";
-    let uninst_cmd = format!("\"{}\" --uninstall", exe.to_string_lossy());
+    let uninst_exe = to.join(UNINST_EXE);
+    let uninst_cmd = if uninst_exe.exists() {
+        format!("\"{}\"", uninst_exe.to_string_lossy())
+    } else {
+        format!("\"{}\" --uninstall", exe.to_string_lossy())
+    };
     for (name, value) in [
         ("DisplayName", APP_NAME.to_string()),
         ("DisplayVersion", "1.0.0".to_string()),

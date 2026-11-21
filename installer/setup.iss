@@ -1,19 +1,26 @@
-; QW 安全电脑管家 —— Inno Setup 安装脚本
-; 用法：先跑 build_windows.ps1 生成 Release 目录，再用 Inno Setup 编译本文件
-; 目标：单文件 setup.exe，卸载后不留安装目录、配置目录与注册表项
+; QW 安全电脑管家 —— 安装包外壳（Inno Setup）
+;
+; 定位变了：Inno 不再负责“安装”，只负责两件事
+;   1. 把 Flutter 编出来的整套程序释放到临时目录（单文件 exe 的容器作用）
+;   2. 拉起 QWGuard-Setup.exe —— 那是 Rust + Flutter 写的安装向导本体
+;
+; 真正的安装动作（选目录 / 复制 / 快捷方式 / 注册表 / 运行库 / 卸载登记）
+; 全部由 Rust 的 install_run 执行，界面的玻璃、粒子、页面切换都由 Flutter 渲染。
+; 这样安装器和卸载器跟主程序是同一套技术栈，动画完全一致。
 
 #define MyAppName "QW 安全电脑管家"
 #define MyAppVersion "1.0.0"
 #define MyAppPublisher "QW"
 #define MyAppExeName "QWGuard.exe"
+#define MySetupExeName "QWGuard-Setup.exe"
 
 [Setup]
 AppId={{8E2C1A44-9F3B-4C71-8A55-2E6D7B4C1F90}
 AppName={#MyAppName}
 AppVersion={#MyAppVersion}
 AppPublisher={#MyAppPublisher}
-; 安装目录用英文 QWGuard（与 exe 同名，路径不踩中文坑），
-; 桌面图标 / 开始菜单 / 卸载列表仍显示中文「QW 安全电脑管家」
+; 这个值只是给 Inno 内部占位用（它要有个目录概念），用户看不到，
+; 因为下面 DisableDirPage=yes，路径选择在 Flutter 向导里做
 DefaultDirName={autopf}\QWGuard
 UninstallDisplayName={#MyAppName}
 UninstallDisplayIcon={app}\{#MyAppExeName}
@@ -25,167 +32,42 @@ WizardStyle=modern
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 PrivilegesRequired=admin
+; 目录页 / 程序组页 / 任务页全部关掉：这些选项都在 Flutter 向导里
+DisableDirPage=yes
 DisableProgramGroupPage=yes
-CloseApplications=yes
+DisableReadyPage=yes
+CloseApplications=no
 RestartApplications=no
+; 外壳不写自己的卸载项，卸载项由 Rust 安装时登记（中文名、带图标）
+Uninstallable=no
 
 [Languages]
-; 中文放第一位 = 默认语言，整个向导（欢迎页 / 目录选择 / 进度条 / 完成页 / 错误提示）全走简体中文
-; ChineseSimplified.isl 已随仓库提交在 installer\ 目录下，路径相对本 .iss 文件
-Name: "chinesesimplified"; MessagesFile: "ChineseSimplified.isl"
-Name: "en"; MessagesFile: "compiler:Default.isl"
-
-[Tasks]
-Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"
-Name: "autostart";   Description: "开机自启动"; Flags: unchecked
+; 顺序即优先级：第一位是默认语言
+;   1. 简体中文（默认）
+;   2. 英文（第二语言）
+;   3. 繁体中文（第三语言）
+Name: "chinesesimplified";   MessagesFile: "ChineseSimplified.isl"
+Name: "en";                  MessagesFile: "compiler:Default.isl"
+Name: "chinesetraditional";   MessagesFile: "ChineseTraditional.isl"
 
 [Files]
-; 主程序与 DLL（含 toolkit_native.dll）
-Source: "..\app\build\windows\x64\runner\Release\*"; DestDir: "{app}"; Flags: recursesubdirs createallsubdirs
-; 自带运行库（放在 vendor 目录，存在才装）
-Source: "..\vendor\vc_redist.x64.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall skipifsourcedoesntexist
-; 运行库补全用的两个工具，原样放进 runtime 目录，不拆包不改二进制
-Source: "..\vendor\runtime\*"; DestDir: "{app}\runtime"; Flags: recursesubdirs createallsubdirs skipifsourcedoesntexist
+; 整套程序（含 QWGuard.exe / QWGuard-Setup.exe / QWGuard-Uninstall.exe / toolkit_native.dll）
+; 释放到临时目录，装完由 Flutter 向导负责搬到最终位置，外壳自己删掉临时副本
+Source: "..\app\build\windows\x64\runner\Release\*"; DestDir: "{tmp}\qwpayload"; Flags: recursesubdirs createallsubdirs deleteafterinstall
 
-[Icons]
-Name: "{autoprograms}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
-Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
-
-[Run]
-Filename: "{tmp}\vc_redist.x64.exe"; Parameters: "/install /quiet /norestart"; Flags: waituntilterminated skipifdoesntexist
-Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#MyAppName}}"; Flags: nowait postinstall skipifsilent
-
-[Registry]
-; 自启动（按需）
-Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "QWGuard"; ValueData: """{app}\{#MyAppExeName}"""; Tasks: autostart; Flags: uninsdeletevalue
-
-[UninstallRun]
-; 先关进程，避免文件占用导致卸载残留
-Filename: "taskkill.exe"; Parameters: "/F /IM {#MyAppExeName}"; Flags: runhidden; RunOnceId: "KillApp"
-Filename: "reg.exe"; Parameters: "delete ""HKCU\Software\Microsoft\Windows\CurrentVersion\Run"" /v QWGuard /f"; Flags: runhidden; RunOnceId: "DelRun"
-
-[UninstallDelete]
-; 安装目录、配置目录、缓存与日志全部清掉
-Type: filesandordirs; Name: "{app}"
-Type: filesandordirs; Name: "{userappdata}\QWGuard"
-Type: filesandordirs; Name: "{localappdata}\QWGuard"
-Type: filesandordirs; Name: "{userappdata}\..\Local\QWGuard"
-Type: dirifempty;      Name: "{autopf}\QWGuard"
-Type: files;           Name: "{userdesktop}\{#MyAppName}.lnk"
-
-; ===================================================================
-; 安装位置推荐：SSD(NVMe) 优先 → 避开系统盘 → 剩余容量最大
-; 与 native/src/ext.rs 的 recommend_install_dir 同一套排序规则。
-; Inno 是独立进程调不到 Rust 函数，这里用 Pascal 复刻：
-;   · GetDriveType 枚举固定盘
-;   · GetSpaceOnDisk64 取剩余空间
-;   · 一次 PowerShell 批量取 MediaType/BusType（失败就当 HDD，有兜底）
-; ===================================================================
 [Code]
-const
-  QWFolder = 'QWGuard';
-
-function IsSystemDrive(D: Char): Boolean;
+function PrepareToInstall(var NeedsRestart: Boolean): String;
 var
-  Sys: String;
+  RCode: Integer;
 begin
-  Sys := Uppercase(Copy(ExpandConstant('{sd}'), 1, 1));
-  Result := (Uppercase(D) = Sys) or (Uppercase(D) = 'C');
-end;
-
-function FreeGB(D: Char): Int64;
-var
-  FreeBytes, TotalBytes: Int64;
-begin
-  Result := -1;
-  if GetSpaceOnDisk64(D + ':\', FreeBytes, TotalBytes) then
-    Result := FreeBytes div 1073741824;
-end;
-
-procedure LoadMediaMap(Map: TStringList);
-var
-  OutFile, Cmd, Line, D, M: String;
-  RCode, I: Integer;
-  Lines: TArrayOfString;
-begin
-  Map.Clear;
-  OutFile := ExpandConstant('{tmp}\qw_media.txt');
-  Cmd := '/c powershell -NoProfile -Command "Get-Volume | Where-Object {$_.DriveLetter} | ForEach-Object { $v=$_; try { $p=Get-Partition -DriveLetter $v.DriveLetter; $d=Get-PhysicalDisk -DeviceNumber $p.DiskNumber; Write-Output ($v.DriveLetter + ''='' + $d.MediaType + '','' + $d.BusType) } catch {} }" > "' + OutFile + '" 2>nul';
-  Exec('cmd.exe', Cmd, '', SW_HIDE, ewWaitUntilTerminated, RCode);
-  if LoadStringsFromFile(OutFile, Lines) then
-    for I := 0 to GetArrayLength(Lines) - 1 do
-    begin
-      Line := Trim(Lines[I]);
-      if (Length(Line) >= 2) and (Line[2] = '=') then
-      begin
-        D := Uppercase(Copy(Line, 1, 1));
-        M := Uppercase(Copy(Line, 3, Length(Line)));
-        Map.Values[D] := M;
-      end;
-    end;
-  DeleteFile(OutFile);
-end;
-
-function BestDir(): String;
-var
-  Map: TStringList;
-  D: Char;
-  Media: String;
-  Free, BestFree: Int64;
-  Tier, BestTier: Integer;
-  IsSys, BestIsSys, Found: Boolean;
-  BestDrive: Char;
-begin
-  Map := TStringList.Create;
-  try
-    LoadMediaMap(Map);
-    Found := False;
-    BestDrive := 'C';
-    BestTier := 99;
-    BestFree := -1;
-    BestIsSys := True;
-
-    for D := 'C' to 'Z' do
-    begin
-      if GetDriveType(D + ':\') <> DRIVE_FIXED then
-        Continue;
-      Free := FreeGB(D);
-      if Free < 0 then
-        Continue;
-
-      Media := Uppercase(Map.Values[D]);
-      if Pos('NVME', Media) > 0 then
-        Tier := 0
-      else if Pos('SSD', Media) > 0 then
-        Tier := 1
-      else
-        Tier := 2;
-
-      IsSys := IsSystemDrive(D);
-
-      if (not Found)
-         or (Tier < BestTier)
-         or ((Tier = BestTier) and BestIsSys and (not IsSys))
-         or ((Tier = BestTier) and (BestIsSys = IsSys) and (Free > BestFree)) then
-      begin
-        BestDrive := D;
-        BestTier := Tier;
-        BestFree := Free;
-        BestIsSys := IsSys;
-        Found := True;
-      end;
-    end;
-
-    if Found then
-      Result := BestDrive + ':\' + QWFolder
-    else
-      Result := ExpandConstant('{autopf}\' + QWFolder);
-  finally
-    Map.Free;
+  Result := '';
+  NeedsRestart := False;
+  // Inno 的 [Run] 段拿不到返回码，这里自己调一次并判断
+  if not Exec(ExpandConstant('{tmp}\qwpayload\{#MySetupExeName}'), '', ExpandConstant('{tmp}\qwpayload'), SW_SHOW, ewWaitUntilTerminated, RCode) then
+  begin
+    Result := '无法启动安装向导（QWGuard-Setup.exe 没能运行）。请确认杀毒软件没有拦截。';
+    Exit;
   end;
-end;
-
-procedure InitializeWizard();
-begin
-  WizardForm.DirEdit.Text := BestDir();
+  if RCode <> 0 then
+    Result := '安装向导未完成安装（退出码 ' + IntToStr(RCode) + '）。请重新运行安装包。';
 end;

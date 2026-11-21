@@ -215,7 +215,7 @@ class _HardwarePageState extends State<HardwarePage> {
         children: [
           PageTitle(
             title: I18n.t('hw'),
-            subtitle: I18n.lang == 'zh' ? '实时读取处理器、内存与磁盘状态' : 'Live CPU, memory and disk status',
+            subtitle: I18n.lang == 'en' ? '实时读取处理器、内存与磁盘状态' : 'Live CPU, memory and disk status',
             trailing: Row(children: [
               LiquidButton(text: I18n.t('refresh'), icon: Icons.refresh_rounded, primary: false, onTap: _loading ? null : _load),
             ]),
@@ -390,11 +390,11 @@ class _CleanPageState extends State<CleanPage> {
       final ok = await showDialog<bool>(
         context: context,
         builder: (c) => AlertDialog(
-          title: Text(I18n.lang == 'zh' ? '确认删除这些文件？' : 'Delete these files?'),
-          content: Text(I18n.lang == 'zh' ? '共 ${paths.length} 项，删除后不可恢复。' : '${paths.length} items, cannot be undone.'),
+          title: Text(I18n.lang == 'en' ? '确认删除这些文件？' : 'Delete these files?'),
+          content: Text(I18n.lang == 'en' ? '共 ${paths.length} 项，删除后不可恢复。' : '${paths.length} items, cannot be undone.'),
           actions: [
-            TextButton(onPressed: () => Navigator.pop(c, false), child: Text(I18n.lang == 'zh' ? '取消' : 'Cancel')),
-            TextButton(onPressed: () => Navigator.pop(c, true), child: Text(I18n.lang == 'zh' ? '确认' : 'Confirm')),
+            TextButton(onPressed: () => Navigator.pop(c, false), child: Text(I18n.lang == 'en' ? '取消' : 'Cancel')),
+            TextButton(onPressed: () => Navigator.pop(c, true), child: Text(I18n.lang == 'en' ? '确认' : 'Confirm')),
           ],
         ),
       );
@@ -428,7 +428,7 @@ class _CleanPageState extends State<CleanPage> {
         children: [
           PageTitle(
             title: I18n.t('clean'),
-            subtitle: I18n.lang == 'zh' ? '扫描 → 勾选 → 二次确认，三步才删除' : 'Scan → select → confirm, three steps before deletion',
+            subtitle: I18n.lang == 'en' ? '扫描 → 勾选 → 二次确认，三步才删除' : 'Scan → select → confirm, three steps before deletion',
             trailing: LiquidButton(text: '快速清理', icon: Icons.bolt_rounded, primary: false,
                 onTap: _scanning ? null : () => _cleanScan(mode: 'quick')),
           ),
@@ -993,7 +993,7 @@ class _ScanPageState extends State<ScanPage> {
         children: [
           PageTitle(
             title: I18n.t('scan'),
-            subtitle: I18n.lang == 'zh' ? '内置引擎扫描，外部工具可一键唤起' : 'Built-in engines scan, external tools launch in one click',
+            subtitle: I18n.lang == 'en' ? '内置引擎扫描，外部工具可一键唤起' : 'Built-in engines scan, external tools launch in one click',
           ),
           const SizedBox(height: 16),
           LiquidGlass(
@@ -1014,7 +1014,7 @@ class _ScanPageState extends State<ScanPage> {
                 TextField(
                   controller: _pathCtrl,
                   decoration: InputDecoration(
-                    hintText: I18n.lang == 'zh' ? '例如 C:\\Users\\me\\Downloads' : 'e.g. C:\\Users\\me\\Downloads',
+                    hintText: I18n.lang == 'en' ? '例如 C:\\Users\\me\\Downloads' : 'e.g. C:\\Users\\me\\Downloads',
                     isDense: true,
                     border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
                   ),
@@ -1095,8 +1095,8 @@ class _ScanPageState extends State<ScanPage> {
                                   Text(
                                     ok
                                         ? (infected
-                                            ? (I18n.lang == 'zh' ? '发现威胁' : 'Threat found')
-                                            : (I18n.lang == 'zh' ? '未发现威胁' : 'No threat'))
+                                            ? (I18n.lang == 'en' ? '发现威胁' : 'Threat found')
+                                            : (I18n.lang == 'en' ? '未发现威胁' : 'No threat'))
                                         : r['message'].toString(),
                                     style: TextStyle(fontSize: 12, color: isDark ? Colors.white54 : Colors.black54),
                                   ),
@@ -1466,7 +1466,7 @@ class _ToolsPageState extends State<ToolsPage> {
         children: [
           PageTitle(
             title: I18n.t('tools'),
-            subtitle: I18n.lang == 'zh' ? '系统小工具按需接入，全部带 QW 前缀' : 'More utilities will be added',
+            subtitle: I18n.lang == 'en' ? '系统小工具按需接入，全部带 QW 前缀' : 'More utilities will be added',
           ),
           const SizedBox(height: 14),
           Container(
@@ -1953,7 +1953,7 @@ class _WelcomeSheetState extends State<WelcomeSheet> {
                   if (_page > 0)
                     TextButton(
                       onPressed: () => _go(-1),
-                      child: Text(I18n.lang == 'zh' ? '上一步' : 'Back'),
+                      child: Text(I18n.lang == 'en' ? '上一步' : 'Back'),
                     )
                   else
                     const SizedBox(width: 64),
@@ -1961,7 +1961,7 @@ class _WelcomeSheetState extends State<WelcomeSheet> {
                   LiquidButton(
                     text: _page == 2
                         ? I18n.t('confirm')
-                        : (I18n.lang == 'zh' ? '下一步' : 'Next'),
+                        : (I18n.lang == 'en' ? '下一步' : 'Next'),
                     icon: _page == 2 ? Icons.check_rounded : Icons.arrow_forward_rounded,
                     onTap: _page == 2 ? _finish : () => _go(1),
                   ),
@@ -2029,7 +2029,7 @@ class _WelcomeSheetState extends State<WelcomeSheet> {
                 SwitchListTile(
                   contentPadding: EdgeInsets.zero,
                   dense: true,
-                  title: Text(I18n.lang == 'zh' ? a.zh : a.en,
+                  title: Text(I18n.lang == 'en' ? a.zh : a.en,
                       style: const TextStyle(fontSize: 12.5)),
                   value: _anim[a.key] ?? a.defaultOn,
                   onChanged: (v) => setState(() => _anim[a.key] = v),
@@ -2185,7 +2185,7 @@ class _SettingsPageState extends State<SettingsPage> {
         children: [
           PageTitle(
             title: I18n.t('settings'),
-            subtitle: I18n.lang == 'zh' ? '界面材质、性能、更新与安全项' : 'Appearance, performance, updates and security',
+            subtitle: I18n.lang == 'en' ? '界面材质、性能、更新与安全项' : 'Appearance, performance, updates and security',
           ),
           const SizedBox(height: 14),
           Expanded(
@@ -2373,7 +2373,7 @@ class _SettingsPageState extends State<SettingsPage> {
               Padding(
                 padding: const EdgeInsets.only(top: 10),
                 child: Text(
-                  I18n.lang == 'zh' ? '卸载时会清理安装目录与 HKCU 注册表项，避免残留。' : 'Uninstall removes install dir and HKCU entries.',
+                  I18n.lang == 'en' ? '卸载时会清理安装目录与 HKCU 注册表项，避免残留。' : 'Uninstall removes install dir and HKCU entries.',
                   style: TextStyle(fontSize: 11, color: isDark ? Colors.white38 : Colors.black38),
                 ),
               ),
