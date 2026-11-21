@@ -1025,7 +1025,7 @@ class _ScanPageState extends State<ScanPage> {
                 ]),
                 const SizedBox(height: 12),
                 Row(children: [
-                  LiquidButton(text: '快速扫描', icon: Icons.bolt_rounded, primary: false,
+                  LiquidButton(text: '快速扫描', icon: Icons.bolt_rounded,
                       onTap: _busy ? null : _scanQuick),
                   const SizedBox(width: 8),
                   LiquidButton(text: '全盘扫描', icon: Icons.storage_rounded, primary: false,
@@ -1034,7 +1034,7 @@ class _ScanPageState extends State<ScanPage> {
                   LiquidButton(text: 'U 盘扫描', icon: Icons.usb_rounded, primary: false,
                       onTap: _busy ? null : _scanUsb),
                   const SizedBox(width: 8),
-                  LiquidButton(text: '指定位置扫描', icon: Icons.folder_open_rounded,
+                  LiquidButton(text: '指定位置扫描', icon: Icons.folder_open_rounded, primary: false,
                       onTap: _busy ? null : _scanCustom),
                   const Spacer(),
                   if (_busy)
