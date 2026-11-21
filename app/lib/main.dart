@@ -198,7 +198,7 @@ class _ShellState extends State<Shell>
     with WindowListener, TrayListener, TickerProviderStateMixin {
   int _index = 0;
   bool _oobe = true;
-  Ticker? _ticker;
+  Timer? _tickerTimer;
 
   /// 墙钟时钟：只在启动时归零，之后一直往前走。
   /// 用它而不是 Ticker 的 elapsed，是因为窗口最小化 / 失焦 / 被系统挂起时
@@ -220,13 +220,13 @@ class _ShellState extends State<Shell>
     // 全局唯一动画时钟：60 秒一轮，所有动态层共用
     // 单调递增的秒数，不回绕：回绕会让 22s/14s 这种非整除周期在接缝处跳一帧
     _clock.start();
-    _ticker = createTicker((_) {
-      // 没有监听者时直接返回：所有动画关掉之后，不该还存在一个每帧改写
-      // ValueNotifier 的定时器 —— 那会让整棵树持续被判定为「需要重建」，
-      // 用户看到的就是「动画全关了 GPU 还在 70%」。
+    // 关键：这里不能再用 createTicker —— Ticker 一旦 start()，引擎就会持续按
+    // 刷新率出帧、整窗重绘，回调里 return 也拦不住。这正是「动画全关、界面换成
+    // 纯文本，GPU 仍 70%」的根因。改成普通定时器：没人监听就彻底不出帧。
+    _tickerTimer = Timer.periodic(const Duration(milliseconds: 16), (_) {
       if (!Ui.tick.hasListeners) return;
       Ui.tick.value = _clock.elapsedMicroseconds / 1000000.0;
-    })..start();
+    });
 
     // 心跳兜底：窗口最小化或系统挂起时不会出帧，这里每 250ms 把时钟推进一步，
     // 保证任何时刻被唤醒、恢复显示，第一帧就是正确相位，不是从头再来
@@ -261,7 +261,7 @@ class _ShellState extends State<Shell>
     SchedulerBinding.instance.removeTimingsCallback(_onFrameTimings);
     _heartbeat?.cancel();
     _clock.stop();
-    _ticker?.dispose();
+    _tickerTimer?.cancel();
     for (final a in Ui.anims) {
       Ui.on(a.key).removeListener(_rebuild);
     }
