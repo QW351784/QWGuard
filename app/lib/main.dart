@@ -24,11 +24,26 @@ import 'floating_monitor.dart';
 ///
 /// 之前这两个分支进来什么都没设，窗口标题就是 flutter create 脚手架里的
 /// 工程名 `system_toolbox` —— 用户截图左上角那个英文就是它，必须改成中文。
-Future<void> _setupWindowTitle() async {
+Future<void> _setupWindow() async {
   if (!Platform.isWindows) return;
   try {
     await windowManager.ensureInitialized();
-    await windowManager.setTitle('QW 安全电脑管家');
+    // 尺寸必须显式给：以前只设了标题，用的是 flutter create 脚手架的默认
+    // 1280x720，在 1080p 屏上被系统缩放后几乎铺满整块屏幕 ——
+    // 一个安装向导占满全屏，看起来就像软件本体，而不是「安装器」。
+    // 真软件的安装窗口一般 800-900 宽，这里定 900x620、居中、不可放大。
+    const opts = WindowOptions(
+      size: Size(900, 620),
+      minimumSize: Size(880, 600),
+      center: true,
+      title: 'QW 安全电脑管家',
+    );
+    await windowManager.waitUntilReadyToShow(opts, () async {
+      await windowManager.show();
+      await windowManager.focus();
+    });
+    await windowManager.setResizable(false);
+    await windowManager.setMaximizable(false);
   } catch (_) {}
 }
 
@@ -37,7 +52,7 @@ Future<void> main(List<String> args) async {
 
   // 安装 / 卸载模式：跟主程序同一个二进制，靠参数分流
   if (args.contains('--setup') || args.contains('--uninstall')) {
-    await _setupWindowTitle();
+    await _setupWindow();
     runApp(SetupApp(uninstall: args.contains('--uninstall')));
     return;
   }
@@ -53,7 +68,7 @@ Future<void> main(List<String> args) async {
         .last
         .toLowerCase();
     if (exeName.contains('setup')) {
-      await _setupWindowTitle();
+      await _setupWindow();
       runApp(const SetupApp(uninstall: false));
       return;
     }

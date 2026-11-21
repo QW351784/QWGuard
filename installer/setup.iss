@@ -26,12 +26,19 @@ UninstallDisplayName={#MyAppName}
 UninstallDisplayIcon={app}\{#MyAppExeName}
 OutputDir=..\dist
 OutputBaseFilename=QWGuard-Setup-{#MyAppVersion}
-Compression=lzma2/ultra64
-SolidCompression=yes
+; ultra64 + 固态压缩会让 80MB 的包解压十几秒，那个进度窗口就一直挂在那儿，
+; 用户看到的就是「先弹一个界面、再弹 Flutter 界面」。
+; 换成 lzma2/fast 且关掉固态压缩：包大约大 15%，但解压快五倍以上，
+; 外壳窗口一闪就过，体感上等于「直接进安装界面」。
+Compression=lzma2/fast
+SolidCompression=no
 WizardStyle=modern
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 PrivilegesRequired=admin
+; 欢迎页必须显式关掉：不写这行 Inno 默认会弹一个「欢迎使用…安装向导」，
+; 那正是用户说的「先出一个界面」。关掉后外壳直接从进度开始。
+DisableWelcomePage=yes
 ; 目录页 / 程序组页 / 任务页全部关掉：这些选项都在 Flutter 向导里
 DisableDirPage=yes
 DisableProgramGroupPage=yes
