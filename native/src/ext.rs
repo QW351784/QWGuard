@@ -1380,6 +1380,31 @@ fn tool_path(key: &str, candidates: &[&str]) -> Option<String> {
             return Some(p.to_string());
         }
     }
+    // 内置优先：安装目录下自带的引擎（<exe>/huorong/hrscan.exe、<exe>/pyas/PYAS.exe），
+    // 或直接放在 exe 同级。这样即使用户机器上从没装过火绒 / PYAS，装上本软件也能直接扫。
+    let builtin: Option<(&str, &[&str])> = match key {
+        "huorong_path" => Some(("huorong", &["hrscan.exe", "HipsMain.exe"])),
+        "pyas_path" => Some(("pyas", &["PYAS.exe", "pyas.exe"])),
+        _ => None,
+    };
+    if let Some((sub, names)) = builtin {
+        if let Ok(exe) = std::env::current_exe() {
+            if let Some(parent) = exe.parent() {
+                for n in names {
+                    let p = parent.join(sub).join(n);
+                    if p.exists() {
+                        return Some(p.display().to_string());
+                    }
+                }
+                for n in names {
+                    let p = parent.join(n);
+                    if p.exists() {
+                        return Some(p.display().to_string());
+                    }
+                }
+            }
+        }
+    }
     candidates
         .iter()
         .find(|p| Path::new(p).exists())

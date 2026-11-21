@@ -44,7 +44,17 @@ jobs:
 
       - name: Build Windows app
         working-directory: app
-        run: flutter build windows --release
+        # Impeller 在 Windows 上走 D3D12，静态界面也持续整窗重合成，
+        # 实测空窗口就能吃掉 30~50% GPU，动画全关也降不下来。
+        # 退回 Skia（OpenGL）后空闲占用能压到个位数。若该 flag 不被当前
+        # Flutter 版本支持，自动降级为普通构建，不让整条流水线因此失败。
+        run: |
+          flutter build windows --release --no-enable-impeller
+          if ($LASTEXITCODE -ne 0) {
+            Write-Warning "该 Flutter 版本不认识 --no-enable-impeller，退回默认构建"
+            flutter build windows --release
+          }
+        shell: pwsh
 
       - name: Copy native dll, assets and runtime tools
         shell: pwsh
@@ -62,6 +72,15 @@ jobs:
             Copy-Item 'vendor\yara' -Destination (Join-Path $rel 'yara') -Recurse -Force
             Get-ChildItem (Join-Path $rel 'yara') | Select-Object Name, Length
           } else { Write-Warning 'vendor/yara 不存在' }
+          # 内置扫描引擎：火绒 hrscan / PYAS。放进去之后 tool_path 会优先命中
+          # <exe>/huorong、<exe>/pyas，用户不用在机器上另装这两个软件
+          foreach ($eng in @('huorong','pyas')) {
+            if (Test-Path "vendor\$eng") {
+              Copy-Item "vendor\$eng" -Destination (Join-Path $rel $eng) -Recurse -Force
+              Write-Host "已内置 $eng :"
+              Get-ChildItem (Join-Path $rel $eng) | Select-Object Name, Length | Format-Table -AutoSize
+            } else { Write-Warning "vendor/$eng 不存在，$eng 引擎不会内置" }
+          }
           # 主程序改名：pubspec 里项目名是 system_toolbox，编出来的 exe 也叫这个，
           # 用户会以为是工具箱/安装器，找不到管家本体。改名成 QWGuard.exe。
           $main = Join-Path $rel 'system_toolbox.exe'

@@ -46,7 +46,20 @@ class _HardwarePageState extends State<HardwarePage> {
       _loading = true;
       _error = null;
     });
-    final res = await Native.hardwareAsync();
+    // 之前这里没有任何兜底：Native.hardwareAsync() 抛异常或 isolate 卡死，
+    // await 就地中断，后面的 setState 永远不执行，_loading 一直是 true，
+    // 界面就停在那圈转动的加载指示器上 —— 用户看到的就是「硬件检测永远空白」。
+    Map<String, dynamic> res;
+    try {
+      res = await Native.hardwareAsync().timeout(const Duration(seconds: 25));
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _loading = false;
+        _error = '读取硬件信息失败：$e';
+      });
+      return;
+    }
     if (!mounted) return;
     setState(() {
       _loading = false;
