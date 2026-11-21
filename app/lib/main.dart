@@ -508,6 +508,9 @@ class _ShellState extends State<Shell>
       final dark = Theme.of(context).brightness == Brightness.dark;
       switch (currentMatStyle()) {
         case MatStyle.auto:
+          // auto 不再默认上 Mica：Mica 让 DWM 每帧重合成整窗，4060 上也长期吃掉 60~70% GPU。
+          // 玻璃质感改由 Flutter 自己画（LiquidGlass），可控且零系统合成开销。
+          await Window.setEffect(effect: WindowEffect.solid);
         case MatStyle.mica:
         case MatStyle.glass:
           // Win11 用 Mica；Win10 上 Mica 不生效，退回 Acrylic

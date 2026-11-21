@@ -37,7 +37,7 @@ class Ui {
     AnimDef('buttonPress', '按钮按压回弹', 'Button press'),
     AnimDef('cardEntrance', '卡片入场动画', 'Card entrance'),
     // 呼吸型动态光效：软件内默认开启、可以手动关闭；安装/卸载过程中强制开启（那边没有开关）
-    AnimDef('breathing', '呼吸型动态光效', 'Breathing glow', defaultOn: true),
+    AnimDef('breathing', '呼吸型动态光效', 'Breathing glow', defaultOn: false),
   ];
 
   static final Map<String, ValueNotifier<bool>> _map = {
