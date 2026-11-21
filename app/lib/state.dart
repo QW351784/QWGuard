@@ -25,7 +25,7 @@ class Ui {
   static const List<AnimDef> anims = [
     AnimDef('glass', '液态玻璃材质', 'Liquid glass'),
     AnimDef('blur', '实时模糊', 'Live blur', defaultOn: false),
-    AnimDef('refraction', '光影折射', 'Refraction'),
+    AnimDef('refraction', '光影折射', 'Refraction', defaultOn: false),
     AnimDef('raytrace', '光追反射', 'Ray tracing', defaultOn: false),
     AnimDef('water', '水纹动画', 'Water ripple', defaultOn: false),
     AnimDef('sweep', '折射扫光带', 'Light sweep', defaultOn: false),
@@ -83,4 +83,27 @@ class Ui {
       isOn(key) ? Duration(milliseconds: ms) : Duration.zero;
 
   static Curve curve(String key) => isOn(key) ? spring : Curves.linear;
+
+  /// 是否有「需要按帧驱动」的动画还开着。
+  /// 这些关掉之后，没有任何 painter 需要 60fps 刷新，全局时钟就该停下来：
+  /// 否则 repaint: Ui.tick 仍然每 16ms 触发一次整窗重绘，动画关了也照样烧 GPU。
+  /// 注意这里不含 glass / dockGlass / pageTransition 等一次性或静态项，
+  /// 它们不需要持续出帧。
+  static const List<String> _perFrameKeys = [
+    'blur',
+    'refraction',
+    'raytrace',
+    'water',
+    'sweep',
+    'particles',
+    'blobs',
+    'breathing',
+  ];
+
+  static bool get perFrameActive {
+    for (final k in _perFrameKeys) {
+      if (_map[k]?.value ?? false) return true;
+    }
+    return false;
+  }
 }

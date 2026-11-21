@@ -149,8 +149,12 @@ struct Hardware {
 pub extern "C" fn get_hardware_info(buf: *mut u8, len: usize) -> i32 {
     use sysinfo::{Components, Disks, System};
 
-    let mut sys = System::new_all();
-    sys.refresh_all();
+    // 只刷 CPU 和内存：System::new_all() + refresh_all() 会顺带枚举全部进程
+    // 和网络接口，在 Windows 上单这一句就能吃掉 1~3 秒，而页面上根本用不到
+    // 进程列表。这是「一打开就未响应」的第二个来源。
+    let mut sys = System::new();
+    sys.refresh_cpu();
+    sys.refresh_memory();
 
     let mut cpu_name = String::new();
     if let Some(c) = sys.cpus().first() {

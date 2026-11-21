@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:ffi' as ffi;
+import 'dart:isolate';
 import 'package:ffi/ffi.dart';
 import 'dart:io';
 
@@ -74,6 +75,13 @@ class Native {
   }
 
   static Map<String, dynamic> hardware() => _callBuf('get_hardware_info', cap: 65536) ?? <String, dynamic>{};
+
+  /// 硬件信息（后台版）
+  /// get_hardware_info 内部要起 PowerShell 跑 Get-CimInstance，实测量级是秒。
+  /// 直接在 UI isolate 上同步调用，窗口会先白屏再「未响应」——用户看到的就是
+  /// 「一打开就没响应 + 硬件检测空白」。放 isolate 里跑，UI 线程全程不受阻。
+  static Future<Map<String, dynamic>> hardwareAsync() =>
+      Isolate.run(() => _callBuf('get_hardware_info', cap: 65536) ?? <String, dynamic>{});
 
   /// 规则库状态：哈希条数 / 文件名条数 / 内置 YARA 是否就绪
   static Map<String, dynamic> rulesStatus() => _callBuf('rules_status', cap: 8192) ?? <String, dynamic>{};

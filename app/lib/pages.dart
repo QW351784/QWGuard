@@ -46,7 +46,7 @@ class _HardwarePageState extends State<HardwarePage> {
       _loading = true;
       _error = null;
     });
-    final res = Native.hardware();
+    final res = await Native.hardwareAsync();
     if (!mounted) return;
     setState(() {
       _loading = false;

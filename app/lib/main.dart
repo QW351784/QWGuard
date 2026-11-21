@@ -224,6 +224,9 @@ class _ShellState extends State<Shell>
     // 刷新率出帧、整窗重绘，回调里 return 也拦不住。这正是「动画全关、界面换成
     // 纯文本，GPU 仍 70%」的根因。改成普通定时器：没人监听就彻底不出帧。
     _tickerTimer = Timer.periodic(const Duration(milliseconds: 16), (_) {
+      // 所有按帧动画都关着时，直接把时钟停摆：没有 painter 需要新帧，
+      // 继续推进 tick 只会白白触发整窗重绘。
+      if (!Ui.perFrameActive) return;
       if (!Ui.tick.hasListeners) return;
       Ui.tick.value = _clock.elapsedMicroseconds / 1000000.0;
     });
