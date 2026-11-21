@@ -654,7 +654,7 @@ class _RefractionPainter extends CustomPainter {
             ],
       stops: const [0.0, 0.34, 0.66, 1.0],
     ).createShader(Offset.zero & size);
-    canvas.drawRRect(
+    canvas.drawPath(
       innerPath,
       Paint()
         ..style = PaintingStyle.stroke
