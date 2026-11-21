@@ -883,6 +883,8 @@ struct EngineOutcome {
 #[no_mangle]
 pub extern "C" fn scan_auto(target: *const c_char, buf: *mut u8, len: usize) -> i32 {
     let Some(target) = cstr(target) else { return fail(buf, len, -1, "参数为空") };
+    // 每次查杀前确保规则库落地（首次运行会写入内置 YARA 与空哈希库）
+    crate::engines::ensure_default_rules();
     if !Path::new(&target).exists() {
         return fail(buf, len, -3, "目标路径不存在");
     }

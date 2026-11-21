@@ -80,6 +80,11 @@ class Api {
   static Map<String, dynamic> scanHuorong(String target) => _one('scan_huorong', target, cap: 16384);
   static Map<String, dynamic> scanPyas(String target) => _one('scan_pyas', target, cap: 16384);
 
+  // ===== 规则库（病毒库） =====
+  static Map<String, dynamic> rulesStatus() => Native.rulesStatus();
+  static Map<String, dynamic> rulesImport(String path) => Native.rulesImport(path);
+  static Map<String, dynamic> rulesBazaar(String key) => Native.rulesBazaar(key);
+
   static Map<String, dynamic> gpu() => _buf('detect_gpu');
   static Map<String, dynamic> gpuPreference() => _buf('get_gpu_preference');
 

@@ -524,11 +524,21 @@ class _ScanPageState extends State<ScanPage> {
   final List<Map<String, dynamic>> _results = [];
   bool _busy = false;
   int _wlCount = 0;
+  Map<String, dynamic> _rules = {};
 
   @override
   void initState() {
     super.initState();
     _loadWl();
+    _loadRules();
+  }
+
+  void _loadRules() {
+    final r = Api.rulesStatus();
+    final d = r['data'];
+    if (d is Map && mounted) {
+      setState(() => _rules = Map<String, dynamic>.from(d));
+    }
   }
 
   void _loadWl() {
@@ -629,6 +639,118 @@ class _ScanPageState extends State<ScanPage> {
     }
     if (mounted) setState(() => _busy = false);
     await _handleThreats(target);
+  }
+
+  Widget _rulesCard() {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final hashes = (_rules['hashes'] as num?)?.toInt() ?? 0;
+    final names = (_rules['names'] as num?)?.toInt() ?? 0;
+    final yara = _rules['yara'] == true;
+    return LiquidGlass(
+      radius: 26,
+      padding: const EdgeInsets.all(14),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(children: [
+            const Icon(Icons.dataset_rounded, size: 18),
+            const SizedBox(width: 8),
+            const Text('QW 引擎 · 病毒库',
+                style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
+            const Spacer(),
+            TextButton.icon(
+              onPressed: _loadRules,
+              icon: const Icon(Icons.refresh_rounded, size: 16),
+              label: const Text('刷新', style: TextStyle(fontSize: 12)),
+            ),
+          ]),
+          Text('哈希 $hashes 条 · 文件名规则 $names 条 · 内置 YARA ${yara ? '就绪' : '缺失'}',
+              style: TextStyle(
+                  fontSize: 11.5, color: isDark ? Colors.white54 : Colors.black54)),
+          const SizedBox(height: 8),
+          Wrap(spacing: 8, runSpacing: 8, children: [
+            FilledButton.tonalIcon(
+              onPressed: _importHashes,
+              icon: const Icon(Icons.file_open_rounded, size: 16),
+              label: const Text('导入哈希文件', style: TextStyle(fontSize: 12)),
+            ),
+            FilledButton.tonalIcon(
+              onPressed: _pullBazaar,
+              icon: const Icon(Icons.cloud_download_rounded, size: 16),
+              label: const Text('abuse.ch 拉取', style: TextStyle(fontSize: 12)),
+            ),
+          ]),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _importHashes() async {
+    final ctrl = TextEditingController();
+    final path = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('导入哈希文件', style: TextStyle(fontSize: 16)),
+        content: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+          const Text('选一个 txt，一行一个 SHA-256（64 位十六进制），# 开头是注释',
+              style: TextStyle(fontSize: 12)),
+          const SizedBox(height: 10),
+          TextField(
+            controller: ctrl,
+            decoration: const InputDecoration(
+                hintText: r'C:\Users\me\hashes.txt', isDense: true),
+          ),
+        ]),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('取消')),
+          FilledButton(onPressed: () => Navigator.pop(ctx, ctrl.text.trim()), child: const Text('导入')),
+        ],
+      ),
+    );
+    if (path == null || path.isEmpty) return;
+    final r = Api.rulesImport(path);
+    if (r['success'] == true) {
+      final a = (r['data']?['added'] as num?)?.toInt() ?? 0;
+      final t = (r['data']?['total'] as num?)?.toInt() ?? 0;
+      _toastScan('已导入：新增 $a 条，库内共 $t 条');
+    } else {
+      _toastScan(r['message']?.toString() ?? '导入失败');
+    }
+    _loadRules();
+  }
+
+  Future<void> _pullBazaar() async {
+    final ctrl = TextEditingController();
+    final key = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('从 abuse.ch 拉取', style: TextStyle(fontSize: 16)),
+        content: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+          const Text('需要你自己的 Auth-Key：abuse.ch 免费注册后拿到，填在这里只用于本次请求',
+              style: TextStyle(fontSize: 12)),
+          const SizedBox(height: 10),
+          TextField(
+            controller: ctrl,
+            obscureText: true,
+            decoration: const InputDecoration(hintText: 'Auth-Key', isDense: true),
+          ),
+        ]),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('取消')),
+          FilledButton(onPressed: () => Navigator.pop(ctx, ctrl.text.trim()), child: const Text('拉取')),
+        ],
+      ),
+    );
+    if (key == null || key.isEmpty) return;
+    final r = Api.rulesBazaar(key);
+    if (r['success'] == true) {
+      final a = (r['data']?['added'] as num?)?.toInt() ?? 0;
+      final t = (r['data']?['total'] as num?)?.toInt() ?? 0;
+      _toastScan('拉取完成：新增 $a 条，库内共 $t 条');
+    } else {
+      _toastScan(r['message']?.toString() ?? '拉取失败');
+    }
+    _loadRules();
   }
 
   void _toastScan(String m) {
@@ -815,6 +937,8 @@ class _ScanPageState extends State<ScanPage> {
                       onSelected: (v) => setState(() => _engines[e] = v),
                     ),
                 ]),
+                const SizedBox(height: 10),
+                _rulesCard(),
                 const SizedBox(height: 14),
                 Text(I18n.t('path'), style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
                 const SizedBox(height: 8),

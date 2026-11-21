@@ -69,6 +69,34 @@ class Native {
 
   static Map<String, dynamic> hardware() => _callBuf('get_hardware_info') ?? <String, dynamic>{};
 
+  /// 规则库状态：哈希条数 / 文件名条数 / 内置 YARA 是否就绪
+  static Map<String, dynamic> rulesStatus() => _callBuf('rules_status', cap: 8192) ?? <String, dynamic>{};
+
+  /// 从本地 txt 导入 SHA-256 黑名单
+  static Map<String, dynamic> rulesImport(String path) => _str1('rules_import', path);
+
+  /// 从 abuse.ch MalwareBazaar 拉哈希（需要用户自己的 Auth-Key）
+  static Map<String, dynamic> rulesBazaar(String key) => _str1('rules_bazaar', key);
+
+  static Map<String, dynamic> _str1(String fn, String arg) {
+    final l = lib;
+    if (l == null) return {'success': false, 'message': loadError ?? 'native library missing'};
+    final f = l.lookupFunction<_StrBufFn, _DartStrBufFn>(fn);
+    final a = arg.toNativeUtf8();
+    final buf = calloc<ffi.Uint8>(8192);
+    try {
+      final ret = f(a.cast(), buf, 8192);
+      final text = buf.cast<ffi.Char>().cast<Utf8>().toDartString();
+      if (text.trim().isEmpty) return {'success': false, 'code': ret};
+      return jsonDecode(text) as Map<String, dynamic>;
+    } catch (e) {
+      return {'success': false, 'message': e.toString()};
+    } finally {
+      calloc.free(a);
+      calloc.free(buf);
+    }
+  }
+
   static Map<String, dynamic> scanCleanup() => _callBuf('scan_cleanup') ?? <String, dynamic>{};
 
   static Map<String, dynamic> executeCleanup(List<String> paths, {bool dryRun = true}) {

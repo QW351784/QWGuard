@@ -339,8 +339,15 @@ pub(crate) fn run_engine(engine: &str, target: &str) -> Result<(bool, Vec<String
             let Some(exe) = find(&["yara-x.exe", "yara.exe", "yr"]) else {
                 return Err("未找到 YARA".into());
             };
-            let rules = std::env::var("TOOLBOX_YARA_RULES").unwrap_or_else(|_| "rules.yar".into());
-            std::process::Command::new(exe).args([&rules, target]).output()
+            // 优先用内置的 qw_basic.yar（首次启动自动落地），环境变量可覆盖
+            let rules = std::env::var("TOOLBOX_YARA_RULES")
+                .map(std::path::PathBuf::from)
+                .unwrap_or_else(|_| crate::engines::default_yara_rules());
+            if !rules.exists() {
+                return Err("未找到 YARA 规则文件".into());
+            }
+            let rules_s = rules.to_string_lossy().to_string();
+            std::process::Command::new(exe).args([&rules_s, target]).output()
         }
         "signature" => return Ok(crate::engines::signature_scan(target)),
         "heuristic" => return Ok(crate::engines::heuristic_scan(target)),
@@ -473,4 +480,47 @@ pub(crate) fn scan_common_dirs_quiet() -> u64 {
         }
     }
     found
+}
+
+// ================= 规则库（疫苗库）维护接口 =================
+
+/// 规则库状态：哈希条数、文件名条数、内置 YARA 是否存在
+#[no_mangle]
+pub extern "C" fn rules_status(buf: *mut u8, len: usize) -> i32 {
+    let st = crate::engines::rules_status();
+    ok(buf, len, "规则库状态", st)
+}
+
+/// 从本地 txt 导入 SHA-256 黑名单（参数：文件路径）
+#[no_mangle]
+pub extern "C" fn rules_import(src: *const c_char, buf: *mut u8, len: usize) -> i32 {
+    let Some(src) = cstr(src) else {
+        return fail(buf, len, -1, "参数为空");
+    };
+    match crate::engines::import_hashes(&src) {
+        Ok((p, a, t)) => ok(
+            buf,
+            len,
+            "导入完成",
+            serde_json::json!({ "parsed": p, "added": a, "total": t }),
+        ),
+        Err(e) => fail(buf, len, -3, &e),
+    }
+}
+
+/// 从 abuse.ch MalwareBazaar 拉哈希（参数：用户自己的 Auth-Key）
+#[no_mangle]
+pub extern "C" fn rules_bazaar(key: *const c_char, buf: *mut u8, len: usize) -> i32 {
+    let Some(key) = cstr(key) else {
+        return fail(buf, len, -1, "参数为空");
+    };
+    match crate::engines::bazaar_pull(&key) {
+        Ok((p, a, t)) => ok(
+            buf,
+            len,
+            "已从 abuse.ch 拉取",
+            serde_json::json!({ "parsed": p, "added": a, "total": t }),
+        ),
+        Err(e) => fail(buf, len, -3, &e),
+    }
 }
