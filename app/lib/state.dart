@@ -55,6 +55,14 @@ class Ui {
   /// - solid：纯色最省性能
   static final material = ValueNotifier<String>('auto');
 
+  /// 全局动画时钟：0..1，60 秒一轮。
+  /// 全窗口只留这一个 Ticker，画笔用 `super(repaint: Ui.tick)` 订阅它——
+  /// 只走重绘、不走 widget 重建；几十个玻璃控件叠加时也不会各开一个 vsync。
+  static final ValueNotifier<double> tick = ValueNotifier<double>(0);
+
+  /// 上一帧总耗时（毫秒）：Shell 的帧回调写入，设置页显示实时流畅度
+  static final ValueNotifier<double> frameMs = ValueNotifier<double>(0);
+
   /// 澎湃 OS 4 回弹曲线
   /// 澎湃 OS 4 的 Q 弹曲线：带明显过冲再回落，按下去像果冻
   static const spring = Cubic(0.34, 1.56, 0.64, 1.0);

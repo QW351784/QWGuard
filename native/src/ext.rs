@@ -1,4 +1,4 @@
-//! QW 电脑安全管家 —— 扩展能力：显卡判定、设置、自启动、U盘、安装目录、运行库、更新、白名单、多线程扫描
+//! QW 安全电脑管家 —— 扩展能力：显卡判定、设置、自启动、U盘、安装目录、运行库、更新、白名单、多线程扫描
 
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
@@ -890,23 +890,24 @@ pub extern "C" fn scan_auto(target: *const c_char, buf: *mut u8, len: usize) -> 
         return ok(buf, len, "已跳过（白名单）", json!({"skipped": true, "engines": []}));
     }
 
-    let gpus = detect_gpus();
-    let recommended = recommend_gpu(&gpus);
-    let best_score = gpus.iter().map(|g| g.score).max().unwrap_or(0);
+    // 并发度看 CPU 核心数，跟显卡无关：显卡只决定渲染偏好（apply_gpu_preference），
+    // 不该决定杀毒跑几个引擎。以前按独显分数选引擎是错的，这里改掉。
+    let cores = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4);
 
-    // 配置默认开启：gpu_scan=false 时只用轻量 Defender
-    let gpu_scan = load_config()
-        .get("gpu_scan")
-        .and_then(|v| v.as_bool())
-        .unwrap_or(true);
+    // 档位：quick 只跑最便宜的三个；standard 加 YARA；deep 再加上最重的 ClamAV
+    let level = load_config()
+        .get("scan_level")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string())
+        .unwrap_or_else(|| "standard".to_string());
 
-    // 策略：独显够强 → 多引擎并发；核显 → 只跑系统自带，避免打满 CPU
-    let (mode, engines): (&str, Vec<&str>) = if !gpu_scan {
-        ("manual", vec!["defender"])
-    } else if recommended == "discrete" && best_score >= 120 {
-        ("full", vec!["defender", "yara", "clamav"])
-    } else {
-        ("light", vec!["defender"])
+    let (mode, engines): (&str, Vec<&str>) = match level.as_str() {
+        "quick" => ("quick", vec!["defender", "signature", "heuristic"]),
+        "deep" => (
+            "deep",
+            vec!["defender", "signature", "heuristic", "yara", "clamav"],
+        ),
+        _ => ("standard", vec!["defender", "signature", "heuristic", "yara"]),
     };
 
     let mut handles = Vec::new();
@@ -939,12 +940,11 @@ pub extern "C" fn scan_auto(target: *const c_char, buf: *mut u8, len: usize) -> 
         .collect();
 
     let any_infected = results.iter().any(|r| r.infected);
-    ok(buf, len, "智能查杀完成", json!({
+    ok(buf, len, "QW 引擎查杀完成", json!({
         "target": target,
+        "engine": "QW",
         "mode": mode,
-        "recommended_gpu": recommended,
-        "gpu_score": best_score,
-        "gpu_scan": gpu_scan,
+        "cores": cores,
         "infected": any_infected,
         "engines": results
     }))

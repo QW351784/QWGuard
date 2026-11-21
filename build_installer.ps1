@@ -1,4 +1,4 @@
-# QW 电脑安全管家 —— 打安装包
+# QW 安全电脑管家 —— 打安装包
 # 前置：已执行 build_windows.ps1，且已安装 Inno Setup 6（ISCC.exe）
 # 用法：powershell -ExecutionPolicy Bypass -File .\build_installer.ps1
 

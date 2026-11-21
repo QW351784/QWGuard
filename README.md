@@ -1,4 +1,4 @@
-# QW 电脑安全管家（Windows）
+# QW 安全电脑管家（Windows）
 
 Flutter（UI）+ Impeller（渲染）+ Rust（底层 DLL）实现的 Windows 安全管家。
 

@@ -380,12 +380,7 @@ class ParticleLayer extends StatefulWidget {
   State<ParticleLayer> createState() => _ParticleLayerState();
 }
 
-class _ParticleLayerState extends State<ParticleLayer> with SingleTickerProviderStateMixin {
-  late final AnimationController _c = AnimationController(
-    vsync: this,
-    duration: const Duration(seconds: 22),
-  )..repeat();
-
+class _ParticleLayerState extends State<ParticleLayer> {
   final List<_P> _ps = [];
 
   @override
@@ -406,20 +401,13 @@ class _ParticleLayerState extends State<ParticleLayer> with SingleTickerProvider
   }
 
   @override
-  void dispose() {
-    _c.dispose();
-    super.dispose();
-  }
-
-  @override
   Widget build(BuildContext context) {
     if (!Ui.particles.value) return const SizedBox.shrink();
     final isDark = Theme.of(context).brightness == Brightness.dark;
     return IgnorePointer(
-      child: AnimatedBuilder(
-        animation: _c,
-        builder: (_, __) => CustomPaint(
-          painter: _ParticlePainter(_ps, _c.value, isDark),
+      child: RepaintBoundary(
+        child: CustomPaint(
+          painter: _ParticlePainter(_ps, isDark),
           size: Size.infinite,
         ),
       ),
@@ -448,13 +436,13 @@ class _P {
 
 class _ParticlePainter extends CustomPainter {
   final List<_P> ps;
-  final double t;
   final bool dark;
 
-  _ParticlePainter(this.ps, this.t, this.dark);
+  _ParticlePainter(this.ps, this.dark) : super(repaint: Ui.tick);
 
   @override
   void paint(Canvas canvas, Size size) {
+    final t = (Ui.tick.value * 60 / 22) % 1;
     final center = Offset(size.width * 0.5, size.height * 0.46);
     final rx = size.width * 0.54;
     final ry = size.height * 0.42;
@@ -495,7 +483,7 @@ class _ParticlePainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(covariant _ParticlePainter old) => old.t != t || old.dark != dark;
+  bool shouldRepaint(covariant _ParticlePainter old) => old.dark != dark;
 }
 
 /// 页面标题
@@ -539,18 +527,9 @@ class _Refraction extends StatefulWidget {
   State<_Refraction> createState() => _RefractionState();
 }
 
-class _RefractionState extends State<_Refraction> with SingleTickerProviderStateMixin {
-  late final AnimationController _c =
-      AnimationController(vsync: this, duration: const Duration(seconds: 6))..repeat();
-
+class _RefractionState extends State<_Refraction> {
   /// 指针在卡片内的局部坐标；移出卡片置空，回退到静态高光
   Offset? _pos;
-
-  @override
-  void dispose() {
-    _c.dispose();
-    super.dispose();
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -563,11 +542,9 @@ class _RefractionState extends State<_Refraction> with SingleTickerProviderState
       onExit: (_) {
         if (_pos != null) setState(() => _pos = null);
       },
-      child: AnimatedBuilder(
-        animation: _c,
-        builder: (_, __) => CustomPaint(
+      child: RepaintBoundary(
+        child: CustomPaint(
           painter: _RefractionPainter(
-            t: _c.value,
             radius: widget.radius,
             dark: isDark,
             sweep: Ui.isOn('sweep'),
@@ -581,22 +558,21 @@ class _RefractionState extends State<_Refraction> with SingleTickerProviderState
 }
 
 class _RefractionPainter extends CustomPainter {
-  final double t;
   final double radius;
   final bool dark;
   final bool sweep;
   final Offset? pointer;
 
   _RefractionPainter({
-    required this.t,
     required this.radius,
     required this.dark,
     required this.sweep,
     this.pointer,
-  });
+  }) : super(repaint: Ui.tick);
 
   @override
   void paint(Canvas canvas, Size size) {
+    final t = (Ui.tick.value * 60 / 6) % 1;
     final rrect = RRect.fromRectAndRadius(Offset.zero & size, Radius.circular(radius));
 
     // 指针位置归一化到 -1..1；没有指针就退回左上角那套静态效果
@@ -749,7 +725,7 @@ class _RefractionPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant _RefractionPainter old) =>
-      old.t != t || old.dark != dark || old.sweep != sweep || old.pointer != pointer;
+      old.dark != dark || old.sweep != sweep || old.pointer != pointer;
 }
 
 /// 呼吸型动态光效
@@ -766,17 +742,7 @@ class _RayTrace extends StatefulWidget {
   State<_RayTrace> createState() => _RayTraceState();
 }
 
-class _RayTraceState extends State<_RayTrace> with SingleTickerProviderStateMixin {
-  late final AnimationController _c = AnimationController(
-    vsync: this,
-    duration: const Duration(seconds: 14),
-  )..repeat();
-
-  @override
-  void dispose() {
-    _c.dispose();
-    super.dispose();
-  }
+class _RayTraceState extends State<_RayTrace> {
 
   @override
   Widget build(BuildContext context) {
@@ -787,10 +753,9 @@ class _RayTraceState extends State<_RayTrace> with SingleTickerProviderStateMixi
       builder: (ctx, c) {
         if (c.maxWidth < 420 || c.maxHeight < 200) return const SizedBox.shrink();
         return IgnorePointer(
-          child: AnimatedBuilder(
-            animation: _c,
-            builder: (_, __) => CustomPaint(
-              painter: _RayTracePainter(t: _c.value, radius: widget.radius, dark: isDark),
+          child: RepaintBoundary(
+            child: CustomPaint(
+              painter: _RayTracePainter(radius: widget.radius, dark: isDark),
               size: Size.infinite,
             ),
           ),
@@ -801,14 +766,14 @@ class _RayTraceState extends State<_RayTrace> with SingleTickerProviderStateMixi
 }
 
 class _RayTracePainter extends CustomPainter {
-  final double t; // 0..1 循环
   final double radius;
   final bool dark;
 
-  _RayTracePainter({required this.t, required this.radius, required this.dark});
+  _RayTracePainter({required this.radius, required this.dark}) : super(repaint: Ui.tick);
 
   @override
   void paint(Canvas canvas, Size size) {
+    final t = (Ui.tick.value * 60 / 14) % 1;
     if (size.isEmpty) return;
     final rrect = RRect.fromRectAndRadius(Offset.zero & size, Radius.circular(radius));
     final w = size.width;
@@ -899,8 +864,7 @@ class _RayTracePainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(covariant _RayTracePainter old) =>
-      old.t != t || old.dark != dark || old.radius != radius;
+  bool shouldRepaint(covariant _RayTracePainter old) => old.dark != dark || old.radius != radius;
 }
 
 /// 水纹层：指针按下 / 划过时在玻璃上溅起同心水波，越往外越淡
@@ -919,9 +883,7 @@ class WaterRipple extends StatefulWidget {
   State<WaterRipple> createState() => _WaterRippleState();
 }
 
-class _WaterRippleState extends State<WaterRipple> with SingleTickerProviderStateMixin {
-  late final AnimationController _c =
-      AnimationController(vsync: this, duration: const Duration(seconds: 3))..repeat();
+class _WaterRippleState extends State<WaterRipple> {
   final List<_Ripple> _rs = [];
   Offset? _last;
 
@@ -929,12 +891,6 @@ class _WaterRippleState extends State<WaterRipple> with SingleTickerProviderStat
     final now = DateTime.now().microsecondsSinceEpoch;
     _rs.add(_Ripple(p, now, strength));
     if (_rs.length > widget.maxRipples) _rs.removeAt(0);
-  }
-
-  @override
-  void dispose() {
-    _c.dispose();
-    super.dispose();
   }
 
   @override
@@ -959,17 +915,12 @@ class _WaterRippleState extends State<WaterRipple> with SingleTickerProviderStat
         _spawn(e.position, 0.42);
       },
       child: IgnorePointer(
-        child: SizedBox.expand(
-          child: AnimatedBuilder(
-            animation: _c,
-            builder: (_, __) {
-              final now = DateTime.now().microsecondsSinceEpoch;
-              _rs.removeWhere((r) => now - r.startMs > 2400000);
-              return CustomPaint(
-                painter: _RipplePainter(rs: _rs, nowMs: now, dark: isDark),
-                size: Size.infinite,
-              );
-            },
+        child: RepaintBoundary(
+          child: SizedBox.expand(
+            child: CustomPaint(
+              painter: _RipplePainter(rs: _rs, dark: isDark),
+              size: Size.infinite,
+            ),
           ),
         ),
       ),
@@ -979,14 +930,15 @@ class _WaterRippleState extends State<WaterRipple> with SingleTickerProviderStat
 
 class _RipplePainter extends CustomPainter {
   final List<_Ripple> rs;
-  final int nowMs;
   final bool dark;
 
-  _RipplePainter({required this.rs, required this.nowMs, required this.dark});
+  _RipplePainter({required this.rs, required this.dark}) : super(repaint: Ui.tick);
 
   @override
   void paint(Canvas canvas, Size size) {
     if (size.isEmpty) return;
+    final nowMs = DateTime.now().microsecondsSinceEpoch;
+    rs.removeWhere((r) => nowMs - r.startMs > 2400000);
     final base = math.min(size.width, size.height);
     for (final r in rs) {
       final age = (nowMs - r.startMs) / 1000000.0; // 秒
@@ -1022,7 +974,7 @@ class _RipplePainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(covariant _RipplePainter old) => true;
+  bool shouldRepaint(covariant _RipplePainter old) => old.dark != dark;
 }
 
 class BreathingGlow extends StatefulWidget {
@@ -1041,18 +993,7 @@ class BreathingGlow extends StatefulWidget {
   State<BreathingGlow> createState() => _BreathingGlowState();
 }
 
-class _BreathingGlowState extends State<BreathingGlow> with SingleTickerProviderStateMixin {
-  late final AnimationController _c = AnimationController(
-    vsync: this,
-    duration: const Duration(milliseconds: 4600),
-  )..repeat(reverse: true);
-
-  @override
-  void dispose() {
-    _c.dispose();
-    super.dispose();
-  }
-
+class _BreathingGlowState extends State<BreathingGlow> {
   @override
   Widget build(BuildContext context) {
     if (!widget.forceOn && !Ui.isOn('breathing')) {
@@ -1060,9 +1001,12 @@ class _BreathingGlowState extends State<BreathingGlow> with SingleTickerProvider
     }
     return IgnorePointer(
       child: AnimatedBuilder(
-        animation: _c,
+        animation: Ui.tick,
         builder: (_, __) {
-          final t = Curves.easeInOut.transform(_c.value);
+          // 4.6 秒一个来回：0→1→0 呼吸
+          final raw = (Ui.tick.value * 60 / 4.6) % 1;
+          final half = raw <= 0.5 ? raw * 2 : (1.0 - raw) * 2;
+          final t = Curves.easeInOut.transform(half);
           final scale = 0.88 + 0.22 * t;
           final opacity = 0.16 + 0.24 * t;
           return Transform.scale(
@@ -1104,15 +1048,7 @@ class FloatingBlob extends StatefulWidget {
   State<FloatingBlob> createState() => _FloatingBlobState();
 }
 
-class _FloatingBlobState extends State<FloatingBlob> with SingleTickerProviderStateMixin {
-  late final AnimationController _c =
-      AnimationController(vsync: this, duration: const Duration(seconds: 20))..repeat();
-
-  @override
-  void dispose() {
-    _c.dispose();
-    super.dispose();
-  }
+class _FloatingBlobState extends State<FloatingBlob> {
 
   @override
   Widget build(BuildContext context) {
@@ -1120,9 +1056,9 @@ class _FloatingBlobState extends State<FloatingBlob> with SingleTickerProviderSt
       return LiquidBlob(color: widget.color, size: widget.size);
     }
     return AnimatedBuilder(
-      animation: _c,
+      animation: Ui.tick,
       builder: (_, child) {
-        final t = _c.value * math.pi * 2 + widget.phase;
+        final t = (Ui.tick.value * 60 / 20) * math.pi * 2 + widget.phase;
         return Transform.translate(
           offset: Offset(math.sin(t) * 22, math.cos(t * 1.2) * 16),
           child: child,

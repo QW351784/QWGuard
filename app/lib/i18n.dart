@@ -3,13 +3,13 @@ class I18n {
   static String lang = 'zh';
 
   static const Map<String, String> _zh = {
-    'app': 'QW 电脑安全管家',
+    'app': 'QW 安全电脑管家',
     'hw': '硬件检测',
     'clean': '系统清理',
     'scan': '病毒查杀',
     'tools': '工具合集',
     'settings': '设置',
-    'welcome': '欢迎使用 QW 电脑安全管家',
+    'welcome': '欢迎使用 QW 安全电脑管家',
     'pickTheme': '请选择界面主题',
     'light': '浅色模式',
     'dark': '深色模式',

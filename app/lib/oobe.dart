@@ -118,7 +118,7 @@ class _OobeIntroState extends State<OobeIntro> with SingleTickerProviderStateMix
                         child: Transform.translate(
                           offset: Offset(0, 10 * (1 - textT)),
                           child: const Text(
-                            'QW 电脑安全管家',
+                            'QW 安全电脑管家',
                             style: TextStyle(fontSize: 25, fontWeight: FontWeight.w700, letterSpacing: 1.2),
                           ),
                         ),

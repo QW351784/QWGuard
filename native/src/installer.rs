@@ -12,7 +12,7 @@ use std::process::Command;
 use crate::ext::cfg_dir;
 use crate::{cstr, fail, ok};
 
-const APP_NAME: &str = "QW 电脑安全管家";
+const APP_NAME: &str = "QW 安全电脑管家";
 const EXE_NAME: &str = "system_toolbox.exe";
 
 fn copy_tree(src: &Path, dst: &Path, copied: &mut u64, bytes: &mut u64) -> Result<(), String> {

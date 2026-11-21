@@ -1,4 +1,4 @@
-//! QW 电脑安全管家 —— Rust 底层（FFI 导出）
+//! QW 安全电脑管家 —— Rust 底层（FFI 导出）
 //!
 //! 统一约定：
 //! - 结果为 UTF-8 JSON，写入调用方缓冲区，末尾补 '\0'
@@ -10,6 +10,7 @@ use std::ffi::{c_char, CStr};
 use std::fs;
 use std::path::{Path, PathBuf};
 
+mod engines;
 mod ext;
 mod installer;
 mod quarantine;
@@ -341,6 +342,8 @@ pub(crate) fn run_engine(engine: &str, target: &str) -> Result<(bool, Vec<String
             let rules = std::env::var("TOOLBOX_YARA_RULES").unwrap_or_else(|_| "rules.yar".into());
             std::process::Command::new(exe).args([&rules, target]).output()
         }
+        "signature" => return Ok(crate::engines::signature_scan(target)),
+        "heuristic" => return Ok(crate::engines::heuristic_scan(target)),
         _ => return Err("未知引擎".into()),
     };
 

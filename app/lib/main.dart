@@ -3,6 +3,7 @@ import 'dart:ui';
 
 import 'package:desktop_multi_window/desktop_multi_window.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/scheduler.dart';
 import 'package:flutter_acrylic/flutter_acrylic.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:window_manager/window_manager.dart';
@@ -68,7 +69,7 @@ Future<void> main(List<String> args) async {
       center: true,
       backgroundColor: Colors.transparent,
       titleBarStyle: TitleBarStyle.hidden,
-      title: 'QW 电脑安全管家',
+      title: 'QW 安全电脑管家',
     );
     await windowManager.waitUntilReadyToShow(opts, () async {
       await windowManager.show();
@@ -103,7 +104,7 @@ class _ToolboxAppState extends State<ToolboxApp> {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'QW 电脑安全管家',
+      title: 'QW 安全电脑管家',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.light(),
       darkTheme: AppTheme.dark(),
@@ -119,9 +120,10 @@ class Shell extends StatefulWidget {
   State<Shell> createState() => _ShellState();
 }
 
-class _ShellState extends State<Shell> with WindowListener {
+class _ShellState extends State<Shell> with WindowListener, TickerProviderStateMixin {
   int _index = 0;
   bool _oobe = true;
+  Ticker? _ticker;
 
   static const _icons = [
     Icons.memory_rounded,
@@ -134,6 +136,11 @@ class _ShellState extends State<Shell> with WindowListener {
   @override
   void initState() {
     super.initState();
+    // 全局唯一动画时钟：60 秒一轮，所有动态层共用
+    _ticker = createTicker((elapsed) {
+      Ui.tick.value = (elapsed.inMilliseconds % 60000) / 60000.0;
+    })..start();
+    SchedulerBinding.instance.addTimingsCallback(_onFrameTimings);
     for (final a in Ui.anims) {
       Ui.on(a.key).addListener(_rebuild);
     }
@@ -155,6 +162,8 @@ class _ShellState extends State<Shell> with WindowListener {
 
   @override
   void dispose() {
+    SchedulerBinding.instance.removeTimingsCallback(_onFrameTimings);
+    _ticker?.dispose();
     for (final a in Ui.anims) {
       Ui.on(a.key).removeListener(_rebuild);
     }
@@ -173,6 +182,12 @@ class _ShellState extends State<Shell> with WindowListener {
     setState(() {});
     // 材质档变了（比如用户切到 Aero）要重设窗口特效，其余开关只重建界面
     _applyMaterial();
+  }
+
+  /// 帧回调：把每帧总耗时（build+raster）喂给 Ui.frameMs，设置页实时显示
+  void _onFrameTimings(List<FrameTiming> timings) {
+    if (timings.isEmpty) return;
+    Ui.frameMs.value = timings.last.totalSpan.inMicroseconds / 1000.0;
   }
 
   /// 关窗口：先确认，再按需验密码
@@ -375,13 +390,14 @@ class _ShellState extends State<Shell> with WindowListener {
 
     final content = Stack(
         children: [
-          Positioned.fill(child: DecoratedBox(decoration: AppTheme.background(brightness))),
+          Positioned.fill(child: RepaintBoundary(child: DecoratedBox(decoration: AppTheme.background(brightness)))),
           Positioned.fill(child: ParticleLayer()),
           Positioned(top: -120, left: -100, child: FloatingBlob(color: AppTheme.blobTop(brightness), size: 320, phase: 0.4)),
           Positioned(bottom: -160, right: -130, child: FloatingBlob(color: AppTheme.blobBottom(brightness), size: 400, phase: 2.1)),
 
           Positioned.fill(
-            child: Padding(
+            child: RepaintBoundary(
+              child: Padding(
               padding: const EdgeInsets.fromLTRB(18, 18, 18, 96),
               child: ClipRRect(
                 borderRadius: BorderRadius.circular(26),
@@ -410,6 +426,7 @@ class _ShellState extends State<Shell> with WindowListener {
                 ),
               ),
             ),
+            ),
           ),
 
           // 悬浮液态玻璃 Dock
@@ -417,11 +434,11 @@ class _ShellState extends State<Shell> with WindowListener {
             left: 0,
             right: 0,
             bottom: 22,
-            child: Center(child: _Dock(index: _index, icons: _icons, onTap: (i) => setState(() => _index = i))),
+            child: Center(child: RepaintBoundary(child: _Dock(index: _index, icons: _icons, onTap: (i) => setState(() => _index = i)))),
           ),
 
           // 窗口标题栏（拖动区 + 三键）
-          const Positioned(top: 0, left: 0, right: 0, child: _WindowBar()),
+          Positioned(top: 0, left: 0, right: 0, child: RepaintBoundary(child: const _WindowBar())),
 
           // 悬浮监控窗
           if (Ui.floating.value) const FloatingMonitor(),
@@ -476,7 +493,7 @@ class _WindowBar extends StatelessWidget {
                 child: Padding(
                   padding: const EdgeInsets.only(left: 16),
                   child: Text(
-                    'QW 电脑安全管家',
+                    'QW 安全电脑管家',
                     style: TextStyle(fontSize: 11, color: isDark ? Colors.white38 : Colors.black38),
                   ),
                 ),

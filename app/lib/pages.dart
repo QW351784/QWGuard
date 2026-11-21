@@ -74,7 +74,7 @@ class _HardwarePageState extends State<HardwarePage> {
               ),
             );
         return AlertDialog(
-          title: const Text('关于 QW 电脑安全管家'),
+          title: const Text('关于 QW 安全电脑管家'),
           content: SizedBox(
             width: 470,
             child: SingleChildScrollView(
@@ -332,7 +332,7 @@ class _CleanPageState extends State<CleanPage> {
         for (final e in list) {
           final m = (e as Map).cast<String, dynamic>();
           _results.add({
-            'engine': '${m['engine']} · ${d['mode']}',
+            'engine': 'QW 引擎 · ${engineZh[m['engine']] ?? m['engine']}',
             'ok': m['ok'] == true,
             'message': m['message']?.toString() ?? '',
             'infected': m['infected'] == true,
@@ -490,6 +490,17 @@ class _CleanPageState extends State<CleanPage> {
   }
 }
 
+/// 子引擎中文名：界面上统一挂在「QW 引擎」名下
+const engineZh = {
+  'signature': '特征库',
+  'heuristic': '启发式',
+  'defender': '系统 Defender',
+  'yara': 'YARA',
+  'clamav': 'ClamAV',
+  'huorong': '火绒',
+  'pyas': 'PYAS',
+};
+
 // ======================= 病毒查杀 =======================
 
 class ScanPage extends StatefulWidget {
@@ -501,12 +512,15 @@ class ScanPage extends StatefulWidget {
 class _ScanPageState extends State<ScanPage> {
   final _pathCtrl = TextEditingController();
   final Map<String, bool> _engines = {
+    'signature': true,
+    'heuristic': true,
     'defender': true,
-    'clamav': false,
     'yara': false,
+    'clamav': false,
     'huorong': false,
     'pyas': false,
   };
+
   final List<Map<String, dynamic>> _results = [];
   bool _busy = false;
   int _wlCount = 0;
@@ -558,7 +572,7 @@ class _ScanPageState extends State<ScanPage> {
         for (final e in list) {
           final m = (e as Map).cast<String, dynamic>();
           _results.add({
-            'engine': '${m['engine']} · ${d['mode']}',
+            'engine': 'QW 引擎 · ${engineZh[m['engine']] ?? m['engine']}',
             'ok': m['ok'] == true,
             'message': m['message']?.toString() ?? '',
             'infected': m['infected'] == true,
@@ -789,7 +803,9 @@ class _ScanPageState extends State<ScanPage> {
                   for (final e in _engines.keys.toList())
                     FilterChip(
                       label: Text({
-                        'defender': 'Windows Defender',
+                        'signature': '特征库',
+                        'heuristic': '启发式',
+                        'defender': 'Defender',
                         'clamav': 'ClamAV',
                         'yara': 'YARA-X',
                         'huorong': '火绒 hrscan',
@@ -898,7 +914,7 @@ class _ToolsPageState extends State<ToolsPage> {
   final TextEditingController _search = TextEditingController();
   String _kw = '';
 
-  /// 工具清单：界面上一律带「QW 电脑安全管家」前缀
+  /// 工具清单：界面上一律带「QW 安全电脑管家」前缀
   static const List<(String, IconData, String)> _tools = [
     ('启动项管理', Icons.toggle_on_rounded, '查看和管理开机启动的程序'),
     ('进程管理', Icons.bar_chart_rounded, '看谁在吃 CPU 和内存'),
@@ -937,7 +953,7 @@ class _ToolsPageState extends State<ToolsPage> {
         final on = await showDialog<bool>(
           context: context,
           builder: (ctx) => AlertDialog(
-            title: const Text('QW 电脑安全管家 · 快捷方式小箭头'),
+            title: const Text('QW 安全电脑管家 · 快捷方式小箭头'),
             content: const Text('去掉桌面快捷方式左下角的小箭头，随时可以恢复系统默认。'),
             actions: [
               TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('恢复默认')),
@@ -953,7 +969,7 @@ class _ToolsPageState extends State<ToolsPage> {
         final show = await showDialog<bool>(
           context: context,
           builder: (ctx) => AlertDialog(
-            title: const Text('QW 电脑安全管家 · 文件后缀显示'),
+            title: const Text('QW 安全电脑管家 · 文件后缀显示'),
             content: const Text('让资源管理器把所有文件的扩展名都显示出来，随时可以恢复隐藏。'),
             actions: [
               TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('恢复隐藏')),
@@ -982,7 +998,7 @@ class _ToolsPageState extends State<ToolsPage> {
         await _runtime(context);
         break;
       default:
-        _toast(context, 'QW 电脑安全管家 · $name 正在接入');
+        _toast(context, 'QW 安全电脑管家 · $name 正在接入');
     }
   }
 
@@ -992,7 +1008,7 @@ class _ToolsPageState extends State<ToolsPage> {
       context: context,
       builder: (ctx) => QDialog(
         icon: Icons.delete_forever_rounded,
-        title: 'QW 电脑安全管家 · 文件粉碎机',
+        title: 'QW 安全电脑管家 · 文件粉碎机',
         body: '把要粉碎的文件或文件夹路径粘进来，一行一个。\n'
             '会先尝试解除占用，再三遍覆写（0x00 / 0xFF / 伪随机），最后删除。',
         okText: '下一步',
@@ -1111,7 +1127,7 @@ class _ToolsPageState extends State<ToolsPage> {
       context: context,
       builder: (ctx) => QDialog(
         icon: Icons.build_circle_rounded,
-        title: 'QW 电脑安全管家 · 运行库补全',
+        title: 'QW 安全电脑管家 · 运行库补全',
         body: body,
         okText: '开始修复',
         cancelText: '先不修',
@@ -1178,7 +1194,7 @@ class _ToolsPageState extends State<ToolsPage> {
               icon: done
                   ? (good ? Icons.check_circle_rounded : Icons.info_rounded)
                   : Icons.hourglass_bottom_rounded,
-              title: 'QW 电脑安全管家 · 运行库补全',
+              title: 'QW 安全电脑管家 · 运行库补全',
               body: done
                   ? (good
                       ? '补全流程跑完了，建议重启一次让新装上的运行库生效。'
@@ -1297,7 +1313,7 @@ class _ToolsPageState extends State<ToolsPage> {
                                 child: Icon(t.$2, color: Colors.white, size: 22),
                               ),
                               const SizedBox(height: 10),
-                              Text('QW 电脑安全管家 · ${t.$1}',
+                              Text('QW 安全电脑管家 · ${t.$1}',
                                   textAlign: TextAlign.center,
                                   maxLines: 2,
                                   overflow: TextOverflow.ellipsis,
@@ -1953,6 +1969,7 @@ class _SettingsPageState extends State<SettingsPage> {
           Expanded(
             child: ListView(children: [
               _section('外观与动画'),
+              _perfRow(),
               _materialRow(),
               for (final a in Ui.anims) _animRow(a),
               _langRow(),
@@ -2334,6 +2351,35 @@ class _SettingsPageState extends State<SettingsPage> {
     'buttonPress': Icons.touch_app_rounded,
     'cardEntrance': Icons.view_carousel_rounded,
   };
+
+  /// 实时帧耗时：把帧总耗时摊开给用户看
+  Widget _perfRow() {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: LiquidGlass(
+        radius: 26,
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        child: Row(
+          children: [
+            const Icon(Icons.speed_rounded, size: 20),
+            const SizedBox(width: 12),
+            const Expanded(child: Text('实时帧耗时', style: TextStyle(fontSize: 14))),
+            ValueListenableBuilder<double>(
+              valueListenable: Ui.frameMs,
+              builder: (_, ms, __) {
+                final fps = ms <= 0 ? 0.0 : 1000 / ms;
+                return Text(
+                  ms <= 0 ? '—' : '${ms.toStringAsFixed(1)} ms · ${fps.toStringAsFixed(0)} FPS',
+                  style: TextStyle(fontSize: 12, color: isDark ? Colors.white70 : Colors.black54),
+                );
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 
   /// 设置页的材质入口：点开选五档
   Widget _materialRow() {

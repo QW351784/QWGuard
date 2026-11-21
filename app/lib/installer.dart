@@ -228,7 +228,7 @@ class _SetupAppState extends State<SetupApp> {
             child: const Icon(Icons.shield_rounded, color: Colors.white, size: 24),
           ),
           const SizedBox(width: 14),
-          const Text('QW 电脑安全管家', style: TextStyle(fontSize: 21, fontWeight: FontWeight.w700)),
+          const Text('QW 安全电脑管家', style: TextStyle(fontSize: 21, fontWeight: FontWeight.w700)),
         ]),
         const SizedBox(height: 18),
         const Text('安装程序会把这套安全管家装到你的电脑上：硬件检测、垃圾清理、病毒查杀、隔离库和一整套小工具。',
