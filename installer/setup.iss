@@ -38,18 +38,18 @@ Name: "autostart";   Description: "开机自启动"; Flags: unchecked
 
 [Files]
 ; 主程序与 DLL（含 toolkit_native.dll）
-Source: "..\app\build\windows\x64\runner\Release\*"; DestDir: "{app}"; Flags: recursesubdirs createallsubdirs ignoreversion
+Source: "..\app\build\windows\x64\runner\Release\*"; DestDir: "{app}"; Flags: recursesubdirs createallsubdirs
 ; 自带运行库（放在 vendor 目录，存在才装）
-Source: "..\vendor\vc_redist.x64.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall skipifdoesntexist
+Source: "..\vendor\vc_redist.x64.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall skipifsourcedoesntexist
 ; 运行库补全用的两个工具，原样放进 runtime 目录，不拆包不改二进制
-Source: "..\vendor\runtime\*"; DestDir: "{app}\runtime"; Flags: recursesubdirs createallsubdirs skipifdoesntexist
+Source: "..\vendor\runtime\*"; DestDir: "{app}\runtime"; Flags: recursesubdirs createallsubdirs skipifsourcedoesntexist
 
 [Icons]
 Name: "{autoprograms}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
 Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
 
 [Run]
-Filename: "{tmp}\vc_redist.x64.exe"; Parameters: "/install /quiet /norestart"; Flags: waituntilterminated skipifdoesntexist
+Filename: "{tmp}\vc_redist.x64.exe"; Parameters: "/install /quiet /norestart"; Flags: waituntilterminated skipifsourcedoesntexist
 Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#MyAppName}}"; Flags: nowait postinstall skipifsilent
 
 [Registry]
