@@ -12,7 +12,9 @@ AppId={{8E2C1A44-9F3B-4C71-8A55-2E6D7B4C1F90}
 AppName={#MyAppName}
 AppVersion={#MyAppVersion}
 AppPublisher={#MyAppPublisher}
-DefaultDirName={autopf}\QW 安全电脑管家
+; 安装目录用英文 QWGuard（与 exe 同名，路径不踩中文坑），
+; 桌面图标 / 开始菜单 / 卸载列表仍显示中文「QW 安全电脑管家」
+DefaultDirName={autopf}\QWGuard
 UninstallDisplayName={#MyAppName}
 UninstallDisplayIcon={app}\{#MyAppExeName}
 OutputDir=..\dist
@@ -28,8 +30,9 @@ CloseApplications=yes
 RestartApplications=no
 
 [Languages]
-; Inno Setup 6 只自带英文语言文件，chs/cht 会直接编译中止；
-; 要中文界面得把 ChineseSimplified.isl 放进仓库再引用
+; 中文放第一位 = 默认语言，整个向导（欢迎页 / 目录选择 / 进度条 / 完成页 / 错误提示）全走简体中文
+; ChineseSimplified.isl 已随仓库提交在 installer\ 目录下，路径相对本 .iss 文件
+Name: "chinesesimplified"; MessagesFile: "ChineseSimplified.isl"
 Name: "en"; MessagesFile: "compiler:Default.isl"
 
 [Tasks]
@@ -80,7 +83,7 @@ Type: files;           Name: "{userdesktop}\{#MyAppName}.lnk"
 ; ===================================================================
 [Code]
 const
-  QWFolder = 'QW 安全电脑管家';
+  QWFolder = 'QWGuard';
 
 function IsSystemDrive(D: Char): Boolean;
 var
