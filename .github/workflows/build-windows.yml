@@ -62,9 +62,14 @@ jobs:
             Copy-Item 'vendor\yara' -Destination (Join-Path $rel 'yara') -Recurse -Force
             Get-ChildItem (Join-Path $rel 'yara') | Select-Object Name, Length
           } else { Write-Warning 'vendor/yara 不存在' }
-          # 自绘安装器入口：双击这个 bat 就走 system_toolbox.exe --setup
-          $bat = Join-Path $rel 'install.bat'
-          "@echo off`r`nstart `"`" `"%~dp0system_toolbox.exe`" --setup" | Set-Content -Path $bat -Encoding ASCII
+          # 主程序改名：pubspec 里项目名是 system_toolbox，编出来的 exe 也叫这个，
+          # 用户会以为是工具箱/安装器，找不到管家本体。改名成 QWGuard.exe。
+          $main = Join-Path $rel 'system_toolbox.exe'
+          if (Test-Path $main) { Move-Item $main (Join-Path $rel 'QWGuard.exe') -Force }
+          # 安装入口用中文名，双击直接进主界面（不带 --setup，那是工具箱模式）
+          $bat = Join-Path $rel '安装 QW 安全电脑管家.bat'
+          "@echo off`r`nstart `"`" `"%~dp0QWGuard.exe`"" | Set-Content -Path $bat -Encoding ASCII
+          Get-ChildItem $rel -Filter '*.exe' | Select-Object Name, Length
           Get-ChildItem $rel | Select-Object Name, Length
 
       - name: Install Inno Setup

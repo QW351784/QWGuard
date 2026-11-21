@@ -1,18 +1,18 @@
-; QW 电脑安全管家 —— Inno Setup 安装脚本
+; QW 安全电脑管家 —— Inno Setup 安装脚本
 ; 用法：先跑 build_windows.ps1 生成 Release 目录，再用 Inno Setup 编译本文件
 ; 目标：单文件 setup.exe，卸载后不留安装目录、配置目录与注册表项
 
-#define MyAppName "QW 电脑安全管家"
+#define MyAppName "QW 安全电脑管家"
 #define MyAppVersion "1.0.0"
 #define MyAppPublisher "QW"
-#define MyAppExeName "system_toolbox.exe"
+#define MyAppExeName "QWGuard.exe"
 
 [Setup]
 AppId={{8E2C1A44-9F3B-4C71-8A55-2E6D7B4C1F90}
 AppName={#MyAppName}
 AppVersion={#MyAppVersion}
 AppPublisher={#MyAppPublisher}
-DefaultDirName={autopf}\QW 电脑安全管家
+DefaultDirName={autopf}\QW 安全电脑管家
 UninstallDisplayName={#MyAppName}
 UninstallDisplayIcon={app}\{#MyAppExeName}
 OutputDir=..\dist
