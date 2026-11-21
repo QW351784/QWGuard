@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'dart:ui';
 
@@ -125,6 +126,12 @@ class _ShellState extends State<Shell> with WindowListener, TickerProviderStateM
   bool _oobe = true;
   Ticker? _ticker;
 
+  /// 墙钟时钟：只在启动时归零，之后一直往前走。
+  /// 用它而不是 Ticker 的 elapsed，是因为窗口最小化 / 失焦 / 被系统挂起时
+  /// 引擎会停发帧，Ticker 也跟着停，恢复后画面等于"停在那"。
+  final Stopwatch _clock = Stopwatch();
+  Timer? _heartbeat;
+
   static const _icons = [
     Icons.memory_rounded,
     Icons.cleaning_services_rounded,
@@ -138,9 +145,17 @@ class _ShellState extends State<Shell> with WindowListener, TickerProviderStateM
     super.initState();
     // 全局唯一动画时钟：60 秒一轮，所有动态层共用
     // 单调递增的秒数，不回绕：回绕会让 22s/14s 这种非整除周期在接缝处跳一帧
-    _ticker = createTicker((elapsed) {
-      Ui.tick.value = elapsed.inMilliseconds / 1000.0;
+    _clock.start();
+    _ticker = createTicker((_) {
+      Ui.tick.value = _clock.elapsedMicroseconds / 1000000.0;
     })..start();
+
+    // 心跳兜底：窗口最小化或系统挂起时不会出帧，这里每 250ms 把时钟推进一步，
+    // 保证任何时刻被唤醒、恢复显示，第一帧就是正确相位，不是从头再来
+    _heartbeat = Timer.periodic(const Duration(milliseconds: 250), (_) {
+      final v = _clock.elapsedMicroseconds / 1000000.0;
+      if ((v - Ui.tick.value).abs() > 0.001) Ui.tick.value = v;
+    });
     SchedulerBinding.instance.addTimingsCallback(_onFrameTimings);
     for (final a in Ui.anims) {
       Ui.on(a.key).addListener(_rebuild);
@@ -164,6 +179,8 @@ class _ShellState extends State<Shell> with WindowListener, TickerProviderStateM
   @override
   void dispose() {
     SchedulerBinding.instance.removeTimingsCallback(_onFrameTimings);
+    _heartbeat?.cancel();
+    _clock.stop();
     _ticker?.dispose();
     for (final a in Ui.anims) {
       Ui.on(a.key).removeListener(_rebuild);
@@ -189,6 +206,24 @@ class _ShellState extends State<Shell> with WindowListener, TickerProviderStateM
   void _onFrameTimings(List<FrameTiming> timings) {
     if (timings.isEmpty) return;
     Ui.frameMs.value = timings.last.totalSpan.inMicroseconds / 1000.0;
+  }
+
+  // ===== 窗口事件：恢复/聚焦时立刻把时钟对齐并强制重画，动画接着动、不停在原地 =====
+
+  @override
+  void onWindowRestore() {
+    _resumeAnim();
+  }
+
+  @override
+  void onWindowFocus() {
+    _resumeAnim();
+  }
+
+  void _resumeAnim() {
+    final v = _clock.elapsedMicroseconds / 1000000.0;
+    if ((v - Ui.tick.value).abs() > 0.001) Ui.tick.value = v;
+    if (mounted) setState(() {});
   }
 
   /// 关窗口：先确认，再按需验密码
