@@ -602,6 +602,37 @@ class _ScanPageState extends State<ScanPage> {
   }
 
   /// 统一扫描执行器：任务丢后台 isolate，主线程 150ms 轮询进度 + 文件名滚动
+  /// 外部引擎：把扫描路径里的目标交给火绒 / PYAS，立刻回话，不冻结界面
+  Future<void> _runExternal(String engine) async {
+    final path = _pathCtrl.text.trim();
+    if (path.isEmpty) {
+      _alert(context, '还没填路径', '先在上面的「扫描路径」里填文件或文件夹，再点 $engine。');
+      return;
+    }
+    if (_busy) return;
+    setState(() {
+      _busy = true;
+      _stage = engine == 'huorong' ? '正在交给火绒' : '正在交给 PYAS';
+      _detail = path;
+      _progress = null;
+    });
+    Map<String, dynamic> r;
+    try {
+      r = engine == 'huorong' ? Native.scanHuorong(path) : Native.scanPyas(path);
+    } catch (e) {
+      r = {'success': false, 'message': e.toString()};
+    }
+    if (!mounted) return;
+    setState(() => _busy = false);
+    final okd = r['success'] == true;
+    final note = (r['data'] is Map ? (r['data'] as Map)['note'] : null)?.toString() ?? '';
+    _alert(
+      context,
+      okd ? (engine == 'huorong' ? '已交给火绒' : 'PYAS 已返回') : '${engine} 调用失败',
+      okd ? (note.isNotEmpty ? note : '已把目标交给外部引擎，结论以对方界面为准。') : (r['message']?.toString() ?? '未知错误'),
+    );
+  }
+
   Future<void> _runScan(
     Future<Map<String, dynamic>> Function() task,
     String stage,
@@ -1052,11 +1083,11 @@ class _ScanPageState extends State<ScanPage> {
                 const SizedBox(height: 10),
                 Row(children: [
                   const Spacer(),
-                  LiquidButton(text: '火绒 hrscan', icon: Icons.open_in_new_rounded, primary: false,
-                      onTap: () { Native.launch('huorong'); }),
+                  LiquidButton(text: '火绒 hrscan', icon: Icons.security_rounded, primary: false,
+                      onTap: () => _runExternal('huorong')),
                   const SizedBox(width: 10),
-                  LiquidButton(text: 'PYAS', icon: Icons.open_in_new_rounded, primary: false,
-                      onTap: () { Native.launch('pyas'); }),
+                  LiquidButton(text: 'PYAS', icon: Icons.security_rounded, primary: false,
+                      onTap: () => _runExternal('pyas')),
                 ]),
               ]),
           ),

@@ -171,6 +171,46 @@ class Native {
     }
   }
 
+  /// 火绒 hrscan：把目标路径直接交给火绒扫（非阻塞，火绒是 GUI 进程）
+  static Map<String, dynamic> scanHuorong(String target) {
+    final l = lib;
+    if (l == null) return {'success': false, 'message': loadError ?? 'native library missing'};
+    final f = l.lookupFunction<
+        ffi.Int32 Function(ffi.Pointer<ffi.Char>, ffi.Pointer<ffi.Uint8>, ffi.Size),
+        int Function(ffi.Pointer<ffi.Char>, ffi.Pointer<ffi.Uint8>, int)>('scan_huorong');
+    final t = target.toNativeUtf8();
+    final buf = calloc<ffi.Uint8>(16384);
+    try {
+      final ret = f(t.cast(), buf, 16384);
+      final text = buf.cast<ffi.Char>().cast(Utf8).toDartString();
+      if (text.trim().isEmpty) return {'success': false, 'code': ret};
+      return jsonDecode(text) as Map<String, dynamic>;
+    } finally {
+      calloc.free(t);
+      calloc.free(buf);
+    }
+  }
+
+  /// PYAS 扫描（带日志回传）
+  static Map<String, dynamic> scanPyas(String target) {
+    final l = lib;
+    if (l == null) return {'success': false, 'message': loadError ?? 'native library missing'};
+    final f = l.lookupFunction<
+        ffi.Int32 Function(ffi.Pointer<ffi.Char>, ffi.Pointer<ffi.Uint8>, ffi.Size),
+        int Function(ffi.Pointer<ffi.Char>, ffi.Pointer<ffi.Uint8>, int)>('scan_pyas');
+    final t = target.toNativeUtf8();
+    final buf = calloc<ffi.Uint8>(16384);
+    try {
+      final ret = f(t.cast(), buf, 16384);
+      final text = buf.cast<ffi.Char>().cast(Utf8).toDartString();
+      if (text.trim().isEmpty) return {'success': false, 'code': ret};
+      return jsonDecode(text) as Map<String, dynamic>;
+    } finally {
+      calloc.free(t);
+      calloc.free(buf);
+    }
+  }
+
   static Map<String, dynamic> launch(String name) {
     final l = lib;
     if (l == null) return {'success': false, 'message': loadError ?? 'native library missing'};

@@ -1406,23 +1406,20 @@ pub extern "C" fn scan_huorong(target: *const c_char, buf: *mut u8, len: usize) 
         return fail(buf, len, -3, "未找到火绒（可在设置里填 huorong_path）");
     };
 
-    match crate::proc::cmd(&exe).arg(&target).output() {
-        Ok(o) => {
-            let text = format!(
-                "{}{}",
-                String::from_utf8_lossy(&o.stdout),
-                String::from_utf8_lossy(&o.stderr)
-            );
-            let (infected, threats) = looks_infected(&text);
-            ok(buf, len, "火绒扫描完成", json!({
+    // 火绒多是 GUI 进程，output() 会一直阻塞把界面冻住 —— 改成非阻塞拉起，立刻回话
+    match crate::proc::cmd(&exe).arg(&target).spawn() {
+        Ok(mut child) => {
+            // 后台回收子进程，别留僵尸，也别挡住界面线程
+            std::thread::spawn(move || {
+                let _ = child.wait();
+            });
+            ok(buf, len, "已拉起火绒扫描", json!({
                 "engine": "huorong",
                 "exe": exe,
-                "mode": if text.trim().is_empty() { "launched" } else { "cli" },
-                "infected": infected,
-                "threats": threats,
-                "note": if text.trim().is_empty() {
-                    "当前版本未返回命令行输出，已启动扫描进程；结果以火绒界面为准"
-                } else { "" }
+                "mode": "launched",
+                "infected": false,
+                "threats": Vec::<String>::new(),
+                "note": "已把目标路径交给火绒去扫，扫描进度和结论请以火绒界面为准"
             }))
         }
         Err(e) => fail(buf, len, -3, &format!("调用火绒失败: {e}")),
