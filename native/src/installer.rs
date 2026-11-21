@@ -93,6 +93,59 @@ fn make_shortcut(lnk: &Path, target: &Path, workdir: &Path, desc: &str) -> Resul
     }
 }
 
+/// 旧版（Inno 外壳）写的卸载键：AppId + `_is1`
+/// 跟新版自己写的 `Uninstall\QWGuard` 是两个完全不同的键，
+/// 所以不主动清就会出现「控制面板两条同名卸载项」。
+const LEGACY_KEY: &str =
+    r"HKCU\Software\Microsoft\Windows\CurrentVersion\Uninstall\{8E2C1A44-9F3B-4C71-8A55-2E6D7B4C1F90}_is1";
+
+/// 装新版之前先把旧版清掉
+///
+/// 旧版落在 `{autopf}\QW 安全电脑管家`，新版落在推荐盘（多半是 `D:\QWGuard`），
+/// 目录名都不一样，不清理就是两套程序并存：两个桌面图标、两条卸载项，
+/// 用户点哪条卸载不一定对得上。
+///
+/// 清理失败不阻断安装 —— 宁可留个旧版，也不能因为删不掉就不让人装新的。
+fn cleanup_legacy() -> Option<String> {
+    let out = crate::proc::cmd("reg")
+        .args(["query", LEGACY_KEY, "/v", "InstallLocation"])
+        .output()
+        .ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    let text = String::from_utf8_lossy(&out.stdout);
+    let dir = text
+        .lines()
+        .find(|l| l.contains("InstallLocation"))
+        .and_then(|l| l.split("REG_SZ").nth(1))
+        .map(|s| s.trim().to_string())?;
+    if dir.is_empty() {
+        return None;
+    }
+    let old = PathBuf::from(&dir);
+
+    // 优先走它自己的卸载器，快捷方式 / 注册表 / 目录一步到位
+    let unins = old.join("unins000.exe");
+    if unins.exists() {
+        let _ = crate::proc::cmd(&unins)
+            .args(["/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART"])
+            .output();
+        std::thread::sleep(std::time::Duration::from_millis(1200));
+    }
+
+    // 兜底：卸载器不存在或没删干净，手动收尾
+    if old.exists() {
+        let mut n = 0u64;
+        remove_tree(&old, &mut n);
+    }
+    let _ = crate::proc::cmd("reg")
+        .args(["delete", LEGACY_KEY, "/f"])
+        .output();
+
+    Some(format!("已清理旧版：{dir}"))
+}
+
 /// 安装：把 payload 目录整体复制到目标目录，按开关建快捷方式、自启动、卸载注册表项
 #[no_mangle]
 pub extern "C" fn install_run(
@@ -115,6 +168,9 @@ pub extern "C" fn install_run(
         return fail(buf, len, -3, "安装流程仅支持 Windows");
     }
 
+    // 复制之前先清旧版：旧版目录名和新版不同，不清就是两套并存
+    let legacy = cleanup_legacy();
+
     let mut copied = 0u64;
     let mut bytes = 0u64;
     if let Err(e) = copy_tree(&from, &to, &mut copied, &mut bytes) {
@@ -123,6 +179,9 @@ pub extern "C" fn install_run(
 
     let exe = to.join(EXE_NAME);
     let mut warnings: Vec<String> = Vec::new();
+    if let Some(l) = legacy {
+        warnings.push(l);
+    }
 
     // 开始菜单
     if let Ok(appdata) = std::env::var("APPDATA") {
@@ -174,7 +233,7 @@ pub extern "C" fn install_run(
     };
     for (name, value) in [
         ("DisplayName", APP_NAME.to_string()),
-        ("DisplayVersion", "1.0.0".to_string()),
+        ("DisplayVersion", "1.0.2".to_string()),
         ("DisplayIcon", exe.to_string_lossy().to_string()),
         ("InstallLocation", to.to_string_lossy().to_string()),
         ("UninstallString", uninst_cmd),
