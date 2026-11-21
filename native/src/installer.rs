@@ -99,13 +99,12 @@ fn make_shortcut(lnk: &Path, target: &Path, workdir: &Path, desc: &str) -> Resul
 const LEGACY_KEY: &str =
     r"HKCU\Software\Microsoft\Windows\CurrentVersion\Uninstall\{8E2C1A44-9F3B-4C71-8A55-2E6D7B4C1F90}_is1";
 
-/// 装新版之前先把旧版清掉
+/// 装新版之前先把旧版的**安装目录**清掉，但绝不动用户数据
 ///
-/// 旧版落在 `{autopf}\QW 安全电脑管家`，新版落在推荐盘（多半是 `D:\QWGuard`），
-/// 目录名都不一样，不清理就是两套程序并存：两个桌面图标、两条卸载项，
-/// 用户点哪条卸载不一定对得上。
-///
-/// 清理失败不阻断安装 —— 宁可留个旧版，也不能因为删不掉就不让人装新的。
+/// 关键：不能调旧版的 `unins000.exe`。旧 Inno 脚本的 [UninstallDelete] 里有
+/// `{userappdata}\QWGuard`，而新版配置目录正好也是 `%APPDATA%\QWGuard`
+/// （见 ext::cfg_dir），跑一次卸载器就会把白名单 / 隔离区 / 全部设置清空。
+/// 所以这里只做两件事：删安装目录、删旧注册表键，配置目录一个字节都不碰。
 fn cleanup_legacy() -> Option<String> {
     let out = crate::proc::cmd("reg")
         .args(["query", LEGACY_KEY, "/v", "InstallLocation"])
@@ -125,25 +124,96 @@ fn cleanup_legacy() -> Option<String> {
     }
     let old = PathBuf::from(&dir);
 
-    // 优先走它自己的卸载器，快捷方式 / 注册表 / 目录一步到位
-    let unins = old.join("unins000.exe");
-    if unins.exists() {
-        let _ = crate::proc::cmd(&unins)
-            .args(["/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART"])
-            .output();
-        std::thread::sleep(std::time::Duration::from_millis(1200));
-    }
+    // 旧安装目录里的进程要先停，否则文件被占用删不掉
+    let _ = crate::proc::cmd("taskkill")
+        .args(["/F", "/IM", EXE_NAME])
+        .output();
+    std::thread::sleep(std::time::Duration::from_millis(400));
 
-    // 兜底：卸载器不存在或没删干净，手动收尾
+    let mut removed = 0u64;
     if old.exists() {
-        let mut n = 0u64;
-        remove_tree(&old, &mut n);
+        remove_tree(&old, &mut removed);
     }
     let _ = crate::proc::cmd("reg")
         .args(["delete", LEGACY_KEY, "/f"])
         .output();
 
-    Some(format!("已清理旧版：{dir}"))
+    Some(format!("已替换旧版安装目录：{dir}（用户数据保留）"))
+}
+
+/// SHA-256 十六进制小写
+fn hex_sha256(data: &[u8]) -> String {
+    use sha2::{Digest, Sha256};
+    let mut h = Sha256::new();
+    h.update(data);
+    h.finalize().iter().map(|b| format!("{b:02x}")).collect()
+}
+
+/// 校验待安装目录的完整性：每个文件都必须和 `manifest.json` 里的 SHA-256 对上
+///
+/// 目的不是防外贼，是防「传输或解压过程把文件弄坏了还照样装进去」——
+/// 装完一个坏 dll，程序一起就崩，用户根本不知道该怪谁。
+fn verify_manifest(dir: &Path) -> Result<usize, String> {
+    let mf = dir.join("manifest.json");
+    let text = fs::read_to_string(&mf)
+        .map_err(|e| format!("安装包缺少校验清单 manifest.json（{e}）"))?;
+    let v: serde_json::Value =
+        serde_json::from_str(&text).map_err(|e| format!("校验清单格式损坏：{e}"))?;
+    let files = v
+        .get("files")
+        .and_then(|f| f.as_array())
+        .ok_or_else(|| "校验清单里没有 files 列表".to_string())?;
+    if files.is_empty() {
+        return Err("校验清单是空的".to_string());
+    }
+
+    let mut checked = 0usize;
+    for item in files {
+        let Some(p) = item.get("path").and_then(|x| x.as_str()) else {
+            continue;
+        };
+        let Some(want) = item.get("sha256").and_then(|x| x.as_str()) else {
+            continue;
+        };
+        let full = dir.join(p);
+        if !full.exists() {
+            return Err(format!("安装包缺少文件：{p}"));
+        }
+        let data = fs::read(&full).map_err(|e| format!("读取 {p} 失败：{e}"))?;
+        let got = hex_sha256(&data);
+        if !got.eq_ignore_ascii_case(want) {
+            return Err(format!("文件校验不通过：{p}\n期望 {want}\n实际 {got}"));
+        }
+        checked += 1;
+    }
+    if checked == 0 {
+        return Err("校验清单里没有一条可用记录".to_string());
+    }
+    Ok(checked)
+}
+
+/// Authenticode 签名状态
+///
+/// `Valid` = 签名有效且受信任；`NotSigned` = 没签名（自编译包常态）。
+/// 其它状态（哈希不匹配、证书不受信）一律当失败 —— 那说明文件被动过。
+#[cfg(windows)]
+fn signature_status(path: &Path) -> Result<String, String> {
+    let p = path.to_string_lossy().replace('\'', "''");
+    let script = format!("(Get-AuthenticodeSignature -LiteralPath '{p}').Status");
+    let o = crate::proc::cmd("powershell")
+        .args(["-NoProfile", "-NonInteractive", "-Command", &script])
+        .output()
+        .map_err(|e| format!("签名检测无法执行：{e}"))?;
+    let out = String::from_utf8_lossy(&o.stdout).trim().to_string();
+    if out.is_empty() {
+        return Ok("Unknown".into());
+    }
+    Ok(out)
+}
+
+#[cfg(not(windows))]
+fn signature_status(_path: &Path) -> Result<String, String> {
+    Ok("NotSigned".into())
 }
 
 /// 安装：把 payload 目录整体复制到目标目录，按开关建快捷方式、自启动、卸载注册表项
@@ -168,7 +238,42 @@ pub extern "C" fn install_run(
         return fail(buf, len, -3, "安装流程仅支持 Windows");
     }
 
-    // 复制之前先清旧版：旧版目录名和新版不同，不清就是两套并存
+    // ① 完整性校验：manifest.json 里每个文件的 SHA-256 必须对上
+    let verified = match verify_manifest(&from) {
+        Ok(n) => n,
+        Err(e) => return fail(buf, len, -4, &format!("安装包完整性校验失败：{e}")),
+    };
+
+    let mut warnings: Vec<String> = Vec::new();
+
+    // ② 签名校验：有签名就必须有效；没签名（自编译包）放行但记一条警告
+    match signature_status(&from.join(EXE_NAME)) {
+        Ok(s) if s.eq_ignore_ascii_case("Valid") => {}
+        Ok(s) if s.eq_ignore_ascii_case("NotSigned") || s.eq_ignore_ascii_case("Unknown") => {
+            warnings.push("安装包未做数字签名（自编译版本），已跳过签名验证".into());
+        }
+        Ok(s) => {
+            return fail(
+                buf,
+                len,
+                -4,
+                &format!("数字签名校验失败（状态 {s}）：安装包可能被篡改"),
+            );
+        }
+        Err(e) => warnings.push(format!("签名检测未执行：{e}")),
+    }
+
+    // ③ 覆盖安装：目标目录已经有旧版本时，先停掉正在跑的进程再原地覆盖。
+    //    配置目录在 %APPDATA%\QWGuard，不在安装目录里，所以换文件不会丢数据。
+    if to.join(EXE_NAME).exists() {
+        let _ = crate::proc::cmd("taskkill")
+            .args(["/F", "/IM", EXE_NAME])
+            .output();
+        std::thread::sleep(std::time::Duration::from_millis(600));
+        warnings.push("检测到已有安装，执行覆盖升级（用户数据保留）".into());
+    }
+
+    // 复制之前先清旧版安装目录：旧版目录名和新版不同，不清就是两套并存
     let legacy = cleanup_legacy();
 
     let mut copied = 0u64;
@@ -178,7 +283,6 @@ pub extern "C" fn install_run(
     }
 
     let exe = to.join(EXE_NAME);
-    let mut warnings: Vec<String> = Vec::new();
     if let Some(l) = legacy {
         warnings.push(l);
     }
@@ -265,6 +369,7 @@ pub extern "C" fn install_run(
             "path": to.to_string_lossy(),
             "copied": copied,
             "bytes": bytes,
+            "verified": verified,
             "warnings": warnings
         }),
     )
@@ -366,7 +471,8 @@ pub extern "C" fn install_precheck(src: *const c_char, buf: *mut u8, len: usize)
     };
     let root = PathBuf::from(&src);
     let mut missing: Vec<String> = Vec::new();
-    for need in [EXE_NAME, "flutter_windows.dll", "data"] {
+    // manifest.json 是完整性校验的依据，缺了就没法验证，提前在前端就报出来
+    for need in [EXE_NAME, "flutter_windows.dll", "data", "manifest.json"] {
         if !root.join(need).exists() {
             missing.push(need.to_string());
         }

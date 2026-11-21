@@ -79,6 +79,27 @@ jobs:
           Get-ChildItem $rel -Filter '*.exe' | Select-Object Name, Length
           Get-ChildItem $rel | Select-Object Name, Length
 
+      # 生成完整性清单：安装时 Rust 会按这份清单逐个比对 SHA-256，
+      # 任何一个文件和清单对不上就拒绝安装，避免「解压坏了还装进去」
+      - name: 生成 SHA-256 校验清单
+        shell: pwsh
+        run: |
+          $rel = 'app\build\windows\x64\runner\Release'
+          $items = Get-ChildItem $rel -Recurse -File |
+            Where-Object { $_.Name -ne 'manifest.json' } |
+            ForEach-Object {
+              [pscustomobject]@{
+                path   = $_.FullName.Substring($rel.Length + 1).Replace('\','/')
+                sha256 = (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower()
+                size   = $_.Length
+              }
+            }
+          @{ version = '1.0'; files = $items } |
+            ConvertTo-Json -Depth 4 |
+            Set-Content (Join-Path $rel 'manifest.json') -Encoding utf8
+          Write-Host "清单条目数：$($items.Count)"
+          Get-Content (Join-Path $rel 'manifest.json') -TotalCount 8
+
       - name: Install Inno Setup
         run: choco install innosetup -y --no-progress
 
