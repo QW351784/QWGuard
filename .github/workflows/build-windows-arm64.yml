@@ -11,7 +11,7 @@ on:
 
 jobs:
   build-arm64:
-    runs-on: windows-latest
+    runs-on: windows-11-arm
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
@@ -30,10 +30,11 @@ jobs:
       - name: 版本自检
         shell: pwsh
         run: |
+          Write-Host "OS arch: $env:PROCESSOR_ARCHITECTURE"
           rustc --version
           rustup target list --installed
           flutter --version
-          flutter build windows -h
+          dart --version
 
       - name: Build Rust core（aarch64）
         working-directory: native
@@ -49,7 +50,7 @@ jobs:
 
       - name: Build Windows app（arm64）
         working-directory: app
-        run: flutter build windows --release --target-platform windows-arm64
+        run: flutter build windows --release
 
       - name: 产物定位
         shell: pwsh
