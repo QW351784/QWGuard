@@ -43,7 +43,7 @@ fn classify(name: &str) -> &'static str {
         .replace('™', "")
         .replace('®', "")
         .replace("  ", " ");
-    const DISCRETE: [&str; 15] = [
+    const DISCRETE: [&str; 16] = [
         "nvidia", "geforce", "rtx", "gtx", "quadro", "radeon rx", "rx 5", "rx 6", "rx 7", "rx 9", "radeon vii",
         "arc a", "arc b", "intel arc", "arc graphics", "geforce mx",
     ];
