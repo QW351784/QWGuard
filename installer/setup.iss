@@ -36,6 +36,9 @@ PrivilegesRequired=admin
 DisableDirPage=yes
 DisableProgramGroupPage=yes
 DisableReadyPage=yes
+; 完成页也关掉：真正的「安装完成」界面是 Flutter 向导的最后一页，
+; 外壳再弹一次「完成」会变成连续两个结束页
+DisableFinishedPage=yes
 CloseApplications=no
 RestartApplications=no
 ; 外壳不写自己的卸载项，卸载项由 Rust 安装时登记（中文名、带图标）
@@ -52,22 +55,31 @@ Name: "chinesetraditional";   MessagesFile: "ChineseTraditional.isl"
 
 [Files]
 ; 整套程序（含 QWGuard.exe / QWGuard-Setup.exe / QWGuard-Uninstall.exe / toolkit_native.dll）
-; 释放到临时目录，装完由 Flutter 向导负责搬到最终位置，外壳自己删掉临时副本
-Source: "..\app\build\windows\x64\runner\Release\*"; DestDir: "{tmp}\qwpayload"; Flags: recursesubdirs createallsubdirs deleteafterinstall
+; 释放到临时目录，装完由 Flutter 向导负责搬到最终位置。
+; 不要加 deleteafterinstall：那个标志会在 [Files] 结束后就删文件，
+; 而我们要在 ssPostInstall 阶段才去 Exec 它，加了就变成「文件已被删、拉不起来」。
+; 临时目录由 Inno 自己在安装结束时清理。
+Source: "..\app\build\windows\x64\runner\Release\*"; DestDir: "{tmp}\qwpayload"; Flags: recursesubdirs createallsubdirs
 
 [Code]
-function PrepareToInstall(var NeedsRestart: Boolean): String;
+// 时序要点：PrepareToInstall 跑在 [Files] 释放之前，那时 payload 还不存在，
+// 在这里 Exec 一定失败。必须等 ssPostInstall —— 文件已经落地之后再拉起向导。
+procedure CurStepChanged(CurStep: TSetupStep);
 var
   RCode: Integer;
+  SetupExe: String;
 begin
-  Result := '';
-  NeedsRestart := False;
-  // Inno 的 [Run] 段拿不到返回码，这里自己调一次并判断
-  if not Exec(ExpandConstant('{tmp}\qwpayload\{#MySetupExeName}'), '', ExpandConstant('{tmp}\qwpayload'), SW_SHOW, ewWaitUntilTerminated, RCode) then
+  if CurStep = ssPostInstall then
   begin
-    Result := '无法启动安装向导（QWGuard-Setup.exe 没能运行）。请确认杀毒软件没有拦截。';
-    Exit;
+    SetupExe := ExpandConstant('{tmp}\qwpayload\{#MySetupExeName}');
+    if not FileExists(SetupExe) then
+    begin
+      MsgBox('安装包内部缺少安装向导文件，无法继续。请重新下载安装包。', mbError, MB_OK);
+      Exit;
+    end;
+    if not Exec(SetupExe, '', ExpandConstant('{tmp}\qwpayload'), SW_SHOW, ewWaitUntilTerminated, RCode) then
+      MsgBox('无法启动安装向导（QWGuard-Setup.exe 没能运行）。请确认杀毒软件没有拦截。', mbError, MB_OK)
+    else if RCode <> 0 then
+      MsgBox('安装向导未完成安装（退出码 ' + IntToStr(RCode) + '）。请重新运行安装包。', mbError, MB_OK);
   end;
-  if RCode <> 0 then
-    Result := '安装向导未完成安装（退出码 ' + IntToStr(RCode) + '）。请重新运行安装包。';
 end;
