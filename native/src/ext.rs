@@ -896,7 +896,11 @@ pub extern "C" fn scan_auto(target: *const c_char, buf: *mut u8, len: usize) -> 
     // 不该决定杀毒跑几个引擎。以前按独显分数选引擎是错的，这里改掉。
     let cores = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4);
 
-    // 档位：quick 只跑最便宜的三个；standard 加 YARA；deep 再加上最重的 ClamAV
+    // 档位决定"用几把刀"，跟显卡无关。ClamAV 已摘除（国内拉不到病毒库，空壳引擎没有意义），
+    // 四引擎全部自带，用户零安装。
+    //   quick    ：Defender + 启发式      —— 快，不解全文件哈希
+    //   standard ：Defender + 特征库 + 启发式
+    //   deep     ：再叠加 YARA 规则
     let level = load_config()
         .get("scan_level")
         .and_then(|v| v.as_str())
@@ -904,12 +908,12 @@ pub extern "C" fn scan_auto(target: *const c_char, buf: *mut u8, len: usize) -> 
         .unwrap_or_else(|| "standard".to_string());
 
     let (mode, engines): (&str, Vec<&str>) = match level.as_str() {
-        "quick" => ("quick", vec!["defender", "signature", "heuristic"]),
+        "quick" => ("quick", vec!["defender", "heuristic"]),
         "deep" => (
             "deep",
-            vec!["defender", "signature", "heuristic", "yara", "clamav"],
+            vec!["defender", "signature", "heuristic", "yara"],
         ),
-        _ => ("standard", vec!["defender", "signature", "heuristic", "yara"]),
+        _ => ("standard", vec!["defender", "signature", "heuristic"]),
     };
 
     let mut handles = Vec::new();

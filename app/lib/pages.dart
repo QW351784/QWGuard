@@ -87,8 +87,7 @@ class _HardwarePageState extends State<HardwarePage> {
                   const Text('借鉴与致谢', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700)),
                   const SizedBox(height: 10),
                   credit('Windows Defender 查杀引擎', 'Microsoft', 'MpCmdRun 命令行'),
-                  credit('ClamAV 病毒扫描', 'Cisco Talos', 'github.com/Cisco-Talos/clamav'),
-                  credit('YARA-X 规则引擎', 'VirusTotal', 'github.com/VirusTotal/yara-x'),
+                  credit('YARA 规则引擎（内置）', 'VirusTotal', 'BSD-3-Clause · github.com/VirusTotal/yara'),
                   credit('火绒安全 hrscan', '火绒安全', 'huorong.cn'),
                   credit('PYAS 引擎', 'PYAS 项目', '外部集成，日志回传'),
                   credit('VisualCppRedist AIO', 'abbodi1406', 'github.com/abbodi1406/vcredist'),
@@ -496,7 +495,6 @@ const engineZh = {
   'heuristic': '启发式',
   'defender': '系统 Defender',
   'yara': 'YARA',
-  'clamav': 'ClamAV',
   'huorong': '火绒',
   'pyas': 'PYAS',
 };
@@ -516,7 +514,6 @@ class _ScanPageState extends State<ScanPage> {
     'heuristic': true,
     'defender': true,
     'yara': false,
-    'clamav': false,
     'huorong': false,
     'pyas': false,
   };
@@ -928,8 +925,7 @@ class _ScanPageState extends State<ScanPage> {
                         'signature': '特征库',
                         'heuristic': '启发式',
                         'defender': 'Defender',
-                        'clamav': 'ClamAV',
-                        'yara': 'YARA-X',
+                        'yara': 'YARA（内置）',
                         'huorong': '火绒 hrscan',
                         'pyas': 'PYAS',
                       }[e]!),
@@ -1993,6 +1989,7 @@ class SettingsPage extends StatefulWidget {
 
 class _SettingsPageState extends State<SettingsPage> {
   String _gpuMode = 'auto';
+  String _scanLevel = 'standard';
   bool _autoStart = false;
   String _repo = '';
   String _current = '1.0.0';
@@ -2003,7 +2000,6 @@ class _SettingsPageState extends State<SettingsPage> {
   String _usbMsg = '';
   String _cpuMsg = '';
   bool _desktopFloat = false;
-  bool _gpuScan = true;
   String _renderMsg = '';
   List<Map<String, dynamic>> _gpus = [];
   String _virusAction = 'ask';
@@ -2030,7 +2026,7 @@ class _SettingsPageState extends State<SettingsPage> {
       _repo = sp.getString('github_repo') ?? '';
       _current = sp.getString('app_version') ?? '1.0.0';
       _desktopFloat = sp.getBool('ui_desktop_float') ?? false;
-      _gpuScan = sp.getBool('gpu_scan') ?? true;
+      _scanLevel = sp.getString('scan_level') ?? 'standard';
       final g = Api.gpu();
       if (g['success'] == true && g['data'] is Map) {
         _gpus = ((g['data']['gpus'] as List?) ?? const [])
@@ -2123,11 +2119,7 @@ class _SettingsPageState extends State<SettingsPage> {
                   padding: const EdgeInsets.only(top: 6, left: 4),
                   child: Text(_renderMsg, style: const TextStyle(fontSize: 11, color: Color(0xFF2F7BFF))),
                 ),
-              _switchRow(Icons.bolt_rounded, 'GPU 判定查杀（默认开）', _gpuScan, (v) async {
-                setState(() => _gpuScan = v);
-                await _saveBool('gpu_scan', v);
-                Api.setSetting('gpu_scan', v);
-              }),
+              _scanLevelRow(),
               _actionRow(Icons.bolt_rounded, I18n.t('cpuSchedule'), _cpuMsg, () async {
                 final r = Api.cpuProfile();
                 setState(() => _cpuMsg = r['success'] == true ? '${r['data']['cores']} 核 · ${r['data']['note']}' : '不可用');
@@ -2702,6 +2694,35 @@ class _SettingsPageState extends State<SettingsPage> {
         ],
       ]),
     );
+  }
+
+  Widget _scanLevelRow() {
+    const labels = {'quick': '快速', 'standard': '标准', 'deep': '深度'};
+    return LiquidGlass(
+      radius: 26,
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      child: Row(children: [
+        const Icon(Icons.shield_rounded, size: 20, color: Color(0xFF2F7BFF)),
+        const SizedBox(width: 12),
+        const Text('查杀档位', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
+        const Spacer(),
+        for (final m in ['quick', 'standard', 'deep']) ...[
+          ChoiceChip(
+            label: Text(labels[m]!),
+            selected: _scanLevel == m,
+            onSelected: (_) => _applyScanLevel(m),
+          ),
+          const SizedBox(width: 6),
+        ],
+      ]),
+    );
+  }
+
+  Future<void> _applyScanLevel(String m) async {
+    setState(() => _scanLevel = m);
+    final sp = await SharedPreferences.getInstance();
+    await sp.setString('scan_level', m);
+    Api.setSetting('scan_level', m);
   }
 
   Widget _metricRow() {

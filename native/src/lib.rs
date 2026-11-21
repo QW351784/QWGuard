@@ -338,12 +338,6 @@ pub(crate) fn run_engine(engine: &str, target: &str) -> Result<(bool, Vec<String
                 .args(["-Scan", "-ScanType", "3", "-File", target])
                 .output()
         }
-        "clamav" => {
-            let Some(exe) = find(&["clamscan.exe", "C:\\Program Files\\ClamAV\\clamscan.exe", "/usr/bin/clamscan"]) else {
-                return Err("未找到 ClamAV".into());
-            };
-            std::process::Command::new(exe).args(["--no-summary", target]).output()
-        }
         "yara" => {
             // 优先用随包内置的 yara64.exe（安装目录\yara\），其次才是用户自己装的
             let exe = find_near_exe("yara/yara64.exe")

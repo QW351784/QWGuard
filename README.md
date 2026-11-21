@@ -32,7 +32,7 @@ execute_cleanup   -> 0             dry-run 模式正常，只统计不删除
 | `get_hardware_info(buf, len)` | 硬件 JSON；温度取不到则**不输出该字段** |
 | `scan_cleanup(buf, len)` | 清理扫描，返回分类/路径/体积/是否默认勾选 |
 | `execute_cleanup(json, dry_run)` | 执行清理；含系统关键目录护栏 |
-| `scan_file(engine, path, buf, len)` | 调 Defender / ClamAV / YARA 命令行 |
+| `scan_file(engine, path, buf, len)` | Defender / YARA 走子进程，特征库与启发式在 Rust 进程内 |
 | `launch_external(name, buf, len)` | 唤起火绒 / PYAS |
 
 约束：
@@ -52,8 +52,8 @@ execute_cleanup   -> 0             dry-run 模式正常，只统计不删除
 - 悬浮监控浮层（CPU/内存/GPU/温度/NPU，DIY，默认关）
 - 桌面级置顶监控窗口：`desktop_multi_window` 第二引擎窗口 + Rust `set_topmost`（已交叉检查 Windows 目标编译）
 - 三语言：简体（默认）/ 繁體 / English
-- 五引擎：Defender / ClamAV / YARA-X / 火绒 / PYAS（后两者为外部集成，PYAS 为日志 best-effort）
-- 智能查杀：按显卡强弱选策略（独显→三引擎并发，核显→轻量 Defender），开关默认开
+- 六引擎：Defender / 特征库 / 启发式 / YARA（这四把全部自带，用户零安装）/ 火绒 hrscan / PYAS（可选，需自装）
+- 智能查杀：按 `scan_level` 档位决定用哪几把刀，并发数 = CPU 逻辑核数；显卡不参与查杀判定
 - 动画全部可在设置关闭，默认全开：玻璃、实时模糊、折射、扫光带、粒子、光斑漂浮、Dock 弹簧、页面切换、按钮按压、卡片入场
 
 > 本机是 Linux 且无 Flutter SDK，Flutter 部分只做了代码编写，**没有编译验证**。首次在 Windows 上跑如遇 API 差异，改一两行即可。
@@ -99,7 +99,7 @@ flutter build windows --enable-impeller
 
 1. **Mica 云母**：用 `flutter_acrylic` 调用；若云母透不出来，说明 runner 需要透明化处理，此时界面会退回自带的渐变背景（不影响功能）。Win10 自动退回普通背景。
 2. **硬件温度**：依赖系统传感器接口，桌面机/虚拟机常常拿不到。拿不到时字段直接不输出，界面不显示该项（符合需求）。
-3. **ClamAV / YARA**：走命令行子进程，需本机安装或随包附带 `clamscan.exe` / `yara-x.exe`；否则返回「未找到」提示。
+3. **YARA**：`yara64.exe`（YARA 官方 4.6.0 win64，BSD-3-Clause，2.4MB 静态单文件）随包放在 exe 旁的 `yara\` 目录，规则为 18 条自研 `qw_basic.yar`。运行时优先查内置路径，用户装没装都不影响。ClamAV 因国内病毒库站点不可达（实测 403）已整体移除，不留空壳引擎。
 4. **PYAS**：没有命令行与 SDK，只能唤起主程序，拿不到扫描结果回传。
 5. **火绒**：`hrscan.exe` 路径因版本而异，代码里已列常见路径，找不到时提示未安装。
 6. **winapp2.ini**：当前内置了常用规则（Chrome/Edge/Firefox/微信/QQ），如需全量规则库，把 `winapp2.ini` 解析器接进 Rust 即可。
@@ -141,8 +141,7 @@ flutter build windows --enable-impeller
 谢谢下面这些团队的支持：
 
 - **Windows Defender 查杀引擎** — Microsoft · 命令行 MpCmdRun
-- **ClamAV 病毒扫描** — Cisco Talos · https://github.com/Cisco-Talos/clamav
-- **YARA-X 规则引擎** — VirusTotal · https://github.com/VirusTotal/yara-x
+- **YARA 规则引擎（内置）** — VirusTotal · BSD-3-Clause · https://github.com/VirusTotal/yara
 - **火绒安全 hrscan** — 火绒安全 · https://www.huorong.cn
 - **PYAS 引擎** — 外部集成，日志回传
 - **VisualCppRedist AIO**（VC++ 2002~2026 全套 + VB6 + UCRT）— abbodi1406 · https://github.com/abbodi1406/vcredist
