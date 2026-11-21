@@ -83,7 +83,7 @@ class _DesktopMonitorAppState extends State<DesktopMonitorApp> {
         brightness: Brightness.dark,
         colorSchemeSeed: const Color(0xFF2F7BFF),
         scaffoldBackgroundColor: const Color(0xFF10141B),
-        fontFamily: 'Microsoft YaHei',
+        fontFamily: 'NotoSansSC',
       ),
       home: Scaffold(
         backgroundColor: isDark ? const Color(0xFF10141B) : const Color(0xFFF4F8FF),

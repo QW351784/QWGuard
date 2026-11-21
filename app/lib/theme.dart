@@ -73,7 +73,7 @@ class AppTheme {
       brightness: b,
       colorSchemeSeed: seed,
       scaffoldBackgroundColor: Colors.transparent,
-      fontFamily: 'Microsoft YaHei',
+      fontFamily: 'NotoSansSC',
       textTheme: ThemeData(brightness: b).textTheme.apply(
             bodyColor: isDark ? Colors.white : const Color(0xFF14171C),
             displayColor: isDark ? Colors.white : const Color(0xFF14171C),
