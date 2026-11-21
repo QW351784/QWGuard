@@ -231,17 +231,25 @@ class LiquidGlass extends StatelessWidget {
     }
 
     final tint = gradient;
+    // 圆角必须靠 ClipPath 裁，不能用 ShapeDecoration 直接画。
+    // ShapeDecoration 对 ContinuousRectangleBorder 的四角路径支持不完整，
+    // 左上 / 右上 / 右下是圆的、左下角会漏成直角 —— 截图里那个缺口就是它。
+    // 阴影挂在外层（不被裁），背景挂在内层（被裁），两边都正常。
     Widget box = Container(
       width: width,
       height: height,
-      padding: padding,
-      decoration: ShapeDecoration(
-        shape: shape,
-        color: tint != null ? null : fill,
-        gradient: tint ?? grad,
-        shadows: shadows,
+      decoration: BoxDecoration(boxShadow: shadows),
+      child: ClipPath(
+        clipper: clipper,
+        child: Container(
+          padding: padding,
+          decoration: BoxDecoration(
+            color: tint != null ? null : fill,
+            gradient: tint ?? grad,
+          ),
+          child: child,
+        ),
       ),
-      child: child,
     );
 
     if (blurOn) {
@@ -588,7 +596,6 @@ class _RefractionPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
-    final t = (Ui.tick.value / 6) % 1;
     // 形状必须跟 LiquidGlass 外层完全一致：外层用的是 ContinuousRectangleBorder
     // （苹果式连续曲率 squircle），这里若用 RRect 普通圆角，
     // 高光描边就会跟卡片边缘对不齐，四角出现错位毛刺 —— 也就是「圆角处理不行」。
@@ -690,45 +697,27 @@ class _RefractionPainter extends CustomPainter {
     canvas.drawRect(Offset.zero & size, Paint()..shader = bodyGlow);
     canvas.restore();
 
-    // 2. 沿对角缓慢扫过的高光带（可关）
-    //    透明度压到很低：它是「玻璃表面的环境反光」，不是舞台追光
-    if (sweep) {
-      final bandW = size.width * 0.42;
-      final dy = t * (size.height + bandW * 2) - bandW * 2;
-      final rect = Rect.fromLTWH(-bandW * 0.2, dy, bandW, bandW * 2.4);
-      final shader = LinearGradient(
-        begin: Alignment.topLeft,
-        end: Alignment.bottomRight,
-        colors: [
-          Colors.white.withOpacity(0.0),
-          Colors.white.withOpacity(dark ? 0.045 : 0.085),
-          Colors.white.withOpacity(0.0),
-        ],
-        stops: const [0.0, 0.5, 1.0],
-      ).createShader(rect);
-
+    // 2. 指针柔光：范围压到短边的 40% 以内，且中心透明度很低。
+    //
+    //    以前这里是 `r = max(w,h) * 0.52` + `drawCircle`，
+    //    780 宽的卡片上等于画一个直径 800 的实心圆，透出来就是一块灰斑 ——
+    //    截图里「安装选项左上那个圆」「开始安装右下那个圆」就是它。
+    //    真玻璃的亮来自边缘反射，不是中间一团光。
+    if (pointer != null) {
+      final r = math.min(size.width, size.height) * 0.40;
+      final glow = Paint()
+        ..shader = RadialGradient(
+          colors: [
+            Colors.white.withOpacity(dark ? 0.07 : 0.14),
+            Colors.white.withOpacity(0.0),
+          ],
+          stops: const [0.0, 1.0],
+        ).createShader(Rect.fromCircle(center: pointer!, radius: r));
       canvas.save();
       canvas.clipPath(path);
-      canvas.drawRect(rect, Paint()..shader = shader);
+      canvas.drawCircle(pointer!, r, glow);
       canvas.restore();
     }
-
-    // 3. 实时高光：径向光斑跟着指针，指针离开就落回左上
-    final center = p;
-    final r = math.max(size.width, size.height) * (pointer == null ? 0.52 : 0.40);
-    final glow = Paint()
-      ..shader = RadialGradient(
-        colors: [
-          Colors.white.withOpacity(dark ? 0.20 : 0.58),
-          Colors.white.withOpacity(dark ? 0.05 : 0.16),
-          Colors.white.withOpacity(0.0),
-        ],
-        stops: const [0.0, 0.45, 1.0],
-      ).createShader(Rect.fromCircle(center: center, radius: r));
-    canvas.save();
-    canvas.clipPath(path);
-    canvas.drawCircle(center, r, glow);
-    canvas.restore();
   }
 
   @override

@@ -29,7 +29,8 @@ class _SetupAppState extends State<SetupApp> {
   /// 首次算出来的推荐路径，用来看当前是不是还被用户改过
   String _recDir = '';
   bool _desktopIcon = true;
-  bool _autostart = false;
+  // 默认勾上：装了不设自启动，等于装了不防护。用户想关可以自己取消。
+  bool _autostart = true;
   bool _busy = false;
   String _hint = '';
   String _result = '';

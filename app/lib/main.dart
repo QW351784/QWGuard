@@ -20,11 +20,24 @@ import 'theme.dart';
 import 'desktop_monitor.dart';
 import 'floating_monitor.dart';
 
+/// 安装 / 卸载窗口的标题
+///
+/// 之前这两个分支进来什么都没设，窗口标题就是 flutter create 脚手架里的
+/// 工程名 `system_toolbox` —— 用户截图左上角那个英文就是它，必须改成中文。
+Future<void> _setupWindowTitle() async {
+  if (!Platform.isWindows) return;
+  try {
+    await windowManager.ensureInitialized();
+    await windowManager.setTitle('QW 安全电脑管家');
+  } catch (_) {}
+}
+
 Future<void> main(List<String> args) async {
   WidgetsFlutterBinding.ensureInitialized();
 
   // 安装 / 卸载模式：跟主程序同一个二进制，靠参数分流
   if (args.contains('--setup') || args.contains('--uninstall')) {
+    await _setupWindowTitle();
     runApp(SetupApp(uninstall: args.contains('--uninstall')));
     return;
   }
@@ -40,6 +53,7 @@ Future<void> main(List<String> args) async {
         .last
         .toLowerCase();
     if (exeName.contains('setup')) {
+      await _setupWindowTitle();
       runApp(const SetupApp(uninstall: false));
       return;
     }

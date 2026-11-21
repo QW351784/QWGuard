@@ -43,6 +43,11 @@ CloseApplications=no
 RestartApplications=no
 ; 外壳不写自己的卸载项，卸载项由 Rust 安装时登记（中文名、带图标）
 Uninstallable=no
+; 语言选择框关掉：Inno 按 LanguageName 字母序排列表，
+; English 的 E 排在「简」前面，所以默认永远落在英文上。
+; 关掉对话框 + 语言检测，安装时直接就是简体中文，不给英文抢默认。
+ShowLanguageDialog=no
+LanguageDetectionMethod=none
 
 [Languages]
 ; 顺序即优先级：第一位是默认语言
