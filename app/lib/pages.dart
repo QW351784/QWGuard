@@ -1095,13 +1095,18 @@ class _ScanPageState extends State<ScanPage> {
           Expanded(
             child: _busy
                 ? Center(
-                    child: ScanFx(
-                      stage: _stage,
-                      detail: _detail,
-                      recent: _recent,
-                      progress: _progress,
-                      hits: _hits,
-                      scanned: _scanned,
+                    // 页面上下都排满时给的高度不够，雷达会被直接裁掉一半。
+                    // scaleDown 让它按可用高度等比缩小，永远完整显示。
+                    child: FittedBox(
+                      fit: BoxFit.scaleDown,
+                      child: ScanFx(
+                        stage: _stage,
+                        detail: _detail,
+                        recent: _recent,
+                        progress: _progress,
+                        hits: _hits,
+                        scanned: _scanned,
+                      ),
                     ),
                   )
                 : _results.isEmpty

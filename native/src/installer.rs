@@ -69,6 +69,29 @@ fn remove_tree(path: &Path, removed: &mut u64) {
     let _ = fs::remove_dir(path);
 }
 
+/// 桌面目录候选：`PUBLIC` 环境变量有时拿不到（外壳进程沙箱化），
+/// 之前只认 PUBLIC，拿不到就静默不建 → 用户装完桌面没图标。这里多给几条兜底。
+fn desktop_dirs() -> Vec<std::path::PathBuf> {
+    let mut v: Vec<std::path::PathBuf> = Vec::new();
+    if let Ok(p) = std::env::var("PUBLIC") {
+        if !p.trim().is_empty() {
+            v.push(std::path::PathBuf::from(p));
+        }
+    }
+    if let Ok(sd) = std::env::var("SystemDrive") {
+        if !sd.trim().is_empty() {
+            v.push(std::path::PathBuf::from(format!("{sd}\\Users\\Public")));
+        }
+    }
+    v.push(std::path::PathBuf::from("C:\\Users\\Public"));
+    if let Ok(up) = std::env::var("USERPROFILE") {
+        if !up.trim().is_empty() {
+            v.push(std::path::PathBuf::from(format!("{up}\\Desktop")));
+        }
+    }
+    v
+}
+
 /// PowerShell 建快捷方式（不依赖额外 crate）
 fn make_shortcut(lnk: &Path, target: &Path, workdir: &Path, desc: &str) -> Result<(), String> {
     let lnk_s = lnk.to_string_lossy().replace('\'', "''");
@@ -361,11 +384,26 @@ pub extern "C" fn install_run(
 
     // 桌面
     if desktop_icon != 0 {
-        if let Ok(pub_dir) = std::env::var("PUBLIC") {
-            let lnk = Path::new(&pub_dir).join(format!("{APP_NAME}.lnk"));
-            if let Err(e) = make_shortcut(&lnk, &exe, &to, APP_NAME) {
-                warnings.push(format!("桌面快捷方式失败: {e}"));
+        let mut okd = false;
+        let mut last_err = String::new();
+        for dir in desktop_dirs() {
+            if !dir.exists() {
+                continue;
             }
+            let lnk = dir.join(format!("{APP_NAME}.lnk"));
+            match make_shortcut(&lnk, &exe, &to, APP_NAME) {
+                Ok(_) => {
+                    okd = true;
+                    break;
+                }
+                Err(e) => last_err = e,
+            }
+        }
+        if !okd {
+            warnings.push(format!(
+                "桌面快捷方式没建成（{}）",
+                if last_err.is_empty() { "没有可写的桌面目录".to_string() } else { last_err }
+            ));
         }
     }
 
@@ -472,8 +510,8 @@ pub extern "C" fn uninstall_run(app_dir: *const c_char, keep_config: i32, buf: *
             .join(APP_NAME);
         let _ = fs::remove_dir_all(&start);
     }
-    if let Ok(pub_dir) = std::env::var("PUBLIC") {
-        let _ = fs::remove_file(Path::new(&pub_dir).join(format!("{APP_NAME}.lnk")));
+    for dir in desktop_dirs() {
+        let _ = fs::remove_file(dir.join(format!("{APP_NAME}.lnk")));
     }
 
     // 注册表：一次清干净。之前只删两处，Inno 时期的 AppId 键、
