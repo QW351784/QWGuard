@@ -73,7 +73,7 @@ class Native {
     }
   }
 
-  static Map<String, dynamic> hardware() => _callBuf('get_hardware_info') ?? <String, dynamic>{};
+  static Map<String, dynamic> hardware() => _callBuf('get_hardware_info', cap: 65536) ?? <String, dynamic>{};
 
   /// 规则库状态：哈希条数 / 文件名条数 / 内置 YARA 是否就绪
   static Map<String, dynamic> rulesStatus() => _callBuf('rules_status', cap: 8192) ?? <String, dynamic>{};

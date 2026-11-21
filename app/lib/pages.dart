@@ -50,10 +50,12 @@ class _HardwarePageState extends State<HardwarePage> {
     if (!mounted) return;
     setState(() {
       _loading = false;
-      if (res['success'] == true) {
+      if (res['success'] == true && res['data'] is Map) {
         _data = (res['data'] as Map).cast<String, dynamic>();
+        if (_data!.isEmpty) _error = '没有读到硬件信息，稍后点「刷新」再试。';
       } else {
-        _error = res['message']?.toString() ?? 'unknown error';
+        final msg = res['message']?.toString().trim() ?? '';
+        _error = msg.isEmpty ? '读取硬件信息失败（错误码 ${res['code'] ?? '-'}），点「刷新」重试。' : msg;
       }
     });
   }
