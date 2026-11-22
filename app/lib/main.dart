@@ -212,6 +212,14 @@ class _ShellState extends State<Shell>
   bool _oobe = true;
   Timer? _tickerTimer;
 
+  /// OOBE 交棒给主界面的那 0.64 秒：
+  /// 主界面从 1.045 缩放落回 1.0、从虚化里变清晰，同时中心扩散一圈白光。
+  /// 澎湃开机完成就是这个观感：不是切页，是「光散开、桌面落定」。
+  late final AnimationController _reveal = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 640),
+  );
+
   /// 墙钟时钟：只在启动时归零，之后一直往前走。
   /// 用它而不是 Ticker 的 elapsed，是因为窗口最小化 / 失焦 / 被系统挂起时
   /// 引擎会停发帧，Ticker 也跟着停，恢复后画面等于"停在那"。
@@ -269,6 +277,7 @@ class _ShellState extends State<Shell>
 
   @override
   void dispose() {
+    _reveal.dispose();
     SchedulerBinding.instance.removeTimingsCallback(_onFrameTimings);
     _clock.stop();
     _tickerTimer?.cancel();
@@ -613,7 +622,12 @@ class _ShellState extends State<Shell>
             // OobeIntro 自己不带底色，外层又是透明 Scaffold，
             // 不给它铺底整页就是透的
             decoration: AppTheme.background(brightness),
-            child: OobeIntro(onDone: () => setState(() => _oobe = false)),
+            child: OobeIntro(
+              onDone: () {
+                setState(() => _oobe = false);
+                _reveal.forward(from: 0);
+              },
+            ),
           ),
         ),
       );
@@ -676,6 +690,31 @@ class _ShellState extends State<Shell>
           // 悬浮监控窗
           if (Ui.floating.value) const FloatingMonitor(),
 
+          // OOBE 交接的白光：从中心扩散到整屏，和主界面的缩放/去虚化同步
+          Positioned.fill(
+            child: IgnorePointer(
+              child: AnimatedBuilder(
+                animation: _reveal,
+                builder: (_, __) {
+                  if (_reveal.isCompleted) return const SizedBox.shrink();
+                  final t = Curves.easeOutQuint.transform(_reveal.value);
+                  return DecoratedBox(
+                    decoration: BoxDecoration(
+                      gradient: RadialGradient(
+                        radius: 0.06 + 1.25 * t,
+                        colors: [
+                          Colors.white.withOpacity(0.30 * (1 - t)),
+                          Colors.white.withOpacity(0.0),
+                        ],
+                        stops: const [0.0, 1.0],
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
+          ),
+
           // 水纹层压在最上面：收指针事件但不挡点击
           const Positioned.fill(child: WaterRipple()),
         ],
@@ -685,9 +724,31 @@ class _ShellState extends State<Shell>
     // 被裁掉的四个角会露出窗口底色 —— 浅色主题下就是四块深色缺口，
     // 这就是「角没适配好」的真正原因。圆角交给 Windows 自己裁（Win11 会给
     // DWMWCP_ROUND），Flutter 这层不再重复裁。
+    // 动画结束就返回原样的 child，不再保留任何 saveLayer ——
+    // 否则 ImageFiltered 会一直挂在整棵树上，静态界面也要多画一层。
+    final shown = AnimatedBuilder(
+      animation: _reveal,
+      builder: (_, child) {
+        if (_reveal.isCompleted) return child!;
+        final t = Curves.easeOutCubic.transform(_reveal.value);
+        final b = (1 - t) * 7.0;
+        return Opacity(
+          opacity: 0.55 + 0.45 * t,
+          child: Transform.scale(
+            scale: 1.045 - 0.045 * t,
+            child: ImageFiltered(
+              imageFilter: ImageFilter.blur(sigmaX: b, sigmaY: b),
+              child: child,
+            ),
+          ),
+        );
+      },
+      child: content,
+    );
+
     return Scaffold(
       backgroundColor: Colors.transparent,
-      body: content,
+      body: shown,
     );
   }
 }
