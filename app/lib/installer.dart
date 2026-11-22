@@ -43,10 +43,21 @@ class _SetupAppState extends State<SetupApp> {
   bool _confirm1 = false;
   bool _confirm2 = false;
 
+  /// 密码保护开启时，卸载前还要过这一关
+  bool _needPwd = false;
+  String _pwdErr = '';
+  final TextEditingController _pwdCtrl = TextEditingController();
+
   @override
   void initState() {
-  super.initState();
+    super.initState();
     _init();
+  }
+
+  @override
+  void dispose() {
+    _pwdCtrl.dispose();
+    super.dispose();
   }
 
   Future<void> _init() async {
@@ -133,14 +144,40 @@ class _SetupAppState extends State<SetupApp> {
     });
   }
 
-  Future<void> _doUninstall() async {
+  /// 点「确认卸载」后先查密码状态：开了密码保护就先弹输入页
+  Future<void> _beforeUninstall() async {
+    final st = Api.passwordState();
+    final has = st['success'] == true &&
+        st['data'] is Map &&
+        (st['data'] as Map)['has_password'] == true;
+    if (!has) {
+      await _doUninstall();
+      return;
+    }
+    setState(() {
+      _needPwd = true;
+      _pwdErr = '';
+    });
+  }
+
+  Future<void> _submitPwd() async {
+    final r = Api.passwordVerify(_pwdCtrl.text);
+    if (r['success'] == true) {
+      setState(() => _needPwd = false);
+      await _doUninstall(pwd: _pwdCtrl.text);
+    } else {
+      setState(() => _pwdErr = r['message']?.toString() ?? '密码错误');
+    }
+  }
+
+  Future<void> _doUninstall({String pwd = ''}) async {
     setState(() {
       _busy = true;
       _step = 2;
       _hint = '正在清理…';
     });
     final appDir = File(Platform.resolvedExecutable).parent.path;
-    final r = Api.uninstallRun(appDir);
+    final r = Api.uninstallRun(appDir, pwd: pwd);
     final ok = r['success'] == true;
     setState(() {
       _busy = false;
@@ -210,6 +247,7 @@ class _SetupAppState extends State<SetupApp> {
 
   Widget _content(Color accent) {
     if (widget.uninstall) {
+      if (_needPwd) return _uninstallPassword(accent);
       if (!_confirm1) return _uninstallConfirm1(accent);
       if (!_confirm2) return _uninstallConfirm2(accent);
     }
@@ -418,6 +456,43 @@ class _SetupAppState extends State<SetupApp> {
     );
   }
 
+  Widget _uninstallPassword(Color accent) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(children: [
+          Icon(Icons.lock_rounded, color: accent, size: 24),
+          const SizedBox(width: 10),
+          const Text('卸载需要密码', style: TextStyle(fontSize: 19, fontWeight: FontWeight.w700)),
+        ]),
+        const SizedBox(height: 16),
+        const Text('你已经开启了密码保护。请输入密码，验证通过后才会继续卸载。',
+            style: TextStyle(fontSize: 13, height: 1.6)),
+        const SizedBox(height: 16),
+        TextField(
+          controller: _pwdCtrl,
+          autofocus: true,
+          obscureText: true,
+          onSubmitted: (_) => _submitPwd(),
+          decoration: InputDecoration(
+            hintText: '输入密码',
+            errorText: _pwdErr.isEmpty ? null : _pwdErr,
+          ),
+        ),
+        const SizedBox(height: 20),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.end,
+          children: [
+            TextButton(onPressed: () => exit(0), child: const Text('取消')),
+            const SizedBox(width: 8),
+            LiquidButton(text: '验证并卸载', icon: Icons.lock_open_rounded, onTap: _submitPwd),
+          ],
+        ),
+      ],
+    );
+  }
+
   Widget _uninstallConfirm2(Color accent) {
     return Column(
       mainAxisSize: MainAxisSize.min,
@@ -440,7 +515,7 @@ class _SetupAppState extends State<SetupApp> {
           children: [
             TextButton(onPressed: () => setState(() => _confirm1 = false), child: const Text('我再想想')),
             const SizedBox(width: 8),
-            LiquidButton(text: '确认卸载', icon: Icons.delete_forever_rounded, primary: false, onTap: _doUninstall),
+            LiquidButton(text: '确认卸载', icon: Icons.delete_forever_rounded, primary: false, onTap: _beforeUninstall),
           ],
         ),
       ],

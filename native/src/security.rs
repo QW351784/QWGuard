@@ -61,6 +61,25 @@ fn read_pwd() -> Option<(String, String)> {
     Some((salt, hash))
 }
 
+/// 卸载前的密码闸门：只有「已设置密码」时才拦，没设置就照常卸。
+/// 放在 Rust 层而不是只放在界面上，是因为控制面板会直接调 --uninstall，
+/// 只拦 UI 等于没拦。
+pub(crate) fn check_uninstall_pwd(pwd: &str) -> Result<(), &'static str> {
+    match read_pwd() {
+        None => Ok(()),
+        Some((salt, hash)) => {
+            if pwd.trim().is_empty() {
+                return Err("已开启密码保护，卸载前必须输入密码");
+            }
+            if hash_of(&salt, pwd) == hash {
+                Ok(())
+            } else {
+                Err("密码错误，无法卸载")
+            }
+        }
+    }
+}
+
 /// 设置密码（首次设置或修改；修改时不校验旧密码，旧密码在 UI 层先验）
 #[no_mangle]
 pub extern "C" fn password_set(pwd: *const c_char, buf: *mut u8, len: usize) -> i32 {

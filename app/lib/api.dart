@@ -67,6 +67,7 @@ class Api {
         return jsonDecode(text) as Map<String, dynamic>;
       } finally {
         calloc.free(a);
+        calloc.free(p);
         calloc.free(buf);
       }
     } catch (e) {
@@ -262,16 +263,18 @@ class Api {
     }
   }
 
-  static Map<String, dynamic> uninstallRun(String appDir, {bool keepConfig = false}) {
+  static Map<String, dynamic> uninstallRun(String appDir, {bool keepConfig = false, String pwd = ''}) {
     final lib = Native.lib;
     if (lib == null) return {'success': false};
     try {
-      final f = lib.lookupFunction<ffi.Int32 Function(ffi.Pointer<ffi.Char>, ffi.Int32, ffi.Pointer<ffi.Uint8>, ffi.Size), int Function(ffi.Pointer<ffi.Char>, int, ffi.Pointer<ffi.Uint8>, int)>(
-          'uninstall_run');
+      final f = lib.lookupFunction<
+          ffi.Int32 Function(ffi.Pointer<ffi.Char>, ffi.Int32, ffi.Pointer<ffi.Char>, ffi.Pointer<ffi.Uint8>, ffi.Size),
+          int Function(ffi.Pointer<ffi.Char>, int, ffi.Pointer<ffi.Char>, ffi.Pointer<ffi.Uint8>, int)>('uninstall_run');
       final a = appDir.toNativeUtf8();
+      final p = pwd.toNativeUtf8();
       final buf = calloc<ffi.Uint8>(8192);
       try {
-        final ret = f(a.cast(), keepConfig ? 1 : 0, buf, 8192);
+        final ret = f(a.cast(), keepConfig ? 1 : 0, p.cast(), buf, 8192);
         final text = buf.cast<ffi.Char>().cast<Utf8>().toDartString();
         if (text.trim().isEmpty) return {'success': false, 'code': ret};
         return jsonDecode(text) as Map<String, dynamic>;

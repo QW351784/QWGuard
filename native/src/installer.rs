@@ -62,8 +62,19 @@ fn remove_tree(path: &Path, removed: &mut u64) {
         };
         if meta.is_dir() {
             remove_tree(&p, removed);
-        } else if fs::remove_file(&p).is_ok() {
-            *removed += 1;
+        } else {
+            // 删不掉的常见原因：只读/隐藏属性、被杀软或索引服务瞬时占用。
+            // 先直接删，失败就清属性再删一次，别一声不响地漏掉。
+            if fs::remove_file(&p).is_ok() {
+                *removed += 1;
+            } else {
+                let _ = crate::proc::cmd("attrib")
+                    .args(["-R", "-H", "-S", &p.to_string_lossy()])
+                    .output();
+                if fs::remove_file(&p).is_ok() {
+                    *removed += 1;
+                }
+            }
         }
     }
     let _ = fs::remove_dir(path);
@@ -479,12 +490,23 @@ pub extern "C" fn install_run(
 
 /// 卸载：先杀进程，再删目录、配置、快捷方式、注册表
 #[no_mangle]
-pub extern "C" fn uninstall_run(app_dir: *const c_char, keep_config: i32, buf: *mut u8, len: usize) -> i32 {
+pub extern "C" fn uninstall_run(
+    app_dir: *const c_char,
+    keep_config: i32,
+    pwd: *const c_char,
+    buf: *mut u8,
+    len: usize,
+) -> i32 {
     let Some(dir) = cstr(app_dir) else {
         return fail(buf, len, -1, "参数为空");
     };
     if !cfg!(windows) {
         return fail(buf, len, -3, "卸载流程仅支持 Windows");
+    }
+    // 密码保护一旦开启，控制面板 / 命令行 / 第三方卸载器调进来都要过这道闸。
+    let pass = cstr(pwd).unwrap_or_default();
+    if let Err(msg) = crate::security::check_uninstall_pwd(&pass) {
+        return fail(buf, len, -5, msg);
     }
     let app = PathBuf::from(&dir);
 
@@ -495,8 +517,15 @@ pub extern "C" fn uninstall_run(app_dir: *const c_char, keep_config: i32, buf: *
     std::thread::sleep(std::time::Duration::from_millis(800));
 
     let mut removed = 0u64;
-    if app.exists() {
+    // 反复三次：刚 taskkill 完，Explorer / Defender / 索引服务可能还捏着句柄
+    for _ in 0..3 {
+        if !app.exists() {
+            break;
+        }
         remove_tree(&app, &mut removed);
+        if app.exists() {
+            std::thread::sleep(std::time::Duration::from_millis(350));
+        }
     }
 
     // 配置目录
@@ -526,6 +555,24 @@ pub extern "C" fn uninstall_run(app_dir: *const c_char, keep_config: i32, buf: *
     // 于是「卸载完成」之后安装目录还会剩下一个 Uninstall.exe + 空壳目录。
     // 交给系统在进程退出后再补一刀：等 2 秒 → 删自己 → 删目录。
     // 不带这步，用户回控制面板看是干净的，去 D:\ 一看目录还在。
+    // 三次还删不掉的（被杀软占着、或目录 ACL 只有管理员能改），
+    // 登记到下次登录时再清，别留一个空壳目录让用户以为没卸干净。
+    if app.exists() {
+        let line = format!("cmd /c rmdir /s /q \"{}\"", app.display());
+        let _ = crate::proc::cmd("reg")
+            .args([
+                "add",
+                r"HKCU\Software\Microsoft\Windows\CurrentVersion\RunOnce",
+                "/v",
+                "QWGuardCleanup",
+                "/t",
+                "REG_SZ",
+                "/d",
+                &line,
+                "/f",
+            ])
+            .output();
+    }
     if app.exists() {
         let self_exe = std::env::current_exe().unwrap_or_default();
         let line = format!(
