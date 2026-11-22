@@ -664,19 +664,3 @@ pub extern "C" fn rules_import(src: *const c_char, buf: *mut u8, len: usize) -> 
     }
 }
 
-/// 从 abuse.ch MalwareBazaar 拉哈希（参数：用户自己的 Auth-Key）
-#[no_mangle]
-pub extern "C" fn rules_bazaar(key: *const c_char, buf: *mut u8, len: usize) -> i32 {
-    let Some(key) = cstr(key) else {
-        return fail(buf, len, -1, "参数为空");
-    };
-    match crate::engines::bazaar_pull(&key) {
-        Ok((p, a, t)) => ok(
-            buf,
-            len,
-            "已从 abuse.ch 拉取",
-            serde_json::json!({ "parsed": p, "added": a, "total": t }),
-        ),
-        Err(e) => fail(buf, len, -3, &e),
-    }
-}

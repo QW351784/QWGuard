@@ -90,7 +90,6 @@ class Api {
   // ===== 规则库（病毒库） =====
   static Map<String, dynamic> rulesStatus() => Native.rulesStatus();
   static Map<String, dynamic> rulesImport(String path) => Native.rulesImport(path);
-  static Map<String, dynamic> rulesBazaar(String key) => Native.rulesBazaar(key);
 
   static Map<String, dynamic> gpu() => _buf('detect_gpu');
   static Map<String, dynamic> gpuPreference() => _buf('get_gpu_preference');

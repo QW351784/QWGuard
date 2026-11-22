@@ -91,9 +91,6 @@ class Native {
   /// 从本地 txt 导入 SHA-256 黑名单
   static Map<String, dynamic> rulesImport(String path) => _str1('rules_import', path);
 
-  /// 从 abuse.ch MalwareBazaar 拉哈希（需要用户自己的 Auth-Key）
-  static Map<String, dynamic> rulesBazaar(String key) => _str1('rules_bazaar', key);
-
   static Map<String, dynamic> _str1(String fn, String arg) {
     final l = lib;
     if (l == null) return {'success': false, 'message': loadError ?? 'native library missing'};

@@ -294,7 +294,7 @@ fn pe_checks(data: &[u8], out: &mut Vec<String>) {
     out.dedup();
 }
 
-// ================= 规则库：内置默认 YARA + 哈希导入 / abuse.ch 拉取 =================
+// ================= 规则库：内置默认 YARA + 本地哈希导入（全部离线） =================
 
 /// 内置的原创基础规则（自己写的，不是抄社区规则集，许可证干净）
 const DEFAULT_YARA: &str = r#"// QW 引擎内置基础规则 · 原创 · 随 QW 安全电脑管家分发
@@ -649,59 +649,10 @@ pub(crate) fn import_hashes(src: &str) -> Result<(usize, usize, usize), String> 
     merge_hashes(incoming)
 }
 
-fn http_post(url: &str, headers: &[(&str, &str)], form: &str) -> Result<String, String> {
-    let mut args: Vec<String> = vec!["-s".into(), "-X".into(), "POST".into(), url.into()];
-    for (k, v) in headers {
-        args.push("-H".into());
-        args.push(format!("{k}: {v}"));
-    }
-    for pair in form.split('&') {
-        if pair.is_empty() {
-            continue;
-        }
-        args.push("-d".into());
-        args.push(pair.to_string());
-    }
-    let out = crate::proc::cmd("curl")
-        .args(&args)
-        .output()
-        .map_err(|e| format!("调 curl 失败（Windows 10 起自带）: {e}"))?;
-    let text = format!(
-        "{}{}",
-        String::from_utf8_lossy(&out.stdout),
-        String::from_utf8_lossy(&out.stderr)
-    );
-    if text.trim().is_empty() {
-        return Err("abuse.ch 没有返回内容".into());
-    }
-    Ok(text)
-}
-
-/// 从 abuse.ch MalwareBazaar 拉最近的恶意样本哈希
-/// 需要用户自己在 abuse.ch 免费注册一个 Auth-Key
-pub(crate) fn bazaar_pull(key: &str) -> Result<(usize, usize, usize), String> {
-    let text = http_post(
-        "https://mb-api.abuse.ch/api/v1/",
-        &[("Auth-Key", key)],
-        "query=get_hashes",
-    )?;
-    let v: serde_json::Value =
-        serde_json::from_str(text.trim()).map_err(|e| format!("返回不是 JSON: {e}"))?;
-    if let Some(err) = v.get("error").and_then(|e| e.as_str()) {
-        return Err(format!("abuse.ch 返回: {err}"));
-    }
-    let arr = v
-        .get("data")
-        .and_then(|d| d.as_array())
-        .ok_or_else(|| "返回里没有 data 字段".to_string())?;
-    let mut hashes = Vec::new();
-    for item in arr {
-        if let Some(h) = item.get("sha256_hash").and_then(|h| h.as_str()) {
-            hashes.push(h.to_lowercase());
-        }
-    }
-    merge_hashes(hashes)
-}
+// 这里原来有 abuse.ch MalwareBazaar 的拉取实现（http_post + bazaar_pull）。
+// 它需要用户自己去 abuse.ch 注册并申请 Auth-Key —— 界面上从来没有接过按钮，
+// 属于「留着但没人用、还要求账号」的死代码，整段删除。
+// 现在规则库只有本地来源：内置 qw_basic.yar + 用户自己导入的 txt 黑名单。
 
 /// 规则库状态：各文件有效行数
 pub(crate) fn rules_status() -> serde_json::Value {
