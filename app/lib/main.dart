@@ -209,6 +209,9 @@ class _ShellState extends State<Shell>
   /// 引擎会停发帧，Ticker 也跟着停，恢复后画面等于"停在那"。
   final Stopwatch _clock = Stopwatch();
 
+  /// 帧耗时发布的限速表（防止每帧写 notifier 造成自我驱动循环）
+  final Stopwatch _framePubClock = Stopwatch();
+
   static const _icons = [
     Icons.memory_rounded,
     Icons.cleaning_services_rounded,
@@ -226,13 +229,7 @@ class _ShellState extends State<Shell>
     // 关键：这里不能再用 createTicker —— Ticker 一旦 start()，引擎就会持续按
     // 刷新率出帧、整窗重绘，回调里 return 也拦不住。这正是「动画全关、界面换成
     // 纯文本，GPU 仍 70%」的根因。改成普通定时器：没人监听就彻底不出帧。
-    _tickerTimer = Timer.periodic(const Duration(milliseconds: 16), (_) {
-      // 所有按帧动画都关着时，直接把时钟停摆：没有 painter 需要新帧，
-      // 继续推进 tick 只会白白触发整窗重绘。
-      if (!Ui.perFrameActive) return;
-      if (!Ui.tick.hasListeners) return;
-      Ui.tick.value = _clock.elapsedMicroseconds / 1000000.0;
-    });
+    _syncTicker();
 
     // 这里原来还有一个 250ms 的「心跳定时器」，无条件把 Ui.tick 往前推。
     // 它的本意是「窗口挂起恢复后相位别错」，代价却是每 250ms 触发一次
@@ -282,16 +279,49 @@ class _ShellState extends State<Shell>
     super.dispose();
   }
 
+  /// 按需启停全局时钟。
+  /// 之前是一个常驻的 16ms Timer：哪怕所有按帧动画都关着，它也每秒唤醒 60 次，
+  /// 白白把事件循环叫醒、顺带把整窗推着重绘。现在只有真开着按帧动画时才启动，
+  /// 其余时候彻底停摆 —— 静止时应当一帧都不出。
+  void _syncTicker() {
+    final need = Ui.perFrameActive;
+    if (need && _tickerTimer == null) {
+      _tickerTimer = Timer.periodic(const Duration(milliseconds: 16), (_) {
+        if (!Ui.tick.hasListeners) return;
+        Ui.tick.value = _clock.elapsedMicroseconds / 1000000.0;
+      });
+    } else if (!need && _tickerTimer != null) {
+      _tickerTimer!.cancel();
+      _tickerTimer = null;
+    }
+  }
+
   void _rebuild() {
+    _syncTicker();
     setState(() {});
     // 材质档变了（比如用户切到 Aero）要重设窗口特效，其余开关只重建界面
     _applyMaterial();
   }
 
-  /// 帧回调：把每帧总耗时（build+raster）喂给 Ui.frameMs，设置页实时显示
+  /// 帧回调：把每帧总耗时（build+raster）喂给 Ui.frameMs，设置页显示。
+  ///
+  /// 这里以前是**每帧无条件写一次**，而设置页挂在 IndexedStack 里永不销毁，
+  /// 页面里的 ValueListenableBuilder 收到通知就重建 → 重建又请求下一帧 →
+  /// 下一帧再写一次，自我驱动成 60fps 死循环。动画全关、界面换成纯文本都停
+  /// 不下来，4060 上空闲 40% 的主因就是它。
+  /// 现在：只在设置页可见时发布，且限速 2.5 次/秒、量化到 0.1ms。
   void _onFrameTimings(List<FrameTiming> timings) {
     if (timings.isEmpty) return;
-    Ui.frameMs.value = timings.last.totalSpan.inMicroseconds / 1000.0;
+    if (_index != 4) return; // 只有设置页显示这个读数
+    if (_framePubClock.isRunning && _framePubClock.elapsedMilliseconds < 400) {
+      return;
+    }
+    _framePubClock
+      ..reset()
+      ..start();
+    final ms = timings.last.totalSpan.inMicroseconds / 1000.0;
+    final q = (ms * 10).roundToDouble() / 10.0;
+    if ((q - Ui.frameMs.value).abs() > 0.05) Ui.frameMs.value = q;
   }
 
   // ===== 窗口事件：恢复/聚焦时立刻把时钟对齐并强制重画，动画接着动、不停在原地 =====
