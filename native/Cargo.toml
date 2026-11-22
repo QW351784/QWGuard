@@ -14,6 +14,8 @@ serde_json = "1.0"
 sysinfo = "0.30"
 rayon = "1.10"
 sha2 = "0.10"
+# 大文件零拷贝扫描：不把整个文件读进堆
+memmap2 = "0.9"
 # YARA-X：VirusTotal 的纯 Rust 重写版。走进程内扫描，不再每个文件起
 # 一次 yara64.exe —— 深度复核慢十几倍的根源就是进程启动开销。
 # 关掉默认的 generate-proto-code（用仓库里预生成的代码），

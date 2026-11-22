@@ -744,30 +744,40 @@ fn yara_rules() -> Option<&'static yara_x::Rules> {
 
 /// 进程内 YARA 扫描：返回 (是否命中, 命中的规则名)。
 pub(crate) fn yara_scan(path: &str) -> (bool, Vec<String>) {
-    let Some(rules) = yara_rules() else {
-        return (false, Vec::new());
-    };
-    let Ok(md) = fs::metadata(path) else {
-        return (false, Vec::new());
-    };
-    // 超过 128 MB 的不读进内存，YARA 对这类文件也基本没有意义
-    if md.len() > 128 * 1024 * 1024 {
+    let Some(rules) = yara_rules() else { return (false, Vec::new()) };
+    let Ok(md) = fs::metadata(path) else { return (false, Vec::new()) };
+    if !md.is_file() || md.len() == 0 {
         return (false, Vec::new());
     }
-    let Ok(bytes) = fs::read(path) else {
-        return (false, Vec::new());
-    };
+    let Ok(file) = fs::File::open(path) else { return (false, Vec::new()) };
     let mut scanner = yara_x::Scanner::new(rules);
-    match scanner.scan(&bytes) {
-        Ok(res) => {
-            let names: Vec<String> = res
-                .matching_rules()
-                .map(|r| r.identifier().to_string())
-                .collect();
-            (!names.is_empty(), names)
+
+    // 不再有 128 MB 硬上限：
+    //   ≤ 32 MB  直接读进内存，少一次映射开销；
+    //   > 32 MB  用 mmap 零拷贝，文件不搬进堆，几十 GB 的镜像也不会把内存吃爆。
+    //   映射失败（网络盘 / 文件被改）再退回普通读取。
+    if md.len() >= 32 * 1024 * 1024 {
+        if let Ok(map) = unsafe { memmap2::Mmap::map(&file) } {
+            if let Ok(res) = scanner.scan(&map[..]) {
+                return collect_rules(res);
+            }
         }
+    }
+    match fs::read(path) {
+        Ok(bytes) => match scanner.scan(&bytes) {
+            Ok(res) => collect_rules(res),
+            Err(_) => (false, Vec::new()),
+        },
         Err(_) => (false, Vec::new()),
     }
+}
+
+fn collect_rules(res: yara_x::ScanResults) -> (bool, Vec<String>) {
+    let names: Vec<String> = res
+        .matching_rules()
+        .map(|r| r.identifier().to_string())
+        .collect();
+    (!names.is_empty(), names)
 }
 
 pub(crate) fn import_hashes(src: &str) -> Result<(usize, usize, usize), String> {
