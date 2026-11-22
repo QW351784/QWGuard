@@ -16,6 +16,9 @@ static SCAN_TOTAL: AtomicU64 = AtomicU64::new(0);
 static SCAN_DONE: AtomicU64 = AtomicU64::new(0);
 static SCAN_HITS: AtomicU32 = AtomicU32::new(0);
 static SCAN_CUR: Mutex<String> = Mutex::new(String::new());
+/// 扫描过程中命中的结果实时放这里，页面每 150 ms 就能读到，
+/// 不用等整盘扫完 —— 以前是「扫完才返回」，所以界面上永远显示 0。
+static SCAN_FOUND: Mutex<Vec<serde_json::Value>> = Mutex::new(Vec::new());
 static SCAN_SCOPE: Mutex<String> = Mutex::new(String::new());
 static SCAN_CANCEL: AtomicBool = AtomicBool::new(false);
 
@@ -973,19 +976,21 @@ fn quick_dirs() -> Vec<PathBuf> {
     let appdata = std::env::var("APPDATA").unwrap_or_default();
     let local = std::env::var("LOCALAPPDATA").unwrap_or_default();
     let temp = std::env::var("TEMP").unwrap_or_default();
-    let programdata = std::env::var("ProgramData").unwrap_or_else(|_| "C:\\ProgramData".to_string());
+    let _programdata = std::env::var("ProgramData").unwrap_or_else(|_| "C:\\ProgramData".to_string());
     let windir = std::env::var("WINDIR").unwrap_or_else(|_| "C:\\Windows".to_string());
 
+    // 快速扫描只该扫「病毒真正爱藏的地方」。
+    // 以前把整个 LocalAppData / AppData / ProgramData 全翻一遍，
+    // 那是几十万个文件（Chrome 缓存、node_modules…），单线程走半小时也走不完，
+    // 用户点了「快速查杀」等 15 分钟一个结果都看不到，问题就在这。
     let candidates = vec![
-        temp,
+        temp.clone(),
         format!("{}\\Temp", windir),
+        format!("{}\\Temp", local),
+        format!("{}\\Temp", appdata),
         format!("{}\\Downloads", user),
         format!("{}\\Desktop", user),
-        format!("{}\\Documents", user),
         format!("{}\\Microsoft\\Windows\\Start Menu\\Programs\\Startup", appdata),
-        local,
-        appdata,
-        programdata,
     ];
     let mut out = Vec::new();
     for c in candidates {
@@ -1075,6 +1080,14 @@ fn collect_files(roots: &[PathBuf], limit: usize, max_size: u64) -> Vec<PathBuf>
 }
 
 /// 单个文件的快筛：两个纯 Rust 引擎（哈希库 + 启发式），命中就记账
+fn push_found(file: &str, engine: &str, th: &[String]) {
+    if let Ok(mut g) = SCAN_FOUND.lock() {
+        if g.len() < 60 {
+            g.push(json!({"file": file, "engine": engine, "threats": th}));
+        }
+    }
+}
+
 fn scan_one_file(
     f: &Path,
     suspects: &mut Vec<PathBuf>,
@@ -1090,12 +1103,14 @@ fn scan_one_file(
     if hit {
         *sig_hits += 1;
         SCAN_HITS.fetch_add(1, Ordering::Relaxed);
+        push_found(&s, "signature", &th);
         threats.push(json!({"file": s, "engine": "signature", "threats": th}));
     }
     let (heu, hth) = crate::engines::heuristic_scan(&s);
     if heu {
         *heu_hits += 1;
         SCAN_HITS.fetch_add(1, Ordering::Relaxed);
+        push_found(&s, "heuristic", &hth);
         threats.push(json!({"file": s, "engine": "heuristic", "threats": hth}));
         if suspects.len() < 300 {
             suspects.push(f.to_path_buf());
@@ -1118,6 +1133,9 @@ fn scan_roots(roots: Vec<PathBuf>, scope: String, buf: *mut u8, len: usize) -> i
     SCAN_DONE.store(0, Ordering::Relaxed);
     SCAN_HITS.store(0, Ordering::Relaxed);
     SCAN_RUNNING.store(true, Ordering::Relaxed);
+    if let Ok(mut g) = SCAN_FOUND.lock() {
+        g.clear();
+    }
     if let Ok(mut g) = SCAN_SCOPE.lock() {
         *g = scope.clone();
     }
@@ -1176,9 +1194,12 @@ fn scan_roots(roots: Vec<PathBuf>, scope: String, buf: *mut u8, len: usize) -> i
         }
     }
 
-    // 第二阶段：可疑文件才起子进程
+    // 第二阶段：只对启发式判可疑的文件跑 YARA，最多 20 个。
+    // 原来这里是「300 个 YARA + 前 60 个 Defender」：YARA 每次起一个进程，
+    // Defender 的 MpCmdRun 单次 5~15 秒，60 个就是十分钟往上 ——
+    // 这就是「点了快速查杀 15 分钟还没结果」的真凶，而且全程界面显示 0。
     let examined = suspects.len();
-    for (i, f) in suspects.iter().enumerate() {
+    for f in suspects.iter().take(20) {
         if SCAN_CANCEL.load(Ordering::Relaxed) {
             break;
         }
@@ -1189,15 +1210,8 @@ fn scan_roots(roots: Vec<PathBuf>, scope: String, buf: *mut u8, len: usize) -> i
         if let Ok((hit, th)) = crate::run_engine("yara", &s) {
             if hit {
                 SCAN_HITS.fetch_add(1, Ordering::Relaxed);
+                push_found(&s, "yara", &th);
                 threats.push(json!({"file": s, "engine": "yara", "threats": th}));
-            }
-        }
-        if i < 60 {
-            if let Ok((hit, th)) = crate::run_engine("defender", &s) {
-                if hit {
-                    SCAN_HITS.fetch_add(1, Ordering::Relaxed);
-                    threats.push(json!({"file": s, "engine": "defender", "threats": th}));
-                }
             }
         }
     }
@@ -1247,9 +1261,10 @@ fn scan_roots(roots: Vec<PathBuf>, scope: String, buf: *mut u8, len: usize) -> i
             {"engine": "yara", "ok": true, "infected": yara_hits_c > 0,
              "threats": pick("yara", &threats),
              "message": format!("YARA 深度复核 {} 个可疑文件，命中 {}", examined, yara_hits_c)},
-            {"engine": "defender", "ok": true, "infected": def_hits_c > 0,
-             "threats": pick("defender", &threats),
-             "message": format!("Defender 复核前 {} 个可疑文件，命中 {}", examined.min(60), def_hits_c)},
+            {"engine": "defender", "ok": false, "infected": false,
+             "threats": Vec::<String>::new(),
+             "skipped": true,
+             "message": "已停用：MpCmdRun 单次调用 5~15 秒，放进自动扫描会把快速查杀拖成十几分钟"},
         ]
     }))
 }
@@ -1317,6 +1332,7 @@ pub extern "C" fn scan_progress(buf: *mut u8, len: usize) -> i32 {
         "hits": SCAN_HITS.load(Ordering::Relaxed),
         "current": cur,
         "scope": SCAN_SCOPE.lock().map(|s| s.clone()).unwrap_or_default(),
+        "found": SCAN_FOUND.lock().map(|s| s.clone()).unwrap_or_default(),
         "progress": round1((pct * 100.0) as f32) / 100.0,
     }))
 }

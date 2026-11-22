@@ -677,6 +677,19 @@ class _ScanPageState extends State<ScanPage> {
         _hits = (d['hits'] as num?)?.toInt() ?? 0;
         final scope = d['scope']?.toString() ?? '';
         if (scope.isNotEmpty) _stage = '$scope中';
+        final found = (d['found'] as List?) ?? const [];
+        if (found.isNotEmpty) {
+          _stage = '$scope中 · 已发现 ${found.length} 项';
+          final files = found
+              .map((e) => ((e as Map)['file'] ?? '').toString())
+              .where((e) => e.isNotEmpty)
+              .toList();
+          if (files.isNotEmpty) {
+            _recent
+              ..clear()
+              ..addAll(files.reversed.take(7));
+          }
+        }
         if (cur.isNotEmpty && cur != last) {
           last = cur;
           _recent.add(cur);
