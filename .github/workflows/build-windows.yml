@@ -88,9 +88,12 @@ jobs:
             Copy-Item $qw (Join-Path $rel 'QWGuard-Setup.exe') -Force
             Copy-Item $qw (Join-Path $rel 'QWGuard-Uninstall.exe') -Force
           }
-          # 安装入口用中文名，双击直接进主界面（不带 --setup，那是工具箱模式）
+          # 安装入口用中文名。这里必须指向 QWGuard-Setup.exe —— 之前写的是 QWGuard.exe，
+          # 双击「安装…」结果拉起的是主程序，于是弹出「检测到本程序只是被单独提取出来的
+          # 文件…未检测到安装记录」。同一个二进制靠文件名分流：Setup=安装向导、
+          # Uninstall=卸载、无后缀=主界面。
           $bat = Join-Path $rel '安装 QW 安全电脑管家.bat'
-          "@echo off`r`nstart `"`" `"%~dp0QWGuard.exe`"" | Set-Content -Path $bat -Encoding ASCII
+          "@echo off`r`nstart `"`" `"%~dp0QWGuard-Setup.exe`"" | Set-Content -Path $bat -Encoding ASCII
           Get-ChildItem $rel -Filter '*.exe' | Select-Object Name, Length
           Get-ChildItem $rel | Select-Object Name, Length
 
