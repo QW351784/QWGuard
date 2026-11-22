@@ -29,8 +29,8 @@ class _SetupAppState extends State<SetupApp> {
   /// 首次算出来的推荐路径，用来看当前是不是还被用户改过
   String _recDir = '';
   bool _desktopIcon = true;
-  // 默认勾上：装了不设自启动，等于装了不防护。用户想关可以自己取消。
-  bool _autostart = true;
+  // 安装过程不再询问自启动，装完在设置里开（默认保持关闭，不偷偷写注册表）
+  bool _autostart = false;
   bool _busy = false;
   String _hint = '';
   String _result = '';
@@ -352,7 +352,6 @@ class _SetupAppState extends State<SetupApp> {
             style: TextStyle(fontSize: 11, color: _dark ? Colors.white38 : Colors.black45)),
         const SizedBox(height: 18),
         _check('创建桌面快捷方式', _desktopIcon, (v) => setState(() => _desktopIcon = v)),
-        _check('开机自动启动（推荐开启，关掉后每次要自己打开）', _autostart, (v) => setState(() => _autostart = v)),
         if (_hint.isNotEmpty) ...[
           const SizedBox(height: 10),
           Text(_hint, style: TextStyle(fontSize: 11.5, color: Colors.redAccent)),

@@ -24,20 +24,20 @@ class Ui {
   // 用户想要可以在设置里逐个打开，但默认不替他把显卡烧了。
   static const List<AnimDef> anims = [
     AnimDef('glass', '液态玻璃材质', 'Liquid glass'),
-    AnimDef('blur', '实时模糊', 'Live blur', defaultOn: false),
-    AnimDef('refraction', '光影折射', 'Refraction', defaultOn: false),
-    AnimDef('raytrace', '光追反射', 'Ray tracing', defaultOn: false),
-    AnimDef('water', '水纹动画', 'Water ripple', defaultOn: false),
-    AnimDef('sweep', '折射扫光带', 'Light sweep', defaultOn: false),
-    AnimDef('particles', '粒子特效', 'Particles', defaultOn: false),
-    AnimDef('blobs', '背景光斑漂浮', 'Floating blobs', defaultOn: false),
+    AnimDef('blur', '实时模糊', 'Live blur'),
+    AnimDef('refraction', '光影折射', 'Refraction'),
+    AnimDef('raytrace', '光追反射', 'Ray tracing'),
+    AnimDef('water', '水纹动画', 'Water ripple'),
+    AnimDef('sweep', '折射扫光带', 'Light sweep'),
+    AnimDef('particles', '粒子特效', 'Particles'),
+    AnimDef('blobs', '背景光斑漂浮', 'Floating blobs'),
     AnimDef('dockSpring', 'Dock 弹簧动画', 'Dock spring'),
     AnimDef('dockGlass', 'Dock 玻璃效果', 'Dock glass'),
     AnimDef('pageTransition', '页面切换动画', 'Page transition'),
     AnimDef('buttonPress', '按钮按压回弹', 'Button press'),
     AnimDef('cardEntrance', '卡片入场动画', 'Card entrance'),
     // 呼吸型动态光效：软件内默认开启、可以手动关闭；安装/卸载过程中强制开启（那边没有开关）
-    AnimDef('breathing', '呼吸型动态光效', 'Breathing glow', defaultOn: false),
+    AnimDef('breathing', '呼吸型动态光效', 'Breathing glow'),
   ];
 
   static final Map<String, ValueNotifier<bool>> _map = {
