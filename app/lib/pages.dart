@@ -2665,7 +2665,7 @@ class _SettingsPageState extends State<SettingsPage> {
                 Text('酷安：QW123456780',
                     style: TextStyle(fontSize: 12, color: isDark ? Colors.white60 : Colors.black54)),
                 const SizedBox(height: 2),
-                Text('扫码请作者喝杯奶茶，或者来仓库提 issue',
+                Text('作者制作维护不容易，爱心捐款，一杯奶茶价钱，就是作者继续维护更新的动力。',
                     style: TextStyle(fontSize: 10.5, color: isDark ? Colors.white38 : Colors.black38)),
               ],
             ),
