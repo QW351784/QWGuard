@@ -73,6 +73,12 @@ class Ui {
   /// 上一帧总耗时（毫秒）：Shell 的帧回调写入，设置页显示实时流畅度
   static final ValueNotifier<double> frameMs = ValueNotifier<double>(0);
 
+  /// 鸿蒙式光感粒子：不是常驻轨道，而是操作触发一次爆发。
+  /// burstSeq 每加一就喷一簇，burstAt 是指针位置（窗口坐标）。
+  static final ValueNotifier<int> burstSeq = ValueNotifier<int>(0);
+  static final ValueNotifier<Offset> burstAt = ValueNotifier<Offset>(Offset.zero);
+  static void burst(Offset p) { burstAt.value = p; burstSeq.value++; }
+
   /// 澎湃 OS 4 回弹曲线
   /// 澎湃 OS 4 的 Q 弹曲线：带明显过冲再回落，按下去像果冻
   static const spring = Cubic(0.34, 1.56, 0.64, 1.0);

@@ -756,7 +756,11 @@ class _ShellState extends State<Shell>
 
     return Scaffold(
       backgroundColor: Colors.transparent,
-      body: shown,
+      body: Listener(
+        behavior: HitTestBehavior.translucent,
+        onPointerDown: (e) => Ui.burst(e.localPosition),
+        child: shown,
+      ),
     );
   }
 }

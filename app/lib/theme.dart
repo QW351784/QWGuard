@@ -515,40 +515,52 @@ class LiquidBlob extends StatelessWidget {
 /// 粒子层：关闭时不渲染
 class ParticleLayer extends StatefulWidget {
   final int count;
-  const ParticleLayer({super.key, this.count = 34});
-
+  const ParticleLayer({super.key, this.count = 18});
   @override
   State<ParticleLayer> createState() => _ParticleLayerState();
 }
 
-class _ParticleLayerState extends State<ParticleLayer> {
-  final List<_P> _ps = [];
+/// 鸿蒙 7「沉浸光感」粒子：平时屏幕是干净的，点按/拖动才从指尖喷一簇光，
+/// 900ms 内向外飘散、变淡、熄灭。没有粒子时控制器停着，零重绘。
+class _ParticleLayerState extends State<ParticleLayer> with SingleTickerProviderStateMixin {
+  late final AnimationController _c = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 900),
+  );
+  Offset _origin = Offset.zero;
+  int _seq = 0;
 
   @override
   void initState() {
     super.initState();
-    final rnd = math.Random(7);
-    for (var i = 0; i < widget.count; i++) {
-      _ps.add(_P(
-        angle: rnd.nextDouble() * math.pi * 2,
-        radius: 0.42 + rnd.nextDouble() * 0.72,
-        speed: 0.35 + rnd.nextDouble() * 0.65,
-        size: 1.2 + rnd.nextDouble() * 2.6,
-        phase: rnd.nextDouble() * math.pi * 2,
-        squash: 0.62 + rnd.nextDouble() * 0.38,
-        warm: rnd.nextBool(),
-      ));
-    }
+    _seq = Ui.burstSeq.value;
+    Ui.burstSeq.addListener(_onBurst);
+  }
+
+  void _onBurst() {
+    if (!mounted) return;
+    if (!Ui.isOn('particles')) return;
+    if (Ui.burstSeq.value == _seq) return;
+    _seq = Ui.burstSeq.value;
+    _origin = Ui.burstAt.value;
+    _c.forward(from: 0);
+  }
+
+  @override
+  void dispose() {
+    Ui.burstSeq.removeListener(_onBurst);
+    _c.dispose();
+    super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
     if (!Ui.particles.value) return const SizedBox.shrink();
-    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final dark = Theme.of(context).brightness == Brightness.dark;
     return IgnorePointer(
       child: RepaintBoundary(
         child: CustomPaint(
-          painter: _ParticlePainter(_ps, isDark),
+          painter: _BurstPainter(_c, _origin, widget.count, dark),
           size: Size.infinite,
         ),
       ),
@@ -556,75 +568,45 @@ class _ParticleLayerState extends State<ParticleLayer> {
   }
 }
 
-class _P {
-  final double angle;   // 初始角
-  final double radius;  // 归一化轨道半径
-  final double speed;   // 角速度倍率
-  final double size;
-  final double phase;
-  final double squash;  // 椭圆压扁系数
-  final bool warm;
-  const _P({
-    required this.angle,
-    required this.radius,
-    required this.speed,
-    required this.size,
-    required this.phase,
-    required this.squash,
-    required this.warm,
-  });
-}
-
-class _ParticlePainter extends CustomPainter {
-  final List<_P> ps;
+class _BurstPainter extends CustomPainter {
+  final Animation<double> c;
+  final Offset origin;
+  final int count;
   final bool dark;
-
-  _ParticlePainter(this.ps, this.dark) : super(repaint: Ui.tick);
+  _BurstPainter(this.c, this.origin, this.count, this.dark) : super(repaint: c);
 
   @override
   void paint(Canvas canvas, Size size) {
-    final t = (Ui.tick.value / 22) % 1;
-    final center = Offset(size.width * 0.5, size.height * 0.46);
-    final rx = size.width * 0.54;
-    final ry = size.height * 0.42;
-
-    for (final p in ps) {
-      final a = p.angle + t * math.pi * 2 * p.speed;
-      // 呼吸：整圈一起胀缩，像粒子被中心吸住又松开
-      final breathe = 0.70 + 0.30 * math.sin(t * math.pi * 2 + p.phase);
-      final rr = p.radius * breathe;
-      final pos = center + Offset(math.cos(a) * rx * rr, math.sin(a) * ry * rr * p.squash);
-
-      final base = p.warm ? const Color(0xFF5AA2FF) : const Color(0xFF8CE3FF);
-      // 亮度同步呼吸
-      final lum = (0.45 + 0.55 * math.sin(t * math.pi * 2 + p.phase + 1.2)).clamp(0.15, 1.0);
-      final alpha = (dark ? 0.30 : 0.52) * lum;
-
-      // 拖尾：沿轨迹往回排，越远越淡越小，做出流线感
-      for (var k = 5; k >= 1; k--) {
-        final ta = a - k * 0.055 * p.speed;
-        final tr = p.radius * (0.70 + 0.30 * math.sin(t * math.pi * 2 + p.phase - k * 0.06));
-        final tp = center + Offset(math.cos(ta) * rx * tr, math.sin(ta) * ry * tr * p.squash);
-        final fade = 1.0 - k / 6.0;
-        canvas.drawCircle(
-          tp,
-          p.size * fade * 0.85,
-          Paint()..color = base.withOpacity(alpha * fade * 0.42),
-        );
-      }
-
-      // 主体：外圈光晕 + 中心亮点
+    final t = c.value;
+    if (t <= 0 || t >= 1) return;
+    final rnd = math.Random(0x51F7 + count);
+    for (var i = 0; i < count; i++) {
+      // 每颗有独立的出生延迟、方向、速度，避免像一坨一起飞
+      final delay = rnd.nextDouble() * 0.18;
+      final p = ((t - delay) / (1 - delay)).clamp(0.0, 1.0);
+      if (p <= 0) continue;
+      final a = rnd.nextDouble() * math.pi * 2;
+      final dist = (26 + rnd.nextDouble() * 74) * (1 - math.pow(1 - p, 3).toDouble());
+      final drift = Offset(math.cos(a) * dist, math.sin(a) * dist * 0.72 - 26 * p * p);
+      final pos = origin + drift;
+      final fade = (1 - p) * (1 - p);
+      final r = (1.4 + rnd.nextDouble() * 2.2) * (0.6 + 0.4 * (1 - p));
+      final col = i.isEven ? const Color(0xFF8FD8FF) : const Color(0xFFFFE7C2);
       final glow = Paint()
+        ..blendMode = BlendMode.plus
         ..shader = RadialGradient(
-          colors: [base.withOpacity(math.min(alpha * 1.6, 1.0)), base.withOpacity(0.0)],
-        ).createShader(Rect.fromCircle(center: pos, radius: p.size * 3.2));
-      canvas.drawCircle(pos, p.size * 3.2, glow);
-      canvas.drawCircle(pos, p.size * 0.9, Paint()..color = Colors.white.withOpacity(alpha * 0.75));
+          colors: [col.withOpacity((dark ? 0.55 : 0.42) * fade), col.withOpacity(0)],
+        ).createShader(Rect.fromCircle(center: pos, radius: r * 3.6));
+      canvas.drawCircle(pos, r * 3.6, glow);
+      canvas.drawCircle(pos, r, Paint()
+        ..blendMode = BlendMode.plus
+        ..color = Colors.white.withOpacity(0.65 * fade));
     }
   }
 
   @override
-  bool shouldRepaint(covariant _ParticlePainter old) => old.dark != dark;
+  bool shouldRepaint(covariant _BurstPainter old) =>
+      old.origin != origin || old.dark != dark || old.count != count;
 }
 
 /// 页面标题
