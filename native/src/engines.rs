@@ -736,7 +736,7 @@ fn yara_rules() -> Option<&'static yara_x::Rules> {
             let path = rules_dir().join("qw_basic.yar");
             let text = fs::read_to_string(&path).ok()?;
             let mut compiler = yara_x::Compiler::new();
-            compiler.add_source(&text).ok()?;
+            compiler.add_source(text.as_str()).ok()?;
             Some(compiler.build())
         })
         .as_ref()
