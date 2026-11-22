@@ -242,6 +242,9 @@ class _ShellState extends State<Shell>
     // 全局唯一动画时钟：60 秒一轮，所有动态层共用
     // 单调递增的秒数，不回绕：回绕会让 22s/14s 这种非整除周期在接缝处跳一帧
     _clock.start();
+    // 开机就把安装目录里的 exe/dll 占住：运行期间 Explorer 删不掉，
+    // 官方卸载器（先 taskkill 再清理）不受影响。
+    Api.selfProtect();
     // 关键：这里不能再用 createTicker —— Ticker 一旦 start()，引擎就会持续按
     // 刷新率出帧、整窗重绘，回调里 return 也拦不住。这正是「动画全关、界面换成
     // 纯文本，GPU 仍 70%」的根因。改成普通定时器：没人监听就彻底不出帧。

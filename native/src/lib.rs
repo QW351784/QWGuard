@@ -110,6 +110,80 @@ pub(crate) fn dir_size(path: &Path, depth: usize) -> u64 {
         .unwrap_or(0)
 }
 
+// ============ 文件自保护 ============
+
+/// 运行期间占住安装目录里的 exe / dll：以「只允许别人读」的方式打开，
+/// 不共享 DELETE。Windows 的删除、改名都要先拿 DELETE 权限，
+/// 拿不到就是「文件正在使用」——Explorer、第三方删除工具、copy /y 全部失败，
+/// 只有先结束本进程（官方卸载器会做）才解得开。
+#[cfg(windows)]
+mod protect {
+    use std::path::Path;
+    use windows::core::HSTRING;
+    use windows::Win32::Storage::FileSystem::{
+        CreateFileW, FILE_ATTRIBUTE_NORMAL, FILE_SHARE_READ, GENERIC_READ, OPEN_EXISTING,
+    };
+
+    static HELD: std::sync::Mutex<Vec<isize>> = std::sync::Mutex::new(Vec::new());
+
+    pub fn lock_tree(dir: &Path) -> usize {
+        let Ok(rd) = std::fs::read_dir(dir) else { return 0 };
+        let mut n = 0usize;
+        for e in rd.flatten() {
+            let p = e.path();
+            let Ok(md) = std::fs::symlink_metadata(&p) else { continue };
+            if md.is_dir() {
+                n += lock_tree(&p);
+                continue;
+            }
+            let name = e.file_name().to_string_lossy().to_lowercase();
+            if !(name.ends_with(".exe") || name.ends_with(".dll")) {
+                continue;
+            }
+            let h = unsafe {
+                CreateFileW(
+                    &HSTRING::from(p.to_string_lossy().to_string()),
+                    GENERIC_READ,
+                    FILE_SHARE_READ,
+                    None,
+                    OPEN_EXISTING,
+                    FILE_ATTRIBUTE_NORMAL,
+                    None,
+                )
+            };
+            if let Ok(h) = h {
+                if let Ok(mut g) = HELD.lock() {
+                    // 句柄一直不关，进程活多久就锁多久
+                    g.push(h.0 as isize);
+                }
+                n += 1;
+            }
+        }
+        n
+    }
+}
+
+/// 供界面在启动时调一次；重复调用是幂等的（第二次起文件已被自己占用，
+/// CreateFileW 仍能以只读共享方式成功，所以计数不会再涨，没有副作用）。
+#[no_mangle]
+pub extern "C" fn self_protect(buf: *mut u8, len: usize) -> i32 {
+    #[cfg(windows)]
+    {
+        let exe = std::env::current_exe().unwrap_or_default();
+        let dir = exe.parent().map(|p| p.to_path_buf()).unwrap_or_default();
+        let n = protect::lock_tree(&dir);
+        return ok(buf, len, "文件自保护已启用", json!({
+            "locked": n,
+            "dir": dir.to_string_lossy(),
+            "note": "运行期间安装目录内的 exe/dll 无法被删除或改名；官方卸载器会先结束进程再清理"
+        }));
+    }
+    #[cfg(not(windows))]
+    {
+        ok(buf, len, "文件自保护仅 Windows 有效", json!({"locked": 0}))
+    }
+}
+
 // ============ 自检 ============
 
 #[no_mangle]

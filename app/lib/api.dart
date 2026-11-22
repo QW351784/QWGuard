@@ -178,6 +178,8 @@ class Api {
   static Map<String, dynamic> passwordSet(String pwd) => _one('password_set', pwd);
   static Map<String, dynamic> passwordVerify(String pwd) => _one('password_verify', pwd);
   static Map<String, dynamic> passwordClear() => _buf('password_clear');
+  static Map<String, dynamic> selfProtect() => _buf('self_protect');
+
   static Map<String, dynamic> passwordState() => _buf('password_state');
 
   static Map<String, dynamic> securitySettings() => _buf('security_settings');
