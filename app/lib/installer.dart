@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'dart:isolate';
 
@@ -33,6 +34,8 @@ class _SetupAppState extends State<SetupApp> {
   // 安装过程不再询问自启动，装完在设置里开（默认保持关闭，不偷偷写注册表）
   bool _autostart = false;
   bool _busy = false;
+  double _prog = 0.0;
+  String _phase = '准备中';
   String _hint = '';
   String _result = '';
   /// 上一步到底是成功还是失败。
@@ -151,17 +154,39 @@ class _SetupAppState extends State<SetupApp> {
     }
     // 解压 + 校验 170MB 是纯 CPU/磁盘活，直接在 UI isolate 里调 FFI 会把消息循环堵死，
     // Windows 就给窗口挂上「未响应」。丢到后台 isolate，进度动画继续跑。
-    final r = await Isolate.run(() => Api.installRun(
-          src,
-          _dir,
-          desktopIcon: _desktopIcon,
-          autostart: _autostart,
-        ));
+    _prog = 0;
+    _phase = '正在校验安装文件';
+    // 每 120ms 读一次 Rust 侧的计数器：文件数 + 当前阶段
+    final timer = Timer.periodic(const Duration(milliseconds: 120), (_) {
+      final p = Api.installProgress();
+      if (!mounted) return;
+      if (p['success'] == true && p['data'] is Map) {
+        final d = p['data'] as Map;
+        final total = (d['total'] as num?)?.toDouble() ?? 0;
+        final copied = (d['copied'] as num?)?.toDouble() ?? 0;
+        setState(() {
+          _prog = total <= 0 ? 0 : (copied / total).clamp(0.0, 1.0);
+          _phase = d['phase']?.toString() ?? _phase;
+        });
+      }
+    });
+    Map<String, dynamic> r;
+    try {
+      r = await Isolate.run(() => Api.installRun(
+            src,
+            _dir,
+            desktopIcon: _desktopIcon,
+            autostart: _autostart,
+          ));
+    } finally {
+      timer.cancel();
+    }
     final ok = r['success'] == true;
     setState(() {
       _busy = false;
       _step = 3;
       _ok = ok;
+      _prog = ok ? 1.0 : _prog;
       _result = ok
           ? '已写入 ${r['data']?['copied'] ?? 0} 个文件'
           : (r['message']?.toString() ?? '安装失败');
@@ -253,6 +278,7 @@ class _SetupAppState extends State<SetupApp> {
             constraints: const BoxConstraints(maxWidth: 520),
             child: LiquidGlass(
               radius: 28,
+              forceGlass: true,
               padding: const EdgeInsets.all(30),
               child: AnimatedSwitcher(
                 duration: const Duration(milliseconds: 320),
@@ -378,19 +404,23 @@ class _SetupAppState extends State<SetupApp> {
   }
 
   Widget _progressView(Color accent) {
+    final pct = (_prog * 100).clamp(0, 100).toStringAsFixed(0);
     return Column(
       mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const SizedBox(height: 8),
-        SizedBox(
-          width: 64,
-          height: 64,
-          child: CircularProgressIndicator(strokeWidth: 3, color: accent),
-        ),
-        const SizedBox(height: 22),
-        Text(_hint, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
-        const SizedBox(height: 8),
-        Text('这段时间请不要关闭窗口', style: TextStyle(fontSize: 11.5, color: _dark ? Colors.white38 : Colors.black45)),
+        Row(children: [
+          Text(widget.uninstall ? '正在卸载' : '正在安装',
+              style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700)),
+          const Spacer(),
+          Text('$pct%', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: accent)),
+        ]),
+        const SizedBox(height: 14),
+        _GlowProgress(value: _prog, color: accent),
+        const SizedBox(height: 12),
+        Text(_phase, style: TextStyle(fontSize: 12.5, color: _dark ? Colors.white70 : Colors.black54)),
+        const SizedBox(height: 4),
+        Text('这段时间请不要关闭窗口', style: TextStyle(fontSize: 11, color: _dark ? Colors.white38 : Colors.black45)),
       ],
     );
   }
@@ -583,4 +613,96 @@ class _SetupAppState extends State<SetupApp> {
       ),
     );
   }
+}
+
+
+/// 带光效的进度条：底色玻璃槽 + 已写入部分的渐变 + 一道循环扫过的高光
+class _GlowProgress extends StatefulWidget {
+  final double value;
+  final Color color;
+  const _GlowProgress({required this.value, required this.color});
+  @override
+  State<_GlowProgress> createState() => _GlowProgressState();
+}
+
+class _GlowProgressState extends State<_GlowProgress> with SingleTickerProviderStateMixin {
+  late final AnimationController _c = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 2200),
+  )..repeat();
+
+  @override
+  void dispose() {
+    _c.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    return SizedBox(
+      height: 12,
+      width: double.infinity,
+      child: AnimatedBuilder(
+        animation: _c,
+        builder: (_, __) => CustomPaint(
+          painter: _GlowBarPainter(
+            value: widget.value.clamp(0.0, 1.0),
+            color: widget.color,
+            t: _c.value,
+            dark: dark,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _GlowBarPainter extends CustomPainter {
+  final double value;
+  final Color color;
+  final double t;
+  final bool dark;
+  _GlowBarPainter({required this.value, required this.color, required this.t, required this.dark});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final r = RRect.fromRectAndRadius(Offset.zero & size, const Radius.circular(6));
+    // 槽：半透明，能透出背后的玻璃
+    canvas.drawRRect(r, Paint()..color = dark ? Colors.white.withOpacity(0.10) : Colors.black.withOpacity(0.08));
+    if (value <= 0) return;
+    final w = size.width * value;
+    final fill = RRect.fromRectAndRadius(Rect.fromLTWH(0, 0, w, size.height), const Radius.circular(6));
+    canvas.save();
+    canvas.clipRRect(fill);
+    final g = LinearGradient(
+      colors: [color.withOpacity(0.65), color, color.withOpacity(0.75)],
+      begin: Alignment.centerLeft,
+      end: Alignment.centerRight,
+    ).createShader(Offset.zero & size);
+    canvas.drawRRect(fill, Paint()..shader = g);
+    // 循环扫光：一条 60px 宽的斜向白光，只在已写入的区间里走
+    final bandX = -80 + (size.width + 160) * t;
+    final band = Paint()
+      ..shader = LinearGradient(
+        colors: [Colors.white.withOpacity(0.0), Colors.white.withOpacity(0.55), Colors.white.withOpacity(0.0)],
+      ).createShader(Rect.fromLTWH(bandX, 0, 60, size.height))
+      ..blendMode = BlendMode.plus;
+    canvas.drawRect(Rect.fromLTWH(bandX, 0, 60, size.height), band);
+    canvas.restore();
+    // 前缘一点光晕，像“正在推进”
+    if (value < 0.995) {
+      canvas.drawCircle(
+        Offset(w - 2, size.height / 2),
+        7,
+        Paint()
+          ..color = color.withOpacity(0.45)
+          ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 6),
+      );
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _GlowBarPainter old) =>
+      old.value != value || old.t != t || old.color != color || old.dark != dark;
 }

@@ -240,6 +240,9 @@ class Api {
   static Map<String, dynamic> systemTheme() => _buf('system_theme');
   static Map<String, dynamic> installPrecheck(String src) => _one('install_precheck', src);
 
+  /// 安装进度轮询（安装跑在后台 isolate 里，这里只读取一个计数器）
+  static Map<String, dynamic> installProgress() => _buf('install_progress', cap: 4096);
+
   static Map<String, dynamic> installRun(String src, String dst,
       {bool desktopIcon = true, bool autostart = false}) {
     final lib = Native.lib;

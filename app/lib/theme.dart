@@ -274,7 +274,8 @@ class LiquidGlass extends StatelessWidget {
     // 关键：auto（智能搭配）以前也被当成 glassLike，于是每张卡片都走
     // 三层阴影 + 渐变 + ClipPath 的玻璃路径 —— 这就是「纯色 8%、智能搭配 20%」
     // 的来源。auto 现在走便宜的实色路径，只在 Dock 保留一点玻璃感。
-    final glassLike = s == MatStyle.glass;
+    // forceGlass 给安装/卸载向导用：那边没有材质设置页，必须无条件走玻璃
+    final glassLike = s == MatStyle.glass || forceGlass;
     // 智能搭配 = 液态玻璃的观感 + 系统级云母/Aero 的底：
     // 窗口交给 DWM 合成（Mica/Acrylic），卡片只贴半透明玻璃面，
     // 不再对每张卡片做 BackdropFilter —— 既保留玻璃层次，又不让 GPU 翻倍。
