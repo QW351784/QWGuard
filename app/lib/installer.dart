@@ -430,21 +430,45 @@ class _SetupAppState extends State<SetupApp> {
                   }),
                 )
               : LiquidButton(
-                  text: widget.uninstall ? '关闭' : '运行',
+                  text: widget.uninstall ? '关闭' : '立即启动',
                   icon: widget.uninstall ? Icons.close_rounded : Icons.play_arrow_rounded,
                   onTap: () async {
                     if (widget.uninstall) {
                       exit(0);
                     }
-                    // 之前这里写的是 system_toolbox.exe —— 那是脚手架工程名，
-                    // CI 早把主程序改名成 QWGuard.exe 了，这个路径根本不存在，
-                    // 点「立即启动」等于什么都不做然后静默退出
-                    final exe = '$_dir\\QWGuard.exe';
-                    if (File(exe).existsSync()) {
+                    // 之前这里写死 QWGuard.exe，CI 实际产出的 exe 名可能是
+                    // system_toolbox.exe；文件不存在就静默 exit —— 表现就是
+                    // 「点立即启动，窗口直接消失，应用没起来」。
+                    // 现在按目录里真实存在的 exe 找，找不到就留在页面报错。
+                    String? exe;
+                    for (final name in ['QWGuard.exe', 'system_toolbox.exe']) {
+                      final f = File('$_dir\\$name');
+                      if (f.existsSync()) {
+                        exe = f.path;
+                        break;
+                      }
+                    }
+                    if (exe == null) {
+                      final dir = Directory(_dir);
+                      if (dir.existsSync()) {
+                        for (final f in dir.listSync()) {
+                          if (f is File && f.path.toLowerCase().endsWith('.exe')) {
+                            exe = f.path;
+                            break;
+                          }
+                        }
+                      }
+                    }
+                    if (exe == null) {
+                      setState(() => _result = '安装目录里找不到主程序 exe：$_dir');
+                      return;
+                    }
+                    try {
                       await Process.start(exe, const [],
                           workingDirectory: _dir, mode: ProcessStartMode.detached);
-                      // 给子进程一点启动时间再退，否则安装器先死、应用还没起来
-                      await Future.delayed(const Duration(milliseconds: 600));
+                    } catch (e) {
+                      setState(() => _result = '启动失败：$e');
+                      return;
                     }
                     exit(0);
                   },
