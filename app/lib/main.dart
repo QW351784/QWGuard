@@ -576,6 +576,10 @@ class _ShellState extends State<Shell>
     }
   }
 
+  /// 上一次真正下发的窗口特效。材质开关来回点时不重复调 DWM，
+  /// 否则每切一次都会重建一次合成表面，看起来就是「云母闪一下」。
+  String? _lastEffect;
+
   /// 按材质档切窗口本体特效：
   /// 混搭 / 云母 / 液态玻璃 → 系统 Mica；Aero → Acrylic（最接近 Win7 雾面玻璃）；纯色 → Solid
   Future<void> _applyMaterial() async {
@@ -583,6 +587,8 @@ class _ShellState extends State<Shell>
     if (!mounted) return;
     try {
       final dark = Theme.of(context).brightness == Brightness.dark;
+      final key = '${currentMatStyle().name}-$dark';
+      if (_lastEffect == key) return;
       switch (currentMatStyle()) {
         case MatStyle.auto:
           // 智能搭配：窗口走系统级云母（Win11 Mica / Win10 Acrylic），
@@ -606,6 +612,7 @@ class _ShellState extends State<Shell>
         case MatStyle.solid:
           await Window.setEffect(effect: WindowEffect.solid);
       }
+      _lastEffect = key;
       // Mica / Acrylic 的实现会重设窗口样式，把我们之前设的无边框覆盖掉，
       // 结果原生标题栏（标题文字 + 三键）和我们自绘的那条同时出现 ——
       // 这就是截图里「标题栏和界面重叠」的另一半原因。这里补一刀。

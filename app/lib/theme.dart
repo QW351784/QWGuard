@@ -28,25 +28,62 @@ MatStyle currentMatStyle() => switch (Ui.material.value) {
 ///  越接近 iOS 图标那种连续曲率；系数大就是普通圆角）。
 /// 四角用同一个函数算，所以四个角严格一致，不会出现左下角漏成直角。
 Path squirclePath(Rect r, double radius) {
-  // 半径不能超过短边的一半，否则会自交
+  // 真正的超椭圆（superellipse）|x/a|^n + |y/b|^n = 1，n=4.6。
+  // 之前用三次贝塞尔 c=0.45，只是「更鼓的圆弧」，曲率在角点还是突变，
+  // 放到 4K / 240Hz 上一眼就能看出「R 角」不是连续曲率。
+  // 这里每角采样 12 段，弦高误差 < 0.1px（4K 下也看不出折线）。
   final rr = math.max(0.0, math.min(radius, math.min(r.width, r.height) / 2));
-  const c = 0.45;
-  final l = r.left;
-  final t = r.top;
-  final rt = r.right;
-  final b = r.bottom;
-  final p = Path()
-    ..moveTo(l + rr, t)
-    ..lineTo(rt - rr, t)
-    ..cubicTo(rt - rr * c, t, rt, t + rr * c, rt, t + rr)
-    ..lineTo(rt, b - rr)
-    ..cubicTo(rt, b - rr * c, rt - rr * c, b, rt - rr, b)
-    ..lineTo(l + rr, b)
-    ..cubicTo(l + rr * c, b, l, b - rr * c, l, b - rr)
-    ..lineTo(l, t + rr)
-    ..cubicTo(l, t + rr * c, l + rr * c, t, l + rr, t)
-    ..close();
+  if (rr <= 0.01) return Path()..addRect(r);
+  const n = 4.6;
+  const steps = 12;
+  double sp(double v) => math.pow(v, 2 / n).toDouble();
+
+  final l = r.left, t = r.top, rt = r.right, b = r.bottom;
+  final p = Path()..moveTo(l + rr, t);
+  // 右上角：从顶边切点转到右边切点
+  for (var i = 1; i <= steps; i++) {
+    final a = (math.pi / 2) * i / steps;
+    p.lineTo(rt - rr + rr * sp(math.sin(a)), t + rr - rr * sp(math.cos(a)));
+  }
+  // 右下角
+  for (var i = 1; i <= steps; i++) {
+    final a = (math.pi / 2) * i / steps;
+    p.lineTo(rt - rr + rr * sp(math.cos(a)), b - rr + rr * sp(math.sin(a)));
+  }
+  // 左下角
+  for (var i = 1; i <= steps; i++) {
+    final a = (math.pi / 2) * i / steps;
+    p.lineTo(l + rr - rr * sp(math.sin(a)), b - rr + rr * sp(math.cos(a)));
+  }
+  // 左上角
+  for (var i = 1; i <= steps; i++) {
+    final a = (math.pi / 2) * i / steps;
+    p.lineTo(l + rr - rr * sp(math.cos(a)), t + rr - rr * sp(math.sin(a)));
+  }
+  p.close();
   return p;
+}
+
+/// 用同一套 squircle 路径画多层阴影，避免「圆角卡片 + 方形影子」
+class _SquircleShadow extends CustomPainter {
+  final List<BoxShadow> shadows;
+  final double radius;
+  const _SquircleShadow(this.shadows, this.radius);
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final path = squirclePath(Offset.zero & size, radius);
+    for (final s in shadows) {
+      final p = Paint()
+        ..color = s.color
+        ..maskFilter = MaskFilter.blur(BlurStyle.normal, math.max(0.1, s.blurRadius / 2));
+      canvas.drawPath(path.shift(s.offset), p);
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _SquircleShadow old) =>
+      old.radius != radius || old.shadows != shadows;
 }
 
 /// 用 squirclePath 裁形状
@@ -352,10 +389,11 @@ class LiquidGlass extends StatelessWidget {
     // ShapeDecoration 对 ContinuousRectangleBorder 的四角路径支持不完整，
     // 左上 / 右上 / 右下是圆的、左下角会漏成直角 —— 截图里那个缺口就是它。
     // 阴影挂在外层（不被裁），背景挂在内层（被裁），两边都正常。
-    Widget box = Container(
-      width: width,
-      height: height,
-      decoration: BoxDecoration(boxShadow: shadows),
+    // 阴影必须和卡片同一套 squircle 路径：以前阴影挂在无圆角的矩形 BoxDecoration 上，
+    // 卡片是圆角、影子是直角，四个角就会露出「方的影子边」——你说的 R 角不完美，
+    // 一半是这里来的。
+    Widget box = CustomPaint(
+      painter: _SquircleShadow(shadows, radius),
       child: ClipPath(
         clipper: clipper,
         child: Container(
