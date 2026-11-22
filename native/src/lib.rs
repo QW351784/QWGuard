@@ -118,13 +118,13 @@ pub(crate) fn dir_size(path: &Path, depth: usize) -> u64 {
 /// 只有先结束本进程（官方卸载器会做）才解得开。
 #[cfg(windows)]
 mod protect {
+    use std::fs::OpenOptions;
+    use std::os::windows::fs::OpenOptionsExt;
     use std::path::Path;
-    use windows::core::HSTRING;
-    use windows::Win32::Storage::FileSystem::{
-        CreateFileW, FILE_ATTRIBUTE_NORMAL, FILE_SHARE_READ, GENERIC_READ, OPEN_EXISTING,
-    };
 
-    static HELD: std::sync::Mutex<Vec<isize>> = std::sync::Mutex::new(Vec::new());
+    /// 只给 FILE_SHARE_READ（1）：别人能读、能执行，但拿不到 DELETE 权限，
+    /// 删除 / 改名一律失败。句柄一直攥在手里，进程活着就解不开。
+    static HELD: std::sync::Mutex<Vec<std::fs::File>> = std::sync::Mutex::new(Vec::new());
 
     pub fn lock_tree(dir: &Path) -> usize {
         let Ok(rd) = std::fs::read_dir(dir) else { return 0 };
@@ -140,21 +140,10 @@ mod protect {
             if !(name.ends_with(".exe") || name.ends_with(".dll")) {
                 continue;
             }
-            let h = unsafe {
-                CreateFileW(
-                    &HSTRING::from(p.to_string_lossy().to_string()),
-                    GENERIC_READ,
-                    FILE_SHARE_READ,
-                    None,
-                    OPEN_EXISTING,
-                    FILE_ATTRIBUTE_NORMAL,
-                    None,
-                )
-            };
-            if let Ok(h) = h {
+            let r = OpenOptions::new().read(true).share_mode(0x0000_0001).open(&p);
+            if let Ok(f) = r {
                 if let Ok(mut g) = HELD.lock() {
-                    // 句柄一直不关，进程活多久就锁多久
-                    g.push(h.0 as isize);
+                    g.push(f);
                 }
                 n += 1;
             }
@@ -172,7 +161,7 @@ pub extern "C" fn self_protect(buf: *mut u8, len: usize) -> i32 {
         let exe = std::env::current_exe().unwrap_or_default();
         let dir = exe.parent().map(|p| p.to_path_buf()).unwrap_or_default();
         let n = protect::lock_tree(&dir);
-        return ok(buf, len, "文件自保护已启用", json!({
+        return ok(buf, len, "文件自保护已启用", serde_json::json!({
             "locked": n,
             "dir": dir.to_string_lossy(),
             "note": "运行期间安装目录内的 exe/dll 无法被删除或改名；官方卸载器会先结束进程再清理"
