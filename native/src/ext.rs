@@ -236,6 +236,42 @@ pub extern "C" fn set_setting(key: *const c_char, value: *const c_char, buf: *mu
     ok(buf, len, "已保存", json!({"key": k, "value": v}))
 }
 
+
+/// CPU 型号/核心数兜底：sysinfo 在部分 Windows 机器上拿不到 CPU 品牌，
+/// 空的 cpu_name + 0 核在页面上就是「硬件检测一片空白」。
+/// 这里直接问 Windows 自己（Get-CimInstance），一条命令同时带回名称和核心数。
+pub(crate) fn ps_cpu() -> Option<(String, usize)> {
+    if !cfg!(windows) {
+        return None;
+    }
+    let script = "Get-CimInstance Win32_Processor | Select-Object -First 1 Name,NumberOfCores,NumberOfLogicalProcessors | ConvertTo-Json -Compress";
+    let out = crate::proc::cmd("powershell")
+        .args(["-NoProfile", "-NonInteractive", "-Command", script])
+        .output()
+        .ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    let text = String::from_utf8_lossy(&out.stdout);
+    let v: serde_json::Value = serde_json::from_str(text.trim()).ok()?;
+    let name = v
+        .get("Name")
+        .and_then(|x| x.as_str())
+        .unwrap_or("")
+        .trim()
+        .to_string();
+    let cores = v.get("NumberOfCores").and_then(|x| x.as_u64()).unwrap_or(0) as usize;
+    let logical = v
+        .get("NumberOfLogicalProcessors")
+        .and_then(|x| x.as_u64())
+        .unwrap_or(0) as usize;
+    if name.is_empty() && cores == 0 {
+        None
+    } else {
+        Some((name, if cores > 0 { cores } else { logical }))
+    }
+}
+
 // ================= 开机自启动 =================
 
 #[derive(Serialize, Deserialize, Clone)]

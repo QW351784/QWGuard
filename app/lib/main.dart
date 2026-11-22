@@ -187,6 +187,14 @@ class _ToolboxAppState extends State<ToolboxApp> {
       theme: AppTheme.light(),
       darkTheme: AppTheme.dark(),
       themeMode: _mode,
+      // 再兜一层：任何没有 Material 祖先的文本也不会继承到装饰线。
+      builder: (context, child) => DefaultTextStyle.merge(
+        style: const TextStyle(
+          decoration: TextDecoration.none,
+          decorationColor: Colors.transparent,
+        ),
+        child: child ?? const SizedBox.shrink(),
+      ),
       home: const Shell(),
     );
   }
@@ -397,6 +405,8 @@ class _ShellState extends State<Shell>
         body: '退出后实时防护和后台查杀都会停止，这台电脑将不再受保护。',
         okText: '仍然退出',
         cancelText: '继续保护',
+        // 用户要求：仍然退出在左，继续保护在右
+        swapActions: true,
       ),
     );
     if (yes != true) return;
@@ -671,15 +681,13 @@ class _ShellState extends State<Shell>
         ],
       );
 
+    // 窗口现在是不透明底（0xFF14171D），外层再套 ClipPath 裁圆角的话，
+    // 被裁掉的四个角会露出窗口底色 —— 浅色主题下就是四块深色缺口，
+    // 这就是「角没适配好」的真正原因。圆角交给 Windows 自己裁（Win11 会给
+    // DWMWCP_ROUND），Flutter 这层不再重复裁。
     return Scaffold(
       backgroundColor: Colors.transparent,
-      body: ClipPath(
-        // 和 OOBE、玻璃卡片统一用 squircle 曲线。
-        // 之前外层是 ClipRRect(24) 真圆弧、内层是 26，两层曲线不是同一条，
-        // 四个角在交界处能看出「圆角套圆角」的错位。
-        clipper: SquircleClipper(24),
-        child: content,
-      ),
+      body: content,
     );
   }
 }

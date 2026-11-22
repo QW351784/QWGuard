@@ -410,12 +410,16 @@ pub extern "C" fn install_run(
     // 自启动
     if autostart != 0 {
         let run = r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run";
+        // 先删掉老版本登记的英文项，避免注册表里同时挂两条
+        let _ = crate::proc::cmd("reg")
+            .args(["delete", run, "/v", "QWGuard", "/f"])
+            .output();
         let _ = crate::proc::cmd("reg")
             .args([
                 "add",
                 run,
                 "/v",
-                "QWGuard",
+                "QW安全电脑管家",
                 "/t",
                 "REG_SZ",
                 "/d",

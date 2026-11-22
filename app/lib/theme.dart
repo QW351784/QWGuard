@@ -86,7 +86,7 @@ class AppTheme {
         'Noto Sans CJK SC',
         'Arial',
       ],
-      textTheme: ThemeData(brightness: b).textTheme.apply(
+      textTheme: _cleanTextTheme(ThemeData(brightness: b).textTheme.apply(
             fontFamilyFallback: const [
               'Microsoft YaHei',
               'Segoe UI',
@@ -96,7 +96,36 @@ class AppTheme {
             displayColor: isDark ? Colors.white : const Color(0xFF14171C),
             // 全局兜底：任何继承下来的下划线（含双线）统统清掉。
             decoration: TextDecoration.none,
-          ),
+          )),
+    );
+  }
+
+  /// 把 TextTheme 里每一个样式的装饰都清干净。
+  /// 只靠 .apply(decoration: none) 有一层隐患：Material 的 Typography 在合并时
+  /// 可能把 decorationStyle / decorationColor 带回来，于是「双黄线」又出现。
+  /// 这里逐个 copyWith，把三件套一起压成 none / transparent / solid。
+  static TextTheme _cleanTextTheme(TextTheme t) {
+    TextStyle? f(TextStyle? s) => s?.copyWith(
+          decoration: TextDecoration.none,
+          decorationColor: Colors.transparent,
+          decorationStyle: TextDecorationStyle.solid,
+        );
+    return TextTheme(
+      displayLarge: f(t.displayLarge),
+      displayMedium: f(t.displayMedium),
+      displaySmall: f(t.displaySmall),
+      headlineLarge: f(t.headlineLarge),
+      headlineMedium: f(t.headlineMedium),
+      headlineSmall: f(t.headlineSmall),
+      titleLarge: f(t.titleLarge),
+      titleMedium: f(t.titleMedium),
+      titleSmall: f(t.titleSmall),
+      bodyLarge: f(t.bodyLarge),
+      bodyMedium: f(t.bodyMedium),
+      bodySmall: f(t.bodySmall),
+      labelLarge: f(t.labelLarge),
+      labelMedium: f(t.labelMedium),
+      labelSmall: f(t.labelSmall),
     );
   }
 
@@ -206,7 +235,11 @@ class LiquidGlass extends StatelessWidget {
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final s = currentMatStyle();
-    final glassLike = s == MatStyle.glass || s == MatStyle.auto;
+    // 关键：auto（智能搭配）以前也被当成 glassLike，于是每张卡片都走
+    // 三层阴影 + 渐变 + ClipPath 的玻璃路径 —— 这就是「纯色 8%、智能搭配 20%」
+    // 的来源。auto 现在走便宜的实色路径，只在 Dock 保留一点玻璃感。
+    final glassLike = s == MatStyle.glass;
+    final autoLike = s == MatStyle.auto;
     final aeroLike = s == MatStyle.aero;
     final micaLike = s == MatStyle.mica;
     final solidLike = s == MatStyle.solid;
@@ -226,8 +259,9 @@ class LiquidGlass extends StatelessWidget {
     Gradient? grad;
     List<BoxShadow> shadows;
 
-    if (solidLike) {
-      fill = isDark ? const Color(0xFF1B2029) : Colors.white.withOpacity(0.94);
+    if (solidLike || autoLike) {
+      // 智能搭配 = 实色面 + 一层很浅的投影，GPU 开销和纯色基本一致
+      fill = isDark ? const Color(0xFF1B2029) : Colors.white;
       shadows = [
         BoxShadow(color: Colors.black.withOpacity(isDark ? 0.30 : 0.08), blurRadius: 18, offset: const Offset(0, 6)),
       ];
@@ -1081,6 +1115,10 @@ class QDialog extends StatelessWidget {
   final Widget? child;
   final VoidCallback? onOk;
 
+  /// 把主按钮和次按钮左右对调。
+  /// 退出确认框用得上：用户要求「仍然退出」在左、「继续保护」在右。
+  final bool swapActions;
+
   const QDialog({
     super.key,
     required this.icon,
@@ -1090,7 +1128,19 @@ class QDialog extends StatelessWidget {
     this.cancelText,
     this.child,
     this.onOk,
+    this.swapActions = false,
   });
+
+  Widget _okButton(BuildContext context) => LiquidButton(
+        text: okText,
+        onTap: () {
+          if (onOk != null) {
+            onOk!();
+          } else {
+            Navigator.of(context).pop(true);
+          }
+        },
+      );
 
   @override
   Widget build(BuildContext context) {
@@ -1124,23 +1174,25 @@ class QDialog extends StatelessWidget {
               Row(
                 mainAxisAlignment: MainAxisAlignment.end,
                 children: [
-                  if (cancelText != null) ...[
-                    TextButton(
-                      onPressed: () => Navigator.of(context).pop(false),
-                      child: Text(cancelText!),
-                    ),
-                    const SizedBox(width: 6),
+                  if (swapActions) ...[
+                    _okButton(context),
+                    if (cancelText != null) ...[
+                      const SizedBox(width: 6),
+                      TextButton(
+                        onPressed: () => Navigator.of(context).pop(false),
+                        child: Text(cancelText!),
+                      ),
+                    ],
+                  ] else ...[
+                    if (cancelText != null) ...[
+                      TextButton(
+                        onPressed: () => Navigator.of(context).pop(false),
+                        child: Text(cancelText!),
+                      ),
+                      const SizedBox(width: 6),
+                    ],
+                    _okButton(context),
                   ],
-                  LiquidButton(
-                    text: okText,
-                    onTap: () {
-                      if (onOk != null) {
-                        onOk!();
-                      } else {
-                        Navigator.of(context).pop(true);
-                      }
-                    },
-                  ),
                 ],
               ),
             ],

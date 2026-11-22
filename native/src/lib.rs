@@ -161,7 +161,21 @@ pub extern "C" fn get_hardware_info(buf: *mut u8, len: usize) -> i32 {
     if let Some(c) = sys.cpus().first() {
         cpu_name = c.brand().trim().to_string();
     }
-    let cores = sys.cpus().len();
+    let mut cores = sys.cpus().len();
+    // sysinfo 拿不到就换 Windows 自己的 CIM 数据，别让页面空着
+    if cpu_name.is_empty() || cores == 0 {
+        if let Some((n, c)) = ext::ps_cpu() {
+            if cpu_name.is_empty() {
+                cpu_name = n;
+            }
+            if cores == 0 {
+                cores = c;
+            }
+        }
+    }
+    if cpu_name.is_empty() {
+        cpu_name = "未知处理器".to_string();
+    }
     let load = round1(sys.global_cpu_info().cpu_usage());
 
     let disks: Vec<Disk> = Disks::new_with_refreshed_list()

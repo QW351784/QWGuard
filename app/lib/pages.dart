@@ -1068,21 +1068,11 @@ class _ScanPageState extends State<ScanPage> {
                         onTap: _cancelScan),
                 ]),
                 const SizedBox(height: 10),
-                Row(children: [
-                  const Spacer(),
-                  Text('外部引擎 · 需本机已安装',
-                      style: TextStyle(
-                          fontSize: 11,
-                          color: Theme.of(context).brightness == Brightness.dark
-                              ? Colors.white54
-                              : Colors.black54)),
-                  const SizedBox(width: 10),
-                  LiquidButton(text: '调用火绒', icon: Icons.security_rounded, primary: false,
-                      onTap: () => _runExternal('huorong')),
-                  const SizedBox(width: 10),
-                  LiquidButton(text: '调用 PYAS', icon: Icons.security_rounded, primary: false,
-                      onTap: () => _runExternal('pyas')),
-                ]),
+                // 这里原来有两个按钮：调用火绒、调用 PYAS。
+                // 火绒的引擎无法脱离它的服务和驱动单独运行，留着按钮只会点出
+                // 「本机没有检测到火绒」；PYAS 的启发式已经并进 QW 引擎里了，
+                // 不需要再外挂一个。两个按钮一起去掉，扫描只用内置的四个子引擎。
+
               ]),
           ),
           const SizedBox(height: 14),
@@ -2399,7 +2389,12 @@ class _SettingsPageState extends State<SettingsPage> {
                       if (!pass) return;
                     }
                   }
-                  final r = Api.autostartSet('QWGuard', Platform.resolvedExecutable, v);
+                  if (v) {
+                    // 老版本登记的是英文名 QWGuard。先删掉它，否则同一个程序
+                    // 在注册表里会挂两条，任务管理器的启动项里会出现两个同名项。
+                    Api.autostartSet('QWGuard', Platform.resolvedExecutable, false);
+                  }
+                  final r = Api.autostartSet('QW安全电脑管家', Platform.resolvedExecutable, v);
                   setState(() => _autoStart = v);
                   _saveBool('autostart', v);
                   if (context.mounted) {
