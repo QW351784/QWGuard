@@ -36,6 +36,7 @@ class _SetupAppState extends State<SetupApp> {
   bool _busy = false;
   double _prog = 0.0;
   String _phase = '准备中';
+  String _file = '';
   String _hint = '';
   String _result = '';
   /// 上一步到底是成功还是失败。
@@ -167,6 +168,7 @@ class _SetupAppState extends State<SetupApp> {
         setState(() {
           _prog = total <= 0 ? 0 : (copied / total).clamp(0.0, 1.0);
           _phase = d['phase']?.toString() ?? _phase;
+          _file = d['file']?.toString() ?? '';
         });
       }
     });
@@ -418,7 +420,27 @@ class _SetupAppState extends State<SetupApp> {
         const SizedBox(height: 14),
         _GlowProgress(value: _prog, color: accent),
         const SizedBox(height: 12),
+        Row(children: [
+          Icon(widget.uninstall ? Icons.folder_delete_outlined : Icons.folder_open_rounded,
+              size: 13, color: _dark ? Colors.white54 : Colors.black45),
+          const SizedBox(width: 6),
+          Expanded(
+            child: Text('${widget.uninstall ? '卸载目录' : '安装目录'}：$_dir',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(fontSize: 11, color: _dark ? Colors.white60 : Colors.black54)),
+          ),
+        ]),
+        const SizedBox(height: 6),
         Text(_phase, style: TextStyle(fontSize: 12.5, color: _dark ? Colors.white70 : Colors.black54)),
+        if (_file.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.only(top: 3),
+            child: Text('正在处理：$_file',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(fontSize: 10.5, color: _dark ? Colors.white38 : Colors.black38)),
+          ),
         const SizedBox(height: 4),
         Text('这段时间请不要关闭窗口', style: TextStyle(fontSize: 11, color: _dark ? Colors.white38 : Colors.black45)),
       ],
@@ -690,15 +712,36 @@ class _GlowBarPainter extends CustomPainter {
       ..blendMode = BlendMode.plus;
     canvas.drawRect(Rect.fromLTWH(bandX, 0, 60, size.height), band);
     canvas.restore();
-    // 前缘一点光晕，像“正在推进”
+    // Windows 11 那种“光从左边一路推进去”的感觉：
+    // 三道小光条在已写入区间里循环流动，前缘再聚一团焦光。
+    for (var i = 0; i < 3; i++) {
+      final p = ((t * 1.15 + i / 3) % 1.0);
+      final x = p * w;
+      final streak = Paint()
+        ..blendMode = BlendMode.plus
+        ..shader = LinearGradient(
+          colors: [Colors.white.withOpacity(0), Colors.white.withOpacity(0.38), Colors.white.withOpacity(0)],
+        ).createShader(Rect.fromLTWH(x - 18, 0, 36, size.height));
+      canvas.drawRect(Rect.fromLTWH(x - 18, 1, 36, size.height - 2), streak);
+    }
+    // 光线折射：贴着填充边缘的红/青色散，1px 就够，多了就脏
+    canvas.drawLine(Offset(0.5, 2), Offset(0.5, size.height - 2),
+        Paint()..color = const Color(0xFFFF5A5A).withOpacity(0.35)..blendMode = BlendMode.plus);
+    canvas.drawLine(Offset(w - 1, 2), Offset(w - 1, size.height - 2),
+        Paint()..color = const Color(0xFF5AD8FF).withOpacity(0.35)..blendMode = BlendMode.plus);
+    // 光线聚中：前缘一团白热光核
     if (value < 0.995) {
+      final focus = Offset(w - 1, size.height / 2);
       canvas.drawCircle(
-        Offset(w - 2, size.height / 2),
-        7,
+        focus,
+        15,
         Paint()
-          ..color = color.withOpacity(0.45)
-          ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 6),
+          ..blendMode = BlendMode.plus
+          ..shader = RadialGradient(
+            colors: [Colors.white.withOpacity(0.55), color.withOpacity(0.18), Colors.transparent],
+          ).createShader(Rect.fromCircle(center: focus, radius: 15)),
       );
+      canvas.drawCircle(focus, 2.6, Paint()..color = Colors.white.withOpacity(0.9));
     }
   }
 

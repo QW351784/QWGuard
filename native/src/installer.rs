@@ -47,7 +47,7 @@ fn copy_tree(src: &Path, dst: &Path, copied: &mut u64, bytes: &mut u64) -> Resul
             *copied += 1;
             *bytes += meta.len();
             let total = progress_cell().lock().map(|g| g.1).unwrap_or(0);
-            set_progress(*copied, total, "正在写入文件");
+            set_progress(*copied, total, "正在写入文件", &name.to_string_lossy());
         }
     }
     Ok(())
@@ -330,14 +330,14 @@ fn signature_status(path: &Path) -> Result<String, String> {
 
 /// 安装进度：后台 isolate 在写文件，UI isolate 轮询这个单元。
 /// 不用回调指针 —— 跨 isolate 传函数指针太脆，轮询一段 JSON 最稳。
-fn progress_cell() -> &'static Mutex<(u64, u64, String)> {
-    static P: OnceLock<Mutex<(u64, u64, String)>> = OnceLock::new();
-    P.get_or_init(|| Mutex::new((0, 0, String::new())))
+fn progress_cell() -> &'static Mutex<(u64, u64, String, String)> {
+    static P: OnceLock<Mutex<(u64, u64, String, String)>> = OnceLock::new();
+    P.get_or_init(|| Mutex::new((0, 0, String::new(), String::new())))
 }
 
-fn set_progress(copied: u64, total: u64, phase: &str) {
+fn set_progress(copied: u64, total: u64, phase: &str, file: &str) {
     if let Ok(mut g) = progress_cell().lock() {
-        *g = (copied, total, phase.to_string());
+        *g = (copied, total, phase.to_string(), file.to_string());
     }
 }
 
@@ -363,11 +363,11 @@ fn count_files(dir: &Path) -> u64 {
 /// 给 Dart 轮询：{copied,total,phase}
 #[no_mangle]
 pub extern "C" fn install_progress(buf: *mut u8, len: usize) -> i32 {
-    let (c, t, ph) = progress_cell()
+    let (c, t, ph, f) = progress_cell()
         .lock()
         .map(|g| g.clone())
-        .unwrap_or((0, 0, String::new()));
-    let v = json!({ "success": true, "data": { "copied": c, "total": t, "phase": ph } });
+        .unwrap_or((0, 0, String::new(), String::new()));
+    let v = json!({ "success": true, "data": { "copied": c, "total": t, "phase": ph, "file": f } });
     ok(buf, len, &v)
 }
 
@@ -399,7 +399,7 @@ pub extern "C" fn install_run(
     }
 
     let total_files = count_files(&from);
-    set_progress(0, total_files, "正在校验安装文件");
+    set_progress(0, total_files, "正在校验安装文件", "");
 
     // ① 完整性校验：manifest.json 里每个文件的 SHA-256 必须对上
     let verified = match verify_manifest(&from) {
@@ -441,12 +441,12 @@ pub extern "C" fn install_run(
 
     let mut copied = 0u64;
     let mut bytes = 0u64;
-    set_progress(0, total_files, "正在写入文件");
+    set_progress(0, total_files, "正在写入文件", "");
     if let Err(e) = copy_tree(&from, &to, &mut copied, &mut bytes) {
         return fail(buf, len, -3, &e);
     }
 
-    set_progress(total_files, total_files, "正在创建快捷方式");
+    set_progress(total_files, total_files, "正在创建快捷方式", "");
     let exe = to.join(EXE_NAME);
     if let Some(l) = legacy {
         warnings.push(l);
