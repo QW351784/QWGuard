@@ -2426,6 +2426,8 @@ class _SettingsPageState extends State<SettingsPage> {
                   style: TextStyle(fontSize: 11, color: isDark ? Colors.white38 : Colors.black38),
                 ),
               ),
+              _section('作者与项目'),
+              _authorRow(),
               const SizedBox(height: 30),
             ]),
           ),
@@ -2626,6 +2628,64 @@ class _SettingsPageState extends State<SettingsPage> {
     );
     ctrl.dispose();
     return ok == true;
+  }
+
+  /// 作者信息：二维码 + GitHub 大字 + 仓库链接（点开走系统浏览器）+ 酷安
+  Widget _authorRow() {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final accent = Theme.of(context).colorScheme.primary;
+    return LiquidGlass(
+      radius: 26,
+      padding: const EdgeInsets.all(14),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          ClipRRect(
+            borderRadius: BorderRadius.circular(10),
+            child: Image.asset('assets/donate_qr.png', width: 108, height: 108, fit: BoxFit.cover),
+          ),
+          const SizedBox(width: 16),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('QW351784',
+                    style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w800, height: 1.1)),
+                const SizedBox(height: 4),
+                MouseRegion(
+                  cursor: SystemMouseCursors.click,
+                  child: GestureDetector(
+                    onTap: () => _openUrl('https://github.com/QW351784/QWGuard'),
+                    child: Text('github.com/QW351784/QWGuard',
+                        style: TextStyle(
+                            fontSize: 12, color: accent, decoration: TextDecoration.none, height: 1.3)),
+                  ),
+                ),
+                const SizedBox(height: 10),
+                Text('酷安：QW123456780',
+                    style: TextStyle(fontSize: 12, color: isDark ? Colors.white60 : Colors.black54)),
+                const SizedBox(height: 2),
+                Text('扫码请作者喝杯奶茶，或者来仓库提 issue',
+                    style: TextStyle(fontSize: 10.5, color: isDark ? Colors.white38 : Colors.black38)),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// 用系统默认程序打开链接：Windows 走 url.dll，不会在应用内跳转
+  void _openUrl(String url) {
+    try {
+      if (Platform.isWindows) {
+        Process.run('rundll32', ['url.dll,FileProtocolHandler', url]);
+      } else if (Platform.isMacOS) {
+        Process.run('open', [url]);
+      } else {
+        Process.run('xdg-open', [url]);
+      }
+    } catch (_) {}
   }
 
   Widget _section(String t) => Padding(
