@@ -4,6 +4,7 @@ import 'dart:ui';
 
 import 'package:desktop_multi_window/desktop_multi_window.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/physics.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter_acrylic/flutter_acrylic.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -212,12 +213,13 @@ class _ShellState extends State<Shell>
   bool _oobe = true;
   Timer? _tickerTimer;
 
-  /// OOBE 交棒给主界面的那 0.64 秒：
-  /// 主界面从 1.045 缩放落回 1.0、从虚化里变清晰，同时中心扩散一圈白光。
-  /// 澎湃开机完成就是这个观感：不是切页，是「光散开、桌面落定」。
+  /// OOBE 交棒给主界面的那一段，照 HyperCeiler 的 provision 动画抄的参数：
+  /// enter_home_anim：缩放 1.3 → 1.0、619ms、spring(damping 0.65, response 0.55s)；
+  /// alpha 0 → 1、230ms、延迟 60ms、sine in-out。
+  /// 这就是「新手设置完进入桌面」的观感：桌面从近处弹回落定，不是淡入。
   late final AnimationController _reveal = AnimationController(
     vsync: this,
-    duration: const Duration(milliseconds: 640),
+    duration: const Duration(milliseconds: 619),
   );
 
   /// 墙钟时钟：只在启动时归零，之后一直往前走。
@@ -737,16 +739,15 @@ class _ShellState extends State<Shell>
       animation: _reveal,
       builder: (_, child) {
         if (_reveal.isCompleted) return child!;
-        final t = Curves.easeOutCubic.transform(_reveal.value);
-        final b = (1 - t) * 7.0;
+        final v = const _SpringCurve().transform(_reveal.value);
+        // alpha：60ms 起、230ms 到 1，对应原版 startOffset=60 + duration=230
+        final a = const Interval(60 / 619, 290 / 619, curve: Curves.easeInOutSine)
+            .transform(_reveal.value);
         return Opacity(
-          opacity: 0.55 + 0.45 * t,
+          opacity: a,
           child: Transform.scale(
-            scale: 1.045 - 0.045 * t,
-            child: ImageFiltered(
-              imageFilter: ImageFilter.blur(sigmaX: b, sigmaY: b),
-              child: child,
-            ),
+            scale: 1.3 - 0.3 * v,
+            child: child,
           ),
         );
       },
@@ -924,5 +925,23 @@ class _DockItemState extends State<_DockItem> {
         ),
       ),
     );
+  }
+}
+
+
+/// HyperCeiler provision 的 enter_home spring：damping 0.65 / response 0.55s。
+/// Android 的 response 是弹簧周期量级，这里换算成 Flutter 的 stiffness。
+/// 归一化到 0→1，允许轻微过冲（原版就是弹一下再落定）。
+class _SpringCurve extends Curve {
+  const _SpringCurve();
+  static final SpringDescription _desc =
+      SpringDescription.withDampingRatio(mass: 1, stiffness: 130, ratio: 0.65);
+  @override
+  double transform(double t) {
+    if (t <= 0) return 0;
+    if (t >= 1) return 1;
+    final sim = SpringSimulation(_desc, 0, 1, 0);
+    final end = sim.x(0.619);
+    return sim.x(t * 0.619) / (end == 0 ? 1 : end);
   }
 }
