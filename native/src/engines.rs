@@ -721,6 +721,55 @@ fn merge_hashes(incoming: Vec<String>) -> Result<(usize, usize, usize), String> 
 }
 
 /// 从本地 txt 导入哈希（一行一个，任意分隔符都行）
+// ================= YARA-X =================
+
+/// 规则只编译一次：整盘扫描几十万个文件，不能每个文件都重新解析规则。
+/// 编译失败（用户规则里有 YARA-X 不支持的写法）就退回「没有 YARA」，
+/// 绝不让一条坏规则把整个查杀流程搞崩。
+static YARA_RULES: std::sync::OnceLock<Option<yara_x::Rules>> = std::sync::OnceLock::new();
+
+fn yara_rules() -> Option<&'static yara_x::Rules> {
+    YARA_RULES
+        .get_or_init(|| {
+            // 第一次用时先把内置规则落地，别因为文件不存在就静默不扫
+            ensure_default_rules();
+            let path = rules_dir().join("qw_basic.yar");
+            let text = fs::read_to_string(&path).ok()?;
+            let mut compiler = yara_x::Compiler::new();
+            compiler.add_source(&text).ok()?;
+            Some(compiler.build())
+        })
+        .as_ref()
+}
+
+/// 进程内 YARA 扫描：返回 (是否命中, 命中的规则名)。
+pub(crate) fn yara_scan(path: &str) -> (bool, Vec<String>) {
+    let Some(rules) = yara_rules() else {
+        return (false, Vec::new());
+    };
+    let Ok(md) = fs::metadata(path) else {
+        return (false, Vec::new());
+    };
+    // 超过 128 MB 的不读进内存，YARA 对这类文件也基本没有意义
+    if md.len() > 128 * 1024 * 1024 {
+        return (false, Vec::new());
+    }
+    let Ok(bytes) = fs::read(path) else {
+        return (false, Vec::new());
+    };
+    let mut scanner = yara_x::Scanner::new(rules);
+    match scanner.scan(&bytes) {
+        Ok(res) => {
+            let names: Vec<String> = res
+                .matching_rules()
+                .map(|r| r.identifier().to_string())
+                .collect();
+            (!names.is_empty(), names)
+        }
+        Err(_) => (false, Vec::new()),
+    }
+}
+
 pub(crate) fn import_hashes(src: &str) -> Result<(usize, usize, usize), String> {
     let text = fs::read_to_string(src).map_err(|e| format!("读不了这个文件: {e}"))?;
     let mut incoming = Vec::new();

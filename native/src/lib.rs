@@ -602,21 +602,9 @@ pub(crate) fn run_engine(engine: &str, target: &str) -> Result<(bool, Vec<String
                 .args(["-Scan", "-ScanType", "3", "-File", target])
                 .output()
         }
-        "yara" => {
-            // 优先用随包内置的 yara64.exe（安装目录\yara\），其次才是用户自己装的
-            let exe = find_near_exe("yara/yara64.exe")
-                .or_else(|| find(&["yara64.exe", "yara.exe", "yara-x.exe", "yr"]))
-                .ok_or_else(|| "未找到 YARA（内置 yara64.exe 缺失）".to_string())?;
-            // 优先用内置的 qw_basic.yar（首次启动自动落地），环境变量可覆盖
-            let rules = std::env::var("TOOLBOX_YARA_RULES")
-                .map(std::path::PathBuf::from)
-                .unwrap_or_else(|_| crate::engines::default_yara_rules());
-            if !rules.exists() {
-                return Err("未找到 YARA 规则文件".into());
-            }
-            let rules_s = rules.to_string_lossy().to_string();
-            crate::proc::cmd(exe).args([&rules_s, target]).output()
-        }
+        // YARA-X：纯 Rust、进程内扫描。规则在第一次调用时编译好并缓存，
+        // 之后每个文件只是内存匹配，不再 CreateProcess。
+        "yara" => return Ok(crate::engines::yara_scan(target)),
         "signature" => return Ok(crate::engines::signature_scan(target)),
         "heuristic" => return Ok(crate::engines::heuristic_scan(target)),
         _ => return Err("未知引擎".into()),
