@@ -32,11 +32,11 @@ ureq = "2.10"
 windows = { version = "0.58", features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging", "Win32_System_Threading", "Win32_Storage_FileSystem"] }
 
 # 性能优先：opt-level 3 而不是体积优先的 z
-# fat LTO + codegen-units=1 让 LLVM 跨模块优化
+# fat LTO + codegen-units = 4 让 LLVM 跨模块优化
 # panic=abort 去掉展开逻辑，strip 砍掉符号表
 [profile.release]
 opt-level = 3
-lto = "fat"
-codegen-units = 1
+lto = "thin"
+codegen-units = 4
 panic = "abort"
 strip = "symbols"

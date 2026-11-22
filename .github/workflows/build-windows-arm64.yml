@@ -18,6 +18,12 @@ jobs:
         with:
           targets: aarch64-pc-windows-msvc
 
+      - name: Rust 构建缓存
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: native -> target
+          cache-on-failure: true
+
       - name: Flutter（最新 stable）
         uses: subosito/flutter-action@v2
         with:
@@ -65,11 +71,6 @@ jobs:
           Copy-Item native\target\aarch64-pc-windows-msvc\release\toolkit_native.dll $rel -Force
           if (Test-Path 'app\assets') { Copy-Item app\assets -Recurse (Join-Path $rel 'assets') -Force }
           if (Test-Path 'vendor\runtime') { Copy-Item 'vendor\runtime' -Destination (Join-Path $rel 'runtime') -Recurse -Force }
-          if (Test-Path 'vendor\yara') { Copy-Item 'vendor\yara' -Destination (Join-Path $rel 'yara') -Recurse -Force }
-          $main = Join-Path $rel 'system_toolbox.exe'
-          if (Test-Path $main) { Move-Item $main (Join-Path $rel 'QWGuard.exe') -Force }
-          Get-ChildItem $rel -Filter '*.exe' | Select-Object Name, Length
-
       - name: Upload arm64 build
         uses: actions/upload-artifact@v4
         with:

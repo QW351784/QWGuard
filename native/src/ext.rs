@@ -1253,7 +1253,7 @@ fn scan_roots(roots: Vec<PathBuf>, scope: String, buf: *mut u8, len: usize) -> i
     // Defender 的 MpCmdRun 单次 5~15 秒，60 个就是十分钟往上 ——
     // 这就是「点了快速查杀 15 分钟还没结果」的真凶，而且全程界面显示 0。
     let examined = suspects.len();
-    for f in suspects.iter().take(20) {
+    for f in suspects.iter() {
         if SCAN_CANCEL.load(Ordering::Relaxed) {
             break;
         }

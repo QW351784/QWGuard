@@ -17,6 +17,12 @@ jobs:
       - name: Rust toolchain（最新 stable）
         uses: dtolnay/rust-toolchain@stable
 
+      - name: Rust 构建缓存
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: native -> target
+          cache-on-failure: true
+
       - name: Flutter（最新 stable）
         uses: subosito/flutter-action@v2
         with:
@@ -67,36 +73,6 @@ jobs:
             Copy-Item 'vendor\runtime' -Destination (Join-Path $rel 'runtime') -Recurse -Force
             Get-ChildItem (Join-Path $rel 'runtime') | Select-Object Name, Length
           } else { Write-Warning 'vendor\runtime 不存在' }
-          # 内置 YARA：不依赖用户机器是否装过，直接跟着 exe 走
-          if (Test-Path 'vendor\yara') {
-            Copy-Item 'vendor\yara' -Destination (Join-Path $rel 'yara') -Recurse -Force
-            Get-ChildItem (Join-Path $rel 'yara') | Select-Object Name, Length
-          } else { Write-Warning 'vendor/yara 不存在' }
-          # 第三方引擎不再随包分发。之前把火绒的 HipsMain/HipsDaemon/usysdiag 塞进
-          # <exe>/huorong：这三个文件缺 behavior.dll / HipsDB.dll / hrcomm.dll /
-          # jansson.dll、4 个内核驱动和病毒库，独立放进去根本加载不起来，白占 4.6 MB，
-          # 还在安装目录里露出一串别人的品牌文件名。PYAS 那边同理（目录里只有 README）。
-          # 现在改为「本机装了才调用」：tool_path 直接去它在系统里的标准安装路径找。
-          # 主程序改名：pubspec 里项目名是 system_toolbox，编出来的 exe 也叫这个，
-          # 用户会以为是工具箱/安装器，找不到管家本体。改名成 QWGuard.exe。
-          $main = Join-Path $rel 'system_toolbox.exe'
-          if (Test-Path $main) { Move-Item $main (Join-Path $rel 'QWGuard.exe') -Force }
-          # 安装器 / 卸载器：同一份二进制复制改名，main.dart 按文件名分流进 SetupApp，
-          # 所以装包和卸包也是 Rust + Flutter 的原生界面（玻璃、粒子、页面切换都在）
-          $qw = Join-Path $rel 'QWGuard.exe'
-          if (Test-Path $qw) {
-            Copy-Item $qw (Join-Path $rel 'QWGuard-Setup.exe') -Force
-            Copy-Item $qw (Join-Path $rel 'QWGuard-Uninstall.exe') -Force
-          }
-          # 安装入口用中文名。这里必须指向 QWGuard-Setup.exe —— 之前写的是 QWGuard.exe，
-          # 双击「安装…」结果拉起的是主程序，于是弹出「检测到本程序只是被单独提取出来的
-          # 文件…未检测到安装记录」。同一个二进制靠文件名分流：Setup=安装向导、
-          # Uninstall=卸载、无后缀=主界面。
-          $bat = Join-Path $rel '安装 QW 安全电脑管家.bat'
-          "@echo off`r`nstart `"`" `"%~dp0QWGuard-Setup.exe`"" | Set-Content -Path $bat -Encoding ASCII
-          Get-ChildItem $rel -Filter '*.exe' | Select-Object Name, Length
-          Get-ChildItem $rel | Select-Object Name, Length
-
       # 生成完整性清单：安装时 Rust 会按这份清单逐个比对 SHA-256，
       # 任何一个文件和清单对不上就拒绝安装，避免「解压坏了还装进去」
       - name: 生成 SHA-256 校验清单
