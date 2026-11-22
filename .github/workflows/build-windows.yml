@@ -67,6 +67,11 @@ jobs:
         run: |
           $rel = 'app\build\windows\x64\runner\Release'
           Copy-Item native\target\release\toolkit_native.dll $rel -Force
+          # Flutter 的工程名是 system_toolbox，产出的 exe 也叫 system_toolbox.exe。
+          # 安装器/快捷方式/自启动都按 QWGuard.exe 找，名字不改就“点立即启动直接消失”。
+          if (Test-Path "$rel\system_toolbox.exe") {
+            Rename-Item "$rel\system_toolbox.exe" 'QWGuard.exe' -Force
+          }
           if (Test-Path 'app\assets') { Copy-Item app\assets -Recurse (Join-Path $rel 'assets') -Force }
           # 运行库补全的两个工具必须跟着 exe 走，否则工具页点开找不到文件
           if (Test-Path 'vendor\runtime') {
@@ -98,15 +103,27 @@ jobs:
           Write-Host "清单条目数：$($items.Count)"
           Get-Content (Join-Path $rel 'manifest.json') -TotalCount 8
 
-      - name: Install Inno Setup
-        run: choco install innosetup -y --no-progress
-
-      - name: Build installer
-        continue-on-error: true
+      # 单文件安装器：Rust SFX 外壳 + Flutter 安装界面，不再套 Inno Setup。
+      # payload.zip = 整个 Release 目录；追加到 qw_setup.exe 末尾，尾部写 24 字节 trailer。
+      - name: Build single-file installer (Rust SFX)
         shell: pwsh
         run: |
-          $iscc = 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe'
-          if (Test-Path $iscc) { & $iscc installer\setup.iss } else { Write-Warning 'ISCC 不在预期路径' }
+          $rel = 'app\build\windows\x64\runner\Release'
+          if (Test-Path 'payload.zip') { Remove-Item 'payload.zip' -Force }
+          Compress-Archive -Path "$rel\*" -DestinationPath 'payload.zip' -CompressionLevel Optimal
+          $out = 'QWGuard-Setup-1.0.exe'
+          Copy-Item 'native\target\release\qw_setup.exe' $out -Force
+          $payload = [IO.File]::ReadAllBytes('payload.zip')
+          $fs = [IO.File]::Open($out, 'Append', 'Write')
+          $off = [uint64]$fs.Length
+          $fs.Write($payload, 0, $payload.Length)
+          $tr = New-Object byte[] 24
+          [BitConverter]::GetBytes([uint64]$off).CopyTo($tr, 0)
+          [BitConverter]::GetBytes([uint64]$payload.Length).CopyTo($tr, 8)
+          [Text.Encoding]::ASCII.GetBytes('QWPAY1!!').CopyTo($tr, 16)
+          $fs.Write($tr, 0, 24)
+          $fs.Close()
+          Get-Item $out | Select-Object Name, Length
 
       # 只发安装版：不再产 portable（解压即用）包。
       # 原因：工具箱里的运行库工具、yara 规则等会被单独提取出去，
@@ -116,5 +133,5 @@ jobs:
         with:
           name: QWGuard-windows-x64
           path: |
-            dist/*.exe
+            QWGuard-Setup-1.0.exe
           if-no-files-found: warn

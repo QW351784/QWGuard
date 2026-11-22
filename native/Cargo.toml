@@ -25,6 +25,8 @@ yara-x = { version = "1", default-features = false, features = [
     "pe-module", "hash-module", "math-module", "string-module", "time-module",
 ] }
 
+zip = { version = "2", default-features = false, features = ["deflate"] }
+
 [target.'cfg(not(windows))'.dependencies]
 ureq = "2.10"
 
