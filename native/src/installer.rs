@@ -368,7 +368,7 @@ pub extern "C" fn install_progress(buf: *mut u8, len: usize) -> i32 {
         .map(|g| g.clone())
         .unwrap_or((0, 0, String::new(), String::new()));
     let v = json!({ "success": true, "data": { "copied": c, "total": t, "phase": ph, "file": f } });
-    ok(buf, len, &v)
+    ok(buf, len, "", v)
 }
 
 #[cfg(not(windows))]
