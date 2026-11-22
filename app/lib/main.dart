@@ -312,7 +312,7 @@ class _ShellState extends State<Shell>
   /// 现在：只在设置页可见时发布，且限速 2.5 次/秒、量化到 0.1ms。
   void _onFrameTimings(List<FrameTiming> timings) {
     if (timings.isEmpty) return;
-    if (_index != 4) return; // 只有设置页显示这个读数
+    if (_index != 5) return; // 只有设置页（IndexedStack 第 6 个）显示这个读数
     if (_framePubClock.isRunning && _framePubClock.elapsedMilliseconds < 400) {
       return;
     }
