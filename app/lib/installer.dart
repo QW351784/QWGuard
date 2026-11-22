@@ -61,6 +61,22 @@ class _SetupAppState extends State<SetupApp> {
   }
 
   Future<void> _init() async {
+    // 卸载必须先拿管理员权限：安装目录的 ACL 默认只给 Administrators 删除权限，
+    // 普通权限下删文件只会得到「拒绝访问」。
+    if (widget.uninstall) {
+      final e = Api.ensureElevated();
+      final d = (e['data'] as Map?)?.cast<String, dynamic>();
+      if (d?['relaunching'] == true) {
+        // 提权实例已经拉起，这个普通权限的窗口必须退出，否则它自己也占着文件
+        await Future.delayed(const Duration(milliseconds: 500));
+        exit(0);
+        return;
+      }
+      if (d?['elevated'] != true) {
+        exit(0);
+        return;
+      }
+    }
     final t = Api.systemTheme();
     final dark = t['success'] == true && t['data'] is Map ? (t['data']['dark'] == true) : false;
     final rec = Api.recommendDir();

@@ -490,6 +490,91 @@ pub extern "C" fn install_run(
 
 /// 卸载：先杀进程，再删目录、配置、快捷方式、注册表
 #[no_mangle]
+/// 当前进程是不是管理员（高完整性级别）。
+/// 不用 OpenProcessToken：whoami /groups 里高完整性会带 S-1-16-12288，
+/// 系统级是 S-1-16-16384，这两个 SID 不随系统语言变化。
+fn is_elevated() -> bool {
+    if !cfg!(windows) {
+        return true;
+    }
+    if let Ok(o) = crate::proc::cmd("whoami").args(["/groups"]).output() {
+        let t = String::from_utf8_lossy(&o.stdout);
+        return t.contains("S-1-16-12288") || t.contains("S-1-16-16384");
+    }
+    false
+}
+
+/// 让卸载器以管理员身份重开自己。
+/// 清单里写 requireAdministrator 会让主程序每次启动都弹 UAC，
+/// 所以只在「卸载」这条路上做运行时提权：先普通权限起来，需要时再拉高。
+#[no_mangle]
+pub extern "C" fn ensure_elevated(buf: *mut u8, len: usize) -> i32 {
+    if is_elevated() {
+        return ok(buf, len, "已是管理员权限", json!({"elevated": true, "relaunching": false}));
+    }
+    if !cfg!(windows) {
+        return ok(buf, len, "非 Windows，无需提权", json!({"elevated": true, "relaunching": false}));
+    }
+    let exe = std::env::current_exe().unwrap_or_default();
+    let script = format!(
+        "Start-Process -FilePath '{}' -ArgumentList '--uninstall','--elevated' -Verb RunAs",
+        exe.display()
+    );
+    let launched = crate::proc::cmd("powershell")
+        .args(["-NoProfile", "-WindowStyle", "Hidden", "-Command", &script])
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false);
+    ok(
+        buf,
+        len,
+        if launched { "正在请求管理员权限" } else { "用户取消了管理员授权" },
+        json!({"elevated": false, "relaunching": launched}),
+    )
+}
+
+/// 解锁：先把自家进程全结束，再找出「加载了安装目录里 exe/dll 的其它进程」并结束。
+/// 不做这一步，删除就只会得到「文件正在使用」。
+fn kill_holders(dir: &Path) {
+    if !cfg!(windows) {
+        return;
+    }
+    let self_pid = std::process::id();
+    let self_name = std::env::current_exe()
+        .ok()
+        .and_then(|p| p.file_name().map(|n| n.to_string_lossy().to_string()))
+        .unwrap_or_default();
+    for img in ["QWGuard.exe", "QWGuard-Setup.exe"] {
+        if img.eq_ignore_ascii_case(&self_name) {
+            continue;
+        }
+        let _ = crate::proc::cmd("taskkill").args(["/F", "/IM", img]).output();
+    }
+
+    // Restart Manager 的替代实现：枚举各进程已加载模块，
+    // 谁的模块路径落在安装目录里，谁就是占用者。比盲删精准，也不需要额外驱动。
+    let d = dir.to_string_lossy().to_string();
+    let script = format!(
+        "$d='{}'; Get-Process | ForEach-Object {{ $p=$_; try {{ if ($p.Modules | Where-Object {{ $_.FileName -like \"$d*\" }}) {{ $p.Id }} }} catch {{}} }}",
+        d
+    );
+    let Ok(o) = crate::proc::cmd("powershell")
+        .args(["-NoProfile", "-WindowStyle", "Hidden", "-Command", &script])
+        .output()
+    else {
+        return;
+    };
+    for line in String::from_utf8_lossy(&o.stdout).lines() {
+        if let Ok(pid) = line.trim().parse::<u32>() {
+            if pid != self_pid {
+                let _ = crate::proc::cmd("taskkill")
+                    .args(["/F", "/PID", &pid.to_string()])
+                    .output();
+            }
+        }
+    }
+}
+
 pub extern "C" fn uninstall_run(
     app_dir: *const c_char,
     keep_config: i32,
@@ -510,11 +595,10 @@ pub extern "C" fn uninstall_run(
     }
     let app = PathBuf::from(&dir);
 
-    // 先关掉自己，不然文件被占用删不掉
-    let _ = crate::proc::cmd("taskkill")
-        .args(["/F", "/IM", EXE_NAME])
-        .output();
-    std::thread::sleep(std::time::Duration::from_millis(800));
+    // 先解锁：结束自家所有实例，再清掉加载了安装目录 dll/exe 的其它进程。
+    // 只 taskkill 一个镜像名不够——托盘、悬浮窗、多实例、崩溃上报都会各自占句柄。
+    kill_holders(&app);
+    std::thread::sleep(std::time::Duration::from_millis(900));
 
     let mut removed = 0u64;
     // 反复三次：刚 taskkill 完，Explorer / Defender / 索引服务可能还捏着句柄
