@@ -345,16 +345,35 @@ class _ShellState extends State<Shell>
     } catch (_) {}
   }
 
-  /// 只有托盘菜单里点「退出」才真退，这时才需要验一次密码
+  /// 托盘菜单里点「退出」。
+  /// 之前这里直接 await _confirmClose()，但那一刻窗口已经 hide() 到托盘里了 ——
+  /// showDialog 会被渲染到那个不可见的窗口上，用户既看不到框也无处可点，
+  /// await 永远不返回，表现就是「点退出没任何反应、怎么点都退不掉」。
+  /// 现在：没开密码保护就直接退（也不再弹确认框，符合「别老提示确定要关闭」）；
+  /// 开了密码保护才把窗口叫出来、验一次密码。
   Future<void> _quitApp() async {
-    final ok = await _confirmClose();
-    if (!ok) return;
+    final st = Api.passwordState();
+    final needPwd =
+        st['success'] == true && st['data'] is Map && st['data']['enabled'] == true;
+
+    if (needPwd) {
+      await _showFromTray();
+      final ok = await _askPassword('关闭软件');
+      if (!ok) return;
+    }
+
     _quitAsked = true;
     try {
       await trayManager.destroy();
+    } catch (_) {}
+    try {
       await windowManager.setPreventClose(false);
       await windowManager.destroy();
     } catch (_) {}
+    // 兜底：destroy() 在某些情况下会卡在窗口线程上不返回，
+    // 用户看到的就是「点了还是没反应」。这里直接结束进程。
+    await Future<void>.delayed(const Duration(milliseconds: 300));
+    exit(0);
   }
 
   @override
@@ -371,29 +390,6 @@ class _ShellState extends State<Shell>
   void onTrayMenuItemClick(MenuItem menuItem) {
     if (menuItem.key == 'show') _showFromTray();
     if (menuItem.key == 'exit') _quitApp();
-  }
-
-  Future<bool> _confirmClose() async {
-    if (!mounted) return false;
-    final st = Api.passwordState();
-    final needPwd = st['success'] == true && st['data'] is Map && st['data']['enabled'] == true;
-
-    final yes = await showDialog<bool>(
-      context: context,
-      builder: (_) => QDialog(
-        icon: Icons.power_settings_new_rounded,
-        title: '确定要关闭吗？',
-        body: '退出后实时防护和后台查杀会停止，这台电脑就不再受保护了。',
-        okText: '仍然关闭',
-        cancelText: '继续保护',
-      ),
-    );
-    if (yes != true) return false;
-    if (needPwd) {
-      final ok = await _askPassword('关闭软件');
-      if (!ok) return false;
-    }
-    return true;
   }
 
   /// 密码验证弹窗，通过返回 true
