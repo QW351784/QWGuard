@@ -306,7 +306,9 @@ class _ShellState extends State<Shell>
   /// 白白把事件循环叫醒、顺带把整窗推着重绘。现在只有真开着按帧动画时才启动，
   /// 其余时候彻底停摆 —— 静止时应当一帧都不出。
   void _syncTicker() {
-    final need = Ui.perFrameActive;
+    // 窗口失焦/最小化时直接停掉全局时钟：用户在别的程序里干活，
+    // 管家不该还在后台每 16ms 重绘呼吸光/光斑。
+    final need = Ui.perFrameActive && !_animPaused;
     if (need && _tickerTimer == null) {
       _tickerTimer = Timer.periodic(const Duration(milliseconds: 16), (_) {
         if (!Ui.tick.hasListeners) return;
@@ -346,16 +348,33 @@ class _ShellState extends State<Shell>
     if ((q - Ui.frameMs.value).abs() > 0.05) Ui.frameMs.value = q;
   }
 
-  // ===== 窗口事件：恢复/聚焦时立刻把时钟对齐并强制重画，动画接着动、不停在原地 =====
+  // ===== 窗口事件：失焦/最小化停帧，恢复/聚焦时对齐时钟继续 =====
+  bool _animPaused = false;
+
+  @override
+  void onWindowMinimize() {
+    _animPaused = true;
+    _syncTicker();
+  }
+
+  @override
+  void onWindowBlur() {
+    _animPaused = true;
+    _syncTicker();
+  }
 
   @override
   void onWindowRestore() {
+    _animPaused = false;
     _resumeAnim();
+    _syncTicker();
   }
 
   @override
   void onWindowFocus() {
+    _animPaused = false;
     _resumeAnim();
+    _syncTicker();
   }
 
   void _resumeAnim() {

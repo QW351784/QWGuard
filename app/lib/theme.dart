@@ -97,6 +97,31 @@ class SquircleClipper extends CustomClipper<Path> {
   bool shouldReclip(covariant SquircleClipper old) => old.radius != radius;
 }
 
+/// 阴影必须和卡片用同一条 squircle 路径，否则圆角卡片下面是直角影子。
+class _SquircleShadow extends CustomPainter {
+  final List<BoxShadow> shadows;
+  final double radius;
+  const _SquircleShadow(this.shadows, this.radius);
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final base = Offset.zero & size;
+    for (final s in shadows) {
+      final rect = base.inflate(s.spreadRadius).shift(s.offset);
+      final path = squirclePath(rect, radius);
+      final paint = Paint()..color = s.color;
+      if (s.blurRadius > 0) {
+        paint.maskFilter = MaskFilter.blur(BlurStyle.normal, s.blurRadius / 2);
+      }
+      canvas.drawPath(path, paint);
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _SquircleShadow old) =>
+      old.radius != radius || old.shadows != shadows;
+}
+
 /// iOS 27 液态玻璃 + 澎湃 OS 4 布局 + Win11 云母 / Win7 Aero 混搭
 class AppTheme {
   static ThemeData light() => _base(Brightness.light, const Color(0xFF2F7BFF));
@@ -1173,23 +1198,23 @@ class _BreathingGlowState extends State<BreathingGlow> {
             final t = Curves.easeInOutSine.transform(half);
             final scale = 0.94 + 0.12 * t;
             final opacity = 0.10 + 0.14 * t;
+            // 不再套 Opacity：Opacity 每帧都要开一层离屏合成（saveLayer），
+            // 420px 的光斑叠两个就明显吃 GPU。直接把透明度乘进渐变色，
+            // 视觉完全一样，但少了两层全屏合成。
             return Transform.scale(
               scale: scale,
-              child: Opacity(
-                opacity: opacity,
-                child: Container(
-                  width: widget.size,
-                  height: widget.size,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    gradient: RadialGradient(
-                      colors: [
-                        widget.color.withOpacity(0.50),
-                        widget.color.withOpacity(0.15),
-                        widget.color.withOpacity(0.0),
-                      ],
-                      stops: const [0.0, 0.42, 1.0],
-                    ),
+              child: Container(
+                width: widget.size,
+                height: widget.size,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  gradient: RadialGradient(
+                    colors: [
+                      widget.color.withOpacity(0.50 * opacity),
+                      widget.color.withOpacity(0.15 * opacity),
+                      widget.color.withOpacity(0.0),
+                    ],
+                    stops: const [0.0, 0.42, 1.0],
                   ),
                 ),
               ),

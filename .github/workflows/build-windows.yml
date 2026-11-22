@@ -44,22 +44,31 @@ jobs:
         working-directory: app
         run: flutter create --platforms=windows --project-name system_toolbox .
 
+      # Flutter 3.47+ 在 Windows 上默认改用 Impeller(D3D12)：静态界面也会持续
+      # 整窗重合成，实测空窗口就能吃 30~50% GPU。命令行已不提供
+      # --no-enable-impeller，必须在生成的 runner 里显式关掉。
+      - name: Patch Windows runner (关闭 Impeller)
+        working-directory: app
+        shell: pwsh
+        run: |
+          $p = 'windows\runner\main.cpp'
+          $c = Get-Content $p -Raw
+          if ($c -notmatch 'set_impeller_switch') {
+            $old = 'flutter::DartProject project(L"data");'
+            $new = 'flutter::DartProject project(L"data");' + "`r`n  project.set_impeller_switch(flutter::ImpellerSwitch::Disabled);"
+            $c = $c.Replace($old, $new)
+            Set-Content -Path $p -Value $c -NoNewline
+          }
+          Select-String -Path $p -Pattern 'set_impeller_switch'
+
       - name: Pub get
         working-directory: app
         run: flutter pub get
 
       - name: Build Windows app
         working-directory: app
-        # Impeller 在 Windows 上走 D3D12，静态界面也持续整窗重合成，
-        # 实测空窗口就能吃掉 30~50% GPU，动画全关也降不下来。
-        # 退回 Skia（OpenGL）后空闲占用能压到个位数。若该 flag 不被当前
-        # Flutter 版本支持，自动降级为普通构建，不让整条流水线因此失败。
-        run: |
-          flutter build windows --release --no-enable-impeller
-          if ($LASTEXITCODE -ne 0) {
-            Write-Warning "该 Flutter 版本不认识 --no-enable-impeller，退回默认构建"
-            flutter build windows --release
-          }
+        # Impeller 已在 runner 里关掉，退回 Skia；空闲 GPU 从 30~50% 压到个位数。
+        run: flutter build windows --release
         shell: pwsh
 
       - name: Copy native dll, assets and runtime tools
@@ -76,6 +85,15 @@ jobs:
           # 运行库补全的两个工具必须跟着 exe 走，否则工具页点开找不到文件
           if (Test-Path 'vendor\runtime') {
             Copy-Item 'vendor\runtime' -Destination (Join-Path $rel 'runtime') -Recurse -Force
+            # 233MB 的 DirectX Repair 离线数据包不进安装包：
+            # 它只用于离线补 d3dx，微软官方 dxwebsetup.exe（288KB）可在线补同一批组件。
+            # 功能保留，安装包体积直接砍掉约 70%。
+            if (Test-Path "$rel\runtime\Data") {
+              Remove-Item "$rel\runtime\Data" -Recurse -Force
+            }
+            Get-ChildItem "$rel\runtime" -Filter '*.exe' |
+              Where-Object { $_.Name -match 'DirectX.*Repair' } |
+              Remove-Item -Force
             Get-ChildItem (Join-Path $rel 'runtime') | Select-Object Name, Length
           } else { Write-Warning 'vendor\runtime 不存在' }
       # 生成完整性清单：安装时 Rust 会按这份清单逐个比对 SHA-256，

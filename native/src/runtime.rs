@@ -74,11 +74,17 @@ fn find_tool(names: &[&str]) -> Option<PathBuf> {
     None
 }
 
-/// DirectX 工具：优先 DirectX Repair（离线、能修文件），退回微软官方 dxwebsetup（联网装）
-/// 返回 (路径, 是否官方 web 安装器)
+/// DirectX 工具：只有在离线数据包 Data/A、Data/B 都在时，才用 DirectX Repair；
+/// 否则用微软官方 dxwebsetup（联网装，288KB）。
+///
+/// 安装包不再携带 233MB 的 DirectX Repair 离线数据包：
+/// 它能离线修 d3dx，但占了安装体积的 70%，而且微软官方 Web 安装器
+/// 能在线补齐同一批组件。功能不减，安装包从 ~170MB 降到 ~60MB。
 fn find_dx() -> Option<(PathBuf, bool)> {
-    if let Some(p) = find_tool(&DX_NAMES) {
-        return Some((p, false));
+    if dx_data_dirs().is_some() {
+        if let Some(p) = find_tool(&DX_NAMES) {
+            return Some((p, false));
+        }
     }
     find_tool(&[DXWEB]).map(|p| (p, true))
 }
