@@ -192,6 +192,14 @@ fn has_long_base64(s: &str, min: usize) -> bool {
     false
 }
 
+/// 在字节流里找一个固定串（PE 的导入名、命令串都靠它）
+fn pat_in(data: &[u8], pat: &[u8]) -> bool {
+    if pat.is_empty() || data.len() < pat.len() {
+        return false;
+    }
+    data.windows(pat.len()).any(|w| w == pat)
+}
+
 fn entropy(b: &[u8]) -> f64 {
     if b.is_empty() {
         return 0.0;
@@ -287,6 +295,84 @@ fn pe_checks(data: &[u8], out: &mut Vec<String>) {
     let has_url = data.windows(19).any(|w| w == b"URLDownloadToFile\0");
     if has_dbg && has_url {
         out.push("HEUR.Dropper.Dbg+URL".to_string());
+    }
+
+    // ⑤ 覆盖层（overlay）：最后一个节的原始数据后面还挂着一大段 —— 释放器/捆绑器典型结构
+    let mut last_end = 0usize;
+    for i in 0..num_sections.min(96) {
+        let s = sect_table + i * 40;
+        let rawsize = u32::from_le_bytes([data[s + 16], data[s + 17], data[s + 18], data[s + 19]]) as usize;
+        let rawptr = u32::from_le_bytes([data[s + 20], data[s + 21], data[s + 22], data[s + 23]]) as usize;
+        last_end = last_end.max(rawptr.saturating_add(rawsize));
+    }
+    if last_end > 0 && last_end < data.len() {
+        let overlay = data.len() - last_end;
+        if overlay > 8192 && overlay.saturating_mul(10) > data.len() {
+            out.push(format!("HEUR.Overlay.{:.0}KB", overlay as f64 / 1024.0));
+            // 覆盖层里嵌着第二个 PE（MZ + 合法 e_lfanew），一装一放的典型
+            let tail = &data[last_end..];
+            let mut i = 0usize;
+            while i + 0x40 < tail.len() {
+                if &tail[i..i + 2] == b"MZ" {
+                    let lf = u32::from_le_bytes([tail[i + 0x3c], tail[i + 0x3d], tail[i + 0x3e], tail[i + 0x3f]]) as usize;
+                    if lf < 0x400 && i + lf + 4 <= tail.len() && &tail[i + lf..i + lf + 4] == b"PE\0\0" {
+                        out.push("HEUR.Dropper.EmbeddedPE".to_string());
+                        break;
+                    }
+                }
+                i += 1;
+            }
+        }
+    }
+
+    // ⑥ 可写且可执行的节：正常编译器不会产出这种节
+    for i in 0..num_sections.min(96) {
+        let s = sect_table + i * 40;
+        let chars = u32::from_le_bytes([data[s + 36], data[s + 37], data[s + 38], data[s + 39]]);
+        if chars & 0x2000_0000 != 0 && chars & 0x8000_0000 != 0 {
+            out.push("HEUR.WX.Section".to_string());
+            break;
+        }
+    }
+
+    // ⑦ 入口点 RVA 为 0：被打包器改过头的常见特征
+    let ep_off = coff + 20 + 16;
+    if ep_off + 4 <= data.len() {
+        let ep = u32::from_le_bytes([data[ep_off], data[ep_off + 1], data[ep_off + 2], data[ep_off + 3]]);
+        if ep == 0 {
+            out.push("HEUR.EP.Zero".to_string());
+        }
+    }
+
+    // ⑧ 无文件落地 / LOLBIN 命令串
+    const LOLBINS: [(&str, &[u8]); 6] = [
+        ("EncodedCommand", b"-EncodedCommand"),
+        ("PSEnc", b"-enc "),
+        ("CertUtil", b"certutil -urlcache"),
+        ("BITSAdmin", b"bitsadmin /transfer"),
+        ("MSHTA", b"mshta http"),
+        ("ScrobjDll", b"scrobj.dll"),
+    ];
+    for (name, pat) in LOLBINS {
+        if pat_in(data, pat) {
+            out.push(format!("HEUR.Cmd.{name}"));
+        }
+    }
+
+    // ⑨ 键盘记录组合、卷影删除（勒索）
+    if pat_in(data, b"SetWindowsHookEx") && pat_in(data, b"GetAsyncKeyState") {
+        out.push("HEUR.Keylogger".to_string());
+    }
+    if pat_in(data, b"vssadmin delete") || pat_in(data, b"wbadmin delete") {
+        out.push("HEUR.Ransom.ShadowDel".to_string());
+    }
+
+    // ⑩ 整文件高熵（前面只按可执行节判过，这里兜住「整包都被加密」的情况）
+    if data.len() > 65536 {
+        let e = entropy(data);
+        if e > 7.40 {
+            out.push(format!("HEUR.FileEntropy.{:.2}", e));
+        }
     }
 
     // 去重：同一个规则只报一次
