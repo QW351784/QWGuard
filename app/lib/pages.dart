@@ -366,7 +366,11 @@ class _CleanPageState extends State<CleanPage> {
         final files = (d['files'] as num?)?.toInt() ?? 0;
         final bytes = (d['bytes'] as num?)?.toInt() ?? 0;
         _hits = files;
-        _detail = '已扫 $files 个文件 · ${_size(bytes)}';
+        // 每发现一类垃圾就先报出来，别让用户盯着「0」等整轮结束
+        final cats = ((d['items'] as List?) ?? const []).length;
+        _detail = cats > 0
+            ? '已发现 $cats 类可清理项 · 已扫 $files 个文件 · ${_size(bytes)}'
+            : '已扫 $files 个文件 · ${_size(bytes)}';
         if (cur.isNotEmpty && cur != last) {
           last = cur;
           _recent.add(cur);

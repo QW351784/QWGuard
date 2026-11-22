@@ -263,7 +263,13 @@ pub(crate) fn walk_stat(dir: &Path, files: &mut u64, bytes: &mut u64, depth: usi
     }
     let Ok(rd) = fs::read_dir(dir) else { return };
     for e in rd.flatten() {
-        let Ok(md) = e.metadata() else { continue };
+        // 必须用 symlink_metadata：Windows 上 e.metadata() 会跟随 junction，
+        // Temp 目录里只要有一个指向 C:\ 的联接点，这次统计就变成全盘遍历，
+        // 界面上 15 分钟也只显示「已扫 0 个文件」。
+        let Ok(md) = fs::symlink_metadata(e.path()) else { continue };
+        if md.file_type().is_symlink() {
+            continue;
+        }
         if md.is_dir() {
             walk_stat(&e.path(), files, bytes, depth + 1);
         } else {
@@ -289,6 +295,9 @@ pub extern "C" fn cleanup_scan_mode(mode: *const c_char, path: *const c_char, bu
     CLEAN_RUNNING.store(true, Ordering::Relaxed);
     CLEAN_FILES.store(0, Ordering::Relaxed);
     CLEAN_BYTES.store(0, Ordering::Relaxed);
+    if let Ok(mut g) = CLEAN_ITEMS.lock() {
+        g.clear();
+    }
 
     let mut items = Vec::new();
     let mut total = 0u64;
@@ -308,6 +317,13 @@ pub extern "C" fn cleanup_scan_mode(mode: *const c_char, path: *const c_char, bu
             continue;
         }
         total += b;
+        if let Ok(mut g) = CLEAN_ITEMS.lock() {
+            if g.len() < 40 {
+                g.push(serde_json::json!({
+                    "id": id, "category": category, "path": p.to_string_lossy(), "size": b
+                }));
+            }
+        }
         items.push(CleanItem {
             id: id.into(),
             category: category.into(),
@@ -384,6 +400,8 @@ pub extern "C" fn cleanup_scan_mode(mode: *const c_char, path: *const c_char, bu
 }
 
 #[no_mangle]
+static CLEAN_ITEMS: Mutex<Vec<serde_json::Value>> = Mutex::new(Vec::new());
+
 pub extern "C" fn cleanup_progress(buf: *mut u8, len: usize) -> i32 {
     let cur = CLEAN_CUR.lock().map(|s| s.clone()).unwrap_or_default();
     ok(buf, len, "清理进度", serde_json::json!({
@@ -391,6 +409,7 @@ pub extern "C" fn cleanup_progress(buf: *mut u8, len: usize) -> i32 {
         "files": CLEAN_FILES.load(Ordering::Relaxed),
         "bytes": CLEAN_BYTES.load(Ordering::Relaxed),
         "current": cur,
+        "items": CLEAN_ITEMS.lock().map(|s| s.clone()).unwrap_or_default(),
     }))
 }
 
