@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:isolate';
 
 import 'package:flutter/material.dart';
 
@@ -148,7 +149,14 @@ class _SetupAppState extends State<SetupApp> {
       });
       return;
     }
-    final r = Api.installRun(src, _dir, desktopIcon: _desktopIcon, autostart: _autostart);
+    // 解压 + 校验 170MB 是纯 CPU/磁盘活，直接在 UI isolate 里调 FFI 会把消息循环堵死，
+    // Windows 就给窗口挂上「未响应」。丢到后台 isolate，进度动画继续跑。
+    final r = await Isolate.run(() => Api.installRun(
+          src,
+          _dir,
+          desktopIcon: _desktopIcon,
+          autostart: _autostart,
+        ));
     final ok = r['success'] == true;
     setState(() {
       _busy = false;
@@ -422,9 +430,9 @@ class _SetupAppState extends State<SetupApp> {
                   }),
                 )
               : LiquidButton(
-                  text: widget.uninstall ? '关闭' : '立即启动',
+                  text: widget.uninstall ? '关闭' : '运行',
                   icon: widget.uninstall ? Icons.close_rounded : Icons.play_arrow_rounded,
-                  onTap: () {
+                  onTap: () async {
                     if (widget.uninstall) {
                       exit(0);
                     }
@@ -433,7 +441,10 @@ class _SetupAppState extends State<SetupApp> {
                     // 点「立即启动」等于什么都不做然后静默退出
                     final exe = '$_dir\\QWGuard.exe';
                     if (File(exe).existsSync()) {
-                      Process.start(exe, [], mode: ProcessStartMode.detached);
+                      await Process.start(exe, const [],
+                          workingDirectory: _dir, mode: ProcessStartMode.detached);
+                      // 给子进程一点启动时间再退，否则安装器先死、应用还没起来
+                      await Future.delayed(const Duration(milliseconds: 600));
                     }
                     exit(0);
                   },

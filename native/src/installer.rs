@@ -100,6 +100,26 @@ fn desktop_dirs() -> Vec<std::path::PathBuf> {
             v.push(std::path::PathBuf::from(format!("{up}\\Desktop")));
         }
     }
+    // Win11 把桌面重定向到 OneDrive 后，%USERPROFILE%\Desktop 可能根本不存在，
+    // 上面几条全落空 —— 装完桌面就没图标。这里问系统要真实桌面路径：
+    // 先 KnownFolder，再读 User Shell Folders 注册表（并展开 %VAR%）。
+    for script in [
+        "[Environment]::GetFolderPath('Desktop')",
+        "[Environment]::ExpandEnvironmentVariables((Get-ItemProperty 'HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\User Shell Folders').Desktop)",
+    ] {
+        if let Ok(o) = crate::proc::cmd("powershell")
+            .args(["-NoProfile", "-NonInteractive", "-Command", script])
+            .output()
+        {
+            let p = String::from_utf8_lossy(&o.stdout).trim().to_string();
+            if !p.is_empty() {
+                let pb = std::path::PathBuf::from(&p);
+                if !v.contains(&pb) {
+                    v.push(pb);
+                }
+            }
+        }
+    }
     v
 }
 
