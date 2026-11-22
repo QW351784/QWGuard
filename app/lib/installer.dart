@@ -161,7 +161,9 @@ class _SetupAppState extends State<SetupApp> {
       debugShowCheckedModeBanner: false,
       theme: theme,
       home: Scaffold(
-        backgroundColor: Colors.transparent,
+        // 这里是安装器自己的窗口。_setupWindow() 里没给 WindowOptions 设不透明底，
+        // Scaffold 再写 transparent，整个向导就会透出桌面。必须自己画底色。
+        backgroundColor: _dark ? const Color(0xFF14171D) : const Color(0xFFF4F7FB),
         body: _ready ? _body() : const Center(child: CircularProgressIndicator()),
       ),
     );
@@ -296,7 +298,7 @@ class _SetupAppState extends State<SetupApp> {
             style: TextStyle(fontSize: 11, color: _dark ? Colors.white38 : Colors.black45)),
         const SizedBox(height: 18),
         _check('创建桌面快捷方式', _desktopIcon, (v) => setState(() => _desktopIcon = v)),
-        _check('开机自启动（关闭会在启动时提示不建议）', _autostart, (v) => setState(() => _autostart = v)),
+        _check('开机自动启动（推荐开启，关掉后每次要自己打开）', _autostart, (v) => setState(() => _autostart = v)),
         if (_hint.isNotEmpty) ...[
           const SizedBox(height: 10),
           Text(_hint, style: TextStyle(fontSize: 11.5, color: Colors.redAccent)),

@@ -30,8 +30,11 @@ OutputBaseFilename=QWGuard-Setup-{#MyAppVersion}
 ; 用户看到的就是「先弹一个界面、再弹 Flutter 界面」。
 ; 换成 lzma2/fast 且关掉固态压缩：包大约大 15%，但解压快五倍以上，
 ; 外壳窗口一闪就过，体感上等于「直接进安装界面」。
-Compression=lzma2/max
-SolidCompression=yes
+; lzma2/max 能把包压到 113MB，但解压要多花十几秒 —— 用户点「安装」后
+; 界面会明显卡住，看起来像死机。改回 normal，体积回到 130MB 左右，
+; 解压两三秒完成，装机体验优先。
+Compression=lzma2/normal
+SolidCompression=no
 WizardStyle=modern
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible

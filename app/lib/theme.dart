@@ -72,11 +72,30 @@ class AppTheme {
       useMaterial3: true,
       brightness: b,
       colorSchemeSeed: seed,
-      scaffoldBackgroundColor: Colors.transparent,
+      // 不能是 transparent：Scaffold、Dialog 的默认底色都从这里取，
+      // 写成透明以后，凡是没自己画底色的页面（OOBE、安装向导）一律透出桌面。
+      scaffoldBackgroundColor: isDark ? const Color(0xFF14171D) : const Color(0xFFF4F7FB),
       fontFamily: 'NotoSansSC',
+      // 只挂一个 NotoSansSC 太单薄：这个子集字体不含 emoji、部分数学符号和生僻标点，
+      // 遇到就走 .notdef（豆腐块）或者引擎的缺字形回退 —— 用户看到的就是文字下面
+      // 的怪线条。补上系统自带的中英文字体做兜底。
+      fontFamilyFallback: const [
+        'Microsoft YaHei',
+        'Microsoft YaHei UI',
+        'Segoe UI',
+        'Noto Sans CJK SC',
+        'Arial',
+      ],
       textTheme: ThemeData(brightness: b).textTheme.apply(
+            fontFamilyFallback: const [
+              'Microsoft YaHei',
+              'Segoe UI',
+              'Arial',
+            ],
             bodyColor: isDark ? Colors.white : const Color(0xFF14171C),
             displayColor: isDark ? Colors.white : const Color(0xFF14171C),
+            // 全局兜底：任何继承下来的下划线（含双线）统统清掉。
+            decoration: TextDecoration.none,
           ),
     );
   }
@@ -85,9 +104,15 @@ class AppTheme {
     final isDark = b == Brightness.dark;
     final s = currentMatStyle();
 
-    // 云母 / 混搭：窗口本体走系统 Mica（flutter_acrylic 设的），
-    // Flutter 这层只叠一层很淡的色调，叠厚了会把系统材质盖死
-    if (s == MatStyle.auto || s == MatStyle.mica) {
+    // auto 档实际上是「省 GPU 模式」：窗口走 WindowEffect.solid，没有系统材质托底。
+    // 之前这里还按「底下有 Mica」的假设只叠 0.30 透明度，结果窗口底色一透到底，
+    // 整窗看起来就是透明的。auto 必须自己画不透明底。
+    if (s == MatStyle.auto) {
+      return BoxDecoration(color: isDark ? const Color(0xFF14171D) : const Color(0xFFF4F7FB));
+    }
+
+    // mica：真的有系统 Mica 在下面，这里只叠一层很淡的色调
+    if (s == MatStyle.mica) {
       return BoxDecoration(
         gradient: LinearGradient(
           begin: Alignment.topLeft,

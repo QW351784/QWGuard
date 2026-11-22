@@ -141,7 +141,11 @@ Future<void> main(List<String> args) async {
       size: Size(1260, 840),
       minimumSize: Size(1000, 660),
       center: true,
-      backgroundColor: Colors.transparent,
+      // 之前是 Colors.transparent —— 透明窗口会让 DWM 每帧把整窗重新合成一遍，
+      // 这是 4060 上空闲还占 40% 的主要来源，而且核显机器根本扛不住。
+      // 圆角交给 Windows 11 自己裁（无边框窗口系统会给 DWMWCP_ROUND），
+      // 代价是 Win10 上角是直角 —— 拿圆角换掉整窗合成，值得。
+      backgroundColor: Color(0xFF14171D),
       titleBarStyle: TitleBarStyle.hidden,
       title: 'QW 安全电脑管家',
     );
@@ -204,7 +208,6 @@ class _ShellState extends State<Shell>
   /// 用它而不是 Ticker 的 elapsed，是因为窗口最小化 / 失焦 / 被系统挂起时
   /// 引擎会停发帧，Ticker 也跟着停，恢复后画面等于"停在那"。
   final Stopwatch _clock = Stopwatch();
-  Timer? _heartbeat;
 
   static const _icons = [
     Icons.memory_rounded,
@@ -231,12 +234,12 @@ class _ShellState extends State<Shell>
       Ui.tick.value = _clock.elapsedMicroseconds / 1000000.0;
     });
 
-    // 心跳兜底：窗口最小化或系统挂起时不会出帧，这里每 250ms 把时钟推进一步，
-    // 保证任何时刻被唤醒、恢复显示，第一帧就是正确相位，不是从头再来
-    _heartbeat = Timer.periodic(const Duration(milliseconds: 250), (_) {
-      final v = _clock.elapsedMicroseconds / 1000000.0;
-      if ((v - Ui.tick.value).abs() > 0.001) Ui.tick.value = v;
-    });
+    // 这里原来还有一个 250ms 的「心跳定时器」，无条件把 Ui.tick 往前推。
+    // 它的本意是「窗口挂起恢复后相位别错」，代价却是每 250ms 触发一次
+    // 所有 repaint: Ui.tick 的画笔重绘 + 所有 AnimatedBuilder 重建，
+    // 等于动画关掉之后每秒还在整窗重画四次。这就是 4060 上仍占 40% 的主因之一。
+    // 恢复相位已经由 onWindowRestore / onWindowFocus 里的 _resumeAnim() 一次性处理，
+    // 不需要常驻心跳，直接去掉。
     SchedulerBinding.instance.addTimingsCallback(_onFrameTimings);
     for (final a in Ui.anims) {
       Ui.on(a.key).addListener(_rebuild);
@@ -262,7 +265,6 @@ class _ShellState extends State<Shell>
   @override
   void dispose() {
     SchedulerBinding.instance.removeTimingsCallback(_onFrameTimings);
-    _heartbeat?.cancel();
     _clock.stop();
     _tickerTimer?.cancel();
     for (final a in Ui.anims) {
@@ -380,6 +382,14 @@ class _ShellState extends State<Shell>
     _quitAsked = true;
     try {
       await trayManager.destroy();
+    } catch (_) {}
+    // 退出前先淡出。之前窗口是「啪」一下直接消失，没有任何过渡，
+    // 看着像崩了而不是退出。逐帧降不透明度，约 220ms 走完。
+    try {
+      for (var i = 10; i >= 0; i--) {
+        await windowManager.setOpacity(i / 10.0);
+        await Future<void>.delayed(const Duration(milliseconds: 22));
+      }
     } catch (_) {}
     try {
       await windowManager.setPreventClose(false);
@@ -555,9 +565,16 @@ class _ShellState extends State<Shell>
     if (_oobe) {
       return Scaffold(
         backgroundColor: Colors.transparent,
-        body: ClipRRect(
-          borderRadius: BorderRadius.circular(24),
-          child: OobeIntro(onDone: () => setState(() => _oobe = false)),
+        body: ClipPath(
+          // 之前这里用 ClipRRect（真圆弧），和主界面 SquircleClipper 的 squircle
+          // 曲线不是同一条，切换时能看出角部在变形。统一成 squircle。
+          clipper: SquircleClipper(24),
+          child: DecoratedBox(
+            // OobeIntro 自己不带底色，外层又是透明 Scaffold，
+            // 不给它铺底整页就是透的
+            decoration: AppTheme.background(brightness),
+            child: OobeIntro(onDone: () => setState(() => _oobe = false)),
+          ),
         ),
       );
     }
@@ -573,14 +590,16 @@ class _ShellState extends State<Shell>
             child: RepaintBoundary(
               child: Padding(
               padding: const EdgeInsets.fromLTRB(18, 54, 18, 96),
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(26),
+              child: ClipPath(
+                // 同心圆角：外框 24，内边距 18，内层就该是 24-18=6。
+                // 之前写 26 —— 比外层还大，四个角直接被外层裁成直角，
+                // 这就是「角部看着别扭」的另一半原因。
+                clipper: SquircleClipper(6),
                 child: Container(
                   decoration: BoxDecoration(
                     color: brightness == Brightness.dark
                         ? const Color(0xFF11151D).withOpacity(Ui.glass.value ? 0.34 : 0.92)
                         : Colors.white.withOpacity(Ui.glass.value ? 0.42 : 0.94),
-                    borderRadius: BorderRadius.circular(26),
                   ),
                   // 用 IndexedStack 而不是 AnimatedSwitcher：切页时旧页不再被销毁，
                   // 扫描进度、清理进度、已读到的硬件信息都留在原页面。
@@ -624,8 +643,11 @@ class _ShellState extends State<Shell>
 
     return Scaffold(
       backgroundColor: Colors.transparent,
-      body: ClipRRect(
-        borderRadius: BorderRadius.circular(24),
+      body: ClipPath(
+        // 和 OOBE、玻璃卡片统一用 squircle 曲线。
+        // 之前外层是 ClipRRect(24) 真圆弧、内层是 26，两层曲线不是同一条，
+        // 四个角在交界处能看出「圆角套圆角」的错位。
+        clipper: SquircleClipper(24),
         child: content,
       ),
     );

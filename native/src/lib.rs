@@ -149,12 +149,13 @@ struct Hardware {
 pub extern "C" fn get_hardware_info(buf: *mut u8, len: usize) -> i32 {
     use sysinfo::{Components, Disks, System};
 
-    // 只刷 CPU 和内存：System::new_all() + refresh_all() 会顺带枚举全部进程
-    // 和网络接口，在 Windows 上单这一句就能吃掉 1~3 秒，而页面上根本用不到
-    // 进程列表。这是「一打开就未响应」的第二个来源。
-    let mut sys = System::new();
-    sys.refresh_cpu();
-    sys.refresh_memory();
+    // 上一轮为了省时间把这里改成 System::new() + refresh_cpu()，
+    // 结果 sysinfo 0.30 的 refresh_cpu() 只刷使用率、不填 CPU 列表，
+    // sys.cpus() 拿回来是空的 —— CPU 名成了空串、核心数成了 0，
+    // 页面上就是一片空。宁可慢一点也必须 refresh_all()；
+    // 慢的部分已经由前端 hardwareAsync 丢进 isolate，不会卡界面。
+    let mut sys = System::new_all();
+    sys.refresh_all();
 
     let mut cpu_name = String::new();
     if let Some(c) = sys.cpus().first() {
