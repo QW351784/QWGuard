@@ -72,15 +72,11 @@ jobs:
             Copy-Item 'vendor\yara' -Destination (Join-Path $rel 'yara') -Recurse -Force
             Get-ChildItem (Join-Path $rel 'yara') | Select-Object Name, Length
           } else { Write-Warning 'vendor/yara 不存在' }
-          # 内置扫描引擎：火绒 hrscan / PYAS。放进去之后 tool_path 会优先命中
-          # <exe>/huorong、<exe>/pyas，用户不用在机器上另装这两个软件
-          foreach ($eng in @('huorong','pyas')) {
-            if (Test-Path "vendor\$eng") {
-              Copy-Item "vendor\$eng" -Destination (Join-Path $rel $eng) -Recurse -Force
-              Write-Host "已内置 $eng :"
-              Get-ChildItem (Join-Path $rel $eng) | Select-Object Name, Length | Format-Table -AutoSize
-            } else { Write-Warning "vendor/$eng 不存在，$eng 引擎不会内置" }
-          }
+          # 第三方引擎不再随包分发。之前把火绒的 HipsMain/HipsDaemon/usysdiag 塞进
+          # <exe>/huorong：这三个文件缺 behavior.dll / HipsDB.dll / hrcomm.dll /
+          # jansson.dll、4 个内核驱动和病毒库，独立放进去根本加载不起来，白占 4.6 MB，
+          # 还在安装目录里露出一串别人的品牌文件名。PYAS 那边同理（目录里只有 README）。
+          # 现在改为「本机装了才调用」：tool_path 直接去它在系统里的标准安装路径找。
           # 主程序改名：pubspec 里项目名是 system_toolbox，编出来的 exe 也叫这个，
           # 用户会以为是工具箱/安装器，找不到管家本体。改名成 QWGuard.exe。
           $main = Join-Path $rel 'system_toolbox.exe'

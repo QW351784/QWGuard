@@ -1380,31 +1380,9 @@ fn tool_path(key: &str, candidates: &[&str]) -> Option<String> {
             return Some(p.to_string());
         }
     }
-    // 内置优先：安装目录下自带的引擎（<exe>/huorong/hrscan.exe、<exe>/pyas/PYAS.exe），
-    // 或直接放在 exe 同级。这样即使用户机器上从没装过火绒 / PYAS，装上本软件也能直接扫。
-    let builtin: Option<(&str, &[&str])> = match key {
-        "huorong_path" => Some(("huorong", &["hrscan.exe", "HipsMain.exe"])),
-        "pyas_path" => Some(("pyas", &["PYAS.exe", "pyas.exe"])),
-        _ => None,
-    };
-    if let Some((sub, names)) = builtin {
-        if let Ok(exe) = std::env::current_exe() {
-            if let Some(parent) = exe.parent() {
-                for n in names {
-                    let p = parent.join(sub).join(n);
-                    if p.exists() {
-                        return Some(p.display().to_string());
-                    }
-                }
-                for n in names {
-                    let p = parent.join(n);
-                    if p.exists() {
-                        return Some(p.display().to_string());
-                    }
-                }
-            }
-        }
-    }
+    // 不再查「安装目录里自带的引擎」：那两个目录已经从包里删掉了。
+    // 第三方引擎只走它在系统里的标准安装路径（下面的 candidates），
+    // 用户机器上装了就用，没装就明确告诉用户去装 —— 不假装内置。
     candidates
         .iter()
         .find(|p| Path::new(p).exists())
@@ -1439,7 +1417,7 @@ pub extern "C" fn scan_huorong(target: *const c_char, buf: *mut u8, len: usize) 
         "C:\\Program Files (x86)\\Huorong\\Sysdiag\\bin\\hrscan.exe",
         "C:\\Program Files\\Huorong\\Sysdiag\\bin\\HipsMain.exe",
     ]) else {
-        return fail(buf, len, -3, "未找到火绒（可在设置里填 huorong_path）");
+        return fail(buf, len, -3, "本机没有检测到火绒。先安装火绒，或在设置里手动指定 hrscan.exe 的路径。");
     };
 
     // 火绒多是 GUI 进程，output() 会一直阻塞把界面冻住 —— 改成非阻塞拉起，立刻回话
@@ -1507,7 +1485,7 @@ pub extern "C" fn scan_pyas(target: *const c_char, buf: *mut u8, len: usize) -> 
         "C:\\Program Files (x86)\\PYAS\\PYAS.exe",
         "C:\\Program Files\\PYAS Security\\PYAS.exe",
     ]) else {
-        return fail(buf, len, -3, "未找到 PYAS（可在设置里填 pyas_path）");
+        return fail(buf, len, -3, "本机没有检测到 PYAS。先安装 PYAS，或在设置里手动指定它的路径。");
     };
 
     let start = std::time::SystemTime::now();

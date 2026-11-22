@@ -625,7 +625,7 @@ class _ScanPageState extends State<ScanPage> {
     if (_busy) return;
     setState(() {
       _busy = true;
-      _stage = engine == 'huorong' ? '正在交给火绒' : '正在交给 PYAS';
+      _stage = engine == 'huorong' ? '正在调用本机火绒' : '正在调用本机 PYAS';
       _detail = path;
       _progress = null;
     });
@@ -641,7 +641,7 @@ class _ScanPageState extends State<ScanPage> {
     final note = (r['data'] is Map ? (r['data'] as Map)['note'] : null)?.toString() ?? '';
     _alert(
       context,
-      okd ? (engine == 'huorong' ? '已交给火绒' : 'PYAS 已返回') : '${engine} 调用失败',
+      okd ? (engine == 'huorong' ? '已交给火绒' : 'PYAS 已返回') : '${engineZh[engine] ?? engine} 没有响应',
       okd ? (note.isNotEmpty ? note : '已把目标交给外部引擎，结论以对方界面为准。') : (r['message']?.toString() ?? '未知错误'),
     );
   }
@@ -1070,10 +1070,17 @@ class _ScanPageState extends State<ScanPage> {
                 const SizedBox(height: 10),
                 Row(children: [
                   const Spacer(),
-                  LiquidButton(text: '火绒 hrscan', icon: Icons.security_rounded, primary: false,
+                  Text('外部引擎 · 需本机已安装',
+                      style: TextStyle(
+                          fontSize: 11,
+                          color: Theme.of(context).brightness == Brightness.dark
+                              ? Colors.white54
+                              : Colors.black54)),
+                  const SizedBox(width: 10),
+                  LiquidButton(text: '调用火绒', icon: Icons.security_rounded, primary: false,
                       onTap: () => _runExternal('huorong')),
                   const SizedBox(width: 10),
-                  LiquidButton(text: 'PYAS', icon: Icons.security_rounded, primary: false,
+                  LiquidButton(text: '调用 PYAS', icon: Icons.security_rounded, primary: false,
                       onTap: () => _runExternal('pyas')),
                 ]),
               ]),
