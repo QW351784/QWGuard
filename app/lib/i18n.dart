@@ -14,6 +14,7 @@ class I18n {
     'light': '浅色模式',
     'dark': '深色模式',
     'system': '跟随系统',
+    'smart': '智能（白天浅色，夜间深色）',
     'confirm': '确认并进入',
     'language': '语言',
     'refresh': '刷新',
@@ -68,6 +69,7 @@ class I18n {
     'light': 'Light',
     'dark': 'Dark',
     'system': 'Follow system',
+    'smart': 'Smart (light by day, dark at night)',
     'confirm': 'Continue',
     'language': 'Language',
     'refresh': 'Refresh',
@@ -119,7 +121,7 @@ class I18n {
     '发': '發', '欢': '歡', '请': '請', '选': '選', '题': '題', '显': '顯', '驱': '驅',
     '动': '動', '启': '啟', '单': '單', '运': '運', '库': '庫', '补': '補', '残': '殘',
     '悬': '懸', '计': '計', '划': '劃', '调': '調', '线': '線', '级': '級', '独': '獨',
-    '优': '優',
+    '优': '優', '间': '間',
   };
 
   static String _toHant(String s) {

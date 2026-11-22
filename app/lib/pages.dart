@@ -2086,9 +2086,10 @@ class _WelcomeSheetState extends State<WelcomeSheet> {
       children: [
         Text(I18n.t('pickTheme'), style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
         const SizedBox(height: 12),
-        // 顺序：跟随系统 → 浅色 → 深色。
-        // 「跟随系统」是 Windows 11 的默认习惯，原来排在第三，
-        // 想用它得先翻过两个不想要的选项。
+        // 顺序：智能 → 跟随系统 → 浅色 → 深色。
+        // 「智能」按本地时间调度：06:00–18:00 浅色，18:00–06:00 深色。
+        _opt(I18n.t('smart'), ThemeOption.smart),
+        const SizedBox(height: 9),
         _opt(I18n.t('system'), ThemeOption.system),
         const SizedBox(height: 9),
         _opt(I18n.t('light'), ThemeOption.light),
@@ -2235,6 +2236,7 @@ class _SettingsPageState extends State<SettingsPage> {
             child: ListView(children: [
               _section('外观与动画'),
               _perfRow(),
+              _themeRow(),
               _materialRow(),
               for (final a in Ui.anims) _animRow(a),
               _langRow(),
@@ -2735,6 +2737,94 @@ class _SettingsPageState extends State<SettingsPage> {
         ),
       ),
     );
+  }
+
+  /// 设置页的主题入口：智能 / 跟随系统 / 浅色 / 深色
+  Widget _themeRow() {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final cur = Ui.theme.value;
+    final label = switch (cur) {
+      ThemeOption.smart => '智能（白天浅色，夜间深色）',
+      ThemeOption.system => '跟随系统',
+      ThemeOption.light => '浅色模式',
+      ThemeOption.dark => '深色模式',
+    };
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          LiquidGlass(
+            radius: 26,
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            onTap: _pickTheme,
+            child: Row(
+              children: [
+                const Icon(Icons.brightness_6_rounded, size: 20),
+                const SizedBox(width: 12),
+                const Expanded(child: Text('界面主题', style: TextStyle(fontSize: 14))),
+                Flexible(
+                  child: Text(
+                    label,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(fontSize: 12.5, color: isDark ? Colors.white70 : Colors.black54),
+                  ),
+                ),
+                const SizedBox(width: 4),
+                const Icon(Icons.chevron_right_rounded, size: 18),
+              ],
+            ),
+          ),
+          if (cur == ThemeOption.smart)
+            Padding(
+              padding: const EdgeInsets.only(top: 5, left: 6),
+              child: Text(
+                '智能调度：06:00–18:00 浅色，18:00–06:00 深色',
+                style: TextStyle(fontSize: 11, color: isDark ? Colors.white38 : Colors.black45),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _pickTheme() async {
+    final cur = Ui.theme.value;
+    const opts = <(ThemeOption, String, String)>[
+      (ThemeOption.smart, '智能（白天浅色，夜间深色）', '06:00–18:00 浅色，18:00–06:00 深色，按本地时间自动切'),
+      (ThemeOption.system, '跟随系统', '跟随 Windows 的浅色 / 深色设置'),
+      (ThemeOption.light, '浅色模式', '始终使用浅色界面'),
+      (ThemeOption.dark, '深色模式', '始终使用深色界面'),
+    ];
+    final picked = await showDialog<ThemeOption>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('界面主题', style: TextStyle(fontSize: 16)),
+        contentPadding: const EdgeInsets.fromLTRB(8, 10, 8, 8),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            for (final o in opts)
+              ListTile(
+                dense: true,
+                leading: Icon(
+                  o.$1 == cur ? Icons.radio_button_checked_rounded : Icons.radio_button_off_rounded,
+                  size: 18,
+                  color: const Color(0xFF2F7BFF),
+                ),
+                title: Text(o.$2, style: const TextStyle(fontSize: 13)),
+                subtitle: Text(o.$3, style: const TextStyle(fontSize: 11)),
+                onTap: () => Navigator.of(ctx).pop(o.$1),
+              ),
+          ],
+        ),
+      ),
+    );
+    if (picked == null) return;
+    Ui.theme.value = picked;
+    await AppSettings.saveTheme(picked);
+    if (mounted) setState(() {});
   }
 
   /// 设置页的材质入口：点开选五档

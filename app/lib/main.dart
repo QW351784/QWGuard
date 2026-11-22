@@ -169,16 +169,82 @@ class ToolboxApp extends StatefulWidget {
   State<ToolboxApp> createState() => _ToolboxAppState();
 }
 
-class _ToolboxAppState extends State<ToolboxApp> {
+class _ToolboxAppState extends State<ToolboxApp> with WidgetsBindingObserver {
   late ThemeOption _theme = widget.initialTheme;
+  Timer? _smartTimer;
+
+  /// 给设置页读取当前主题用（_ToolboxAppState 是私有类型，但成员可以公开访问）
+  ThemeOption get theme => _theme;
+
+  /// 白天 06:00–18:00 算浅色，其余算深色。
+  /// 不按系统深色开关走：用户明确要「白天浅色、晚上深色」的时间调度。
+  bool get _isDayTime {
+    final h = DateTime.now().hour;
+    return h >= 6 && h < 18;
+  }
 
   ThemeMode get _mode => switch (_theme) {
         ThemeOption.light => ThemeMode.light,
         ThemeOption.dark => ThemeMode.dark,
         ThemeOption.system => ThemeMode.system,
+        ThemeOption.smart => _isDayTime ? ThemeMode.light : ThemeMode.dark,
       };
 
-  void setTheme(ThemeOption t) => setState(() => _theme = t);
+  @override
+  void initState() {
+    super.initState();
+    Ui.theme.value = _theme;
+    Ui.theme.addListener(_onThemeChanged);
+    WidgetsBinding.instance.addObserver(this);
+    _armSmartTimer();
+  }
+
+  @override
+  void dispose() {
+    Ui.theme.removeListener(_onThemeChanged);
+    _smartTimer?.cancel();
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  void _onThemeChanged() {
+    final t = Ui.theme.value;
+    if (t == _theme) return;
+    setState(() => _theme = t);
+    _armSmartTimer();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // 睡眠唤醒后 Timer 可能被延后，恢复时立刻按当前时间重算一次
+    if (state == AppLifecycleState.resumed && _theme == ThemeOption.smart && mounted) {
+      setState(() {});
+    }
+  }
+
+  /// 只在 06:00 / 18:00 两个边界唤醒，不做每分钟轮询
+  void _armSmartTimer() {
+    _smartTimer?.cancel();
+    final now = DateTime.now();
+    DateTime next;
+    if (now.hour < 6) {
+      next = DateTime(now.year, now.month, now.day, 6);
+    } else if (now.hour < 18) {
+      next = DateTime(now.year, now.month, now.day, 18);
+    } else {
+      next = DateTime(now.year, now.month, now.day + 1, 6);
+    }
+    final wait = next.difference(now) + const Duration(seconds: 1);
+    _smartTimer = Timer(wait, () {
+      _armSmartTimer();
+      if (mounted && _theme == ThemeOption.smart) setState(() {});
+    });
+  }
+
+  void setTheme(ThemeOption t) {
+    if (Ui.theme.value == t) return;
+    Ui.theme.value = t; // 监听器统一负责 setState 与重新排智能调度
+  }
 
   @override
   Widget build(BuildContext context) {

@@ -234,7 +234,7 @@ class Native {
   }
 }
 
-enum ThemeOption { light, dark, system }
+enum ThemeOption { light, dark, system, smart }
 
 /// 本地设置（首启引导、主题、语言）
 class AppSettings {
@@ -249,6 +249,8 @@ class AppSettings {
         return ThemeOption.light;
       case 'dark':
         return ThemeOption.dark;
+      case 'smart':
+        return ThemeOption.smart;
       default:
         return ThemeOption.system;
     }

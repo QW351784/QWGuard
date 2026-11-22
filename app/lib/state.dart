@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import 'bridge.dart';
+
 /// 一项动画开关的定义
 class AnimDef {
   final String key;
@@ -12,6 +14,10 @@ class AnimDef {
 /// 全局 UI 状态
 /// 动画默认全部开启，只有用户明确要求默认关闭的（悬浮窗）才关
 class Ui {
+  /// 当前主题：设置页改它，ToolboxApp 监听后切 MaterialApp.themeMode。
+  /// 智能档会在 06:00 / 18:00 由 ToolboxApp 的定时器重算。
+  static final theme = ValueNotifier<ThemeOption>(ThemeOption.system);
+
   // 默认开的这些是「不烧 GPU 的」：材质、模糊、折射、Dock、页面切换、按钮回弹。
   // blur（BackdropFilter）是单帧最贵的一项：每个 LiquidGlass 都要把背景
   // 重采样一遍，一屏十几块玻璃就是十几次全屏采样，双显卡机器上系统还默认
