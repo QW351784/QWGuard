@@ -296,9 +296,9 @@ class LiquidGlass extends StatelessWidget {
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final s = currentMatStyle();
-    // 关键：auto（智能搭配）以前也被当成 glassLike，于是每张卡片都走
-    // 三层阴影 + 渐变 + ClipPath 的玻璃路径 —— 这就是「纯色 8%、智能搭配 20%」
-    // 的来源。auto 现在走便宜的实色路径，只在 Dock 保留一点玻璃感。
+    // auto（智能搭配）= 半透明玻璃面 + 系统 Mica 底。
+    // 它不走 BackdropFilter（模糊交给 DWM），但必须保留边缘折射和扫光带，
+    // 否则卡片会变成「哑光实色卡」—— 用户要的正是那几道灯带。
     // forceGlass 给安装/卸载向导用：那边没有材质设置页，必须无条件走玻璃
     final glassLike = s == MatStyle.glass || forceGlass;
     // 智能搭配 = 液态玻璃的观感 + 系统级云母/Aero 的底：
@@ -309,8 +309,9 @@ class LiquidGlass extends StatelessWidget {
     final micaLike = s == MatStyle.mica;
     final solidLike = s == MatStyle.solid;
 
-    // 液态玻璃开关只管玻璃档；云母和 Aero 是系统材质，不受它影响
-    final glass = glassLike && (forceGlass || Ui.glass.value);
+    // 液态玻璃开关只管玻璃档；云母和 Aero 是系统材质，不受它影响。
+    // auto 也算「玻璃观感」：只开折射/光追灯带，不开逐卡 BackdropFilter。
+    final glass = (glassLike || autoLike) && (forceGlass || Ui.glass.value);
     // auto 的模糊由窗口 Mica/Acrylic 提供，卡片不再各自 BackdropFilter
     final blurOn = !solidLike && !autoLike && Ui.realtimeBlur.value;
 

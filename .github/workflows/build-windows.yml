@@ -44,30 +44,14 @@ jobs:
         working-directory: app
         run: flutter create --platforms=windows --project-name system_toolbox .
 
-      # Flutter 3.47+ 在 Windows 上默认改用 Impeller(D3D12)：静态界面也会持续
-      # 整窗重合成，实测空窗口就能吃 30~50% GPU。命令行已不提供
-      # --no-enable-impeller，必须在生成的 runner 里显式关掉。
-      - name: Patch Windows runner (关闭 Impeller)
-        working-directory: app
-        shell: pwsh
-        run: |
-          $p = 'windows\runner\main.cpp'
-          $c = Get-Content $p -Raw
-          if ($c -notmatch 'set_impeller_switch') {
-            $old = 'flutter::DartProject project(L"data");'
-            $new = 'flutter::DartProject project(L"data");' + "`r`n  project.set_impeller_switch(flutter::ImpellerSwitch::Disabled);"
-            $c = $c.Replace($old, $new)
-            Set-Content -Path $p -Value $c -NoNewline
-          }
-          Select-String -Path $p -Pattern 'set_impeller_switch'
-
       - name: Pub get
         working-directory: app
         run: flutter pub get
 
       - name: Build Windows app
         working-directory: app
-        # Impeller 已在 runner 里关掉，退回 Skia；空闲 GPU 从 30~50% 压到个位数。
+        # 保持 Flutter 默认的 Impeller(D3D12)：光带/扫光/折射必须走 Impeller 才有完整效果。
+        # 不再用命令行关 Impeller（3.47+ 也不支持 --no-enable-impeller）。
         run: flutter build windows --release
         shell: pwsh
 
