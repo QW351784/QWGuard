@@ -67,7 +67,6 @@ class Api {
         return jsonDecode(text) as Map<String, dynamic>;
       } finally {
         calloc.free(a);
-        calloc.free(p);
         calloc.free(buf);
       }
     } catch (e) {
