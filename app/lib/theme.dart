@@ -239,6 +239,9 @@ class LiquidGlass extends StatelessWidget {
     // 三层阴影 + 渐变 + ClipPath 的玻璃路径 —— 这就是「纯色 8%、智能搭配 20%」
     // 的来源。auto 现在走便宜的实色路径，只在 Dock 保留一点玻璃感。
     final glassLike = s == MatStyle.glass;
+    // 智能搭配 = 液态玻璃的观感 + 系统级云母/Aero 的底：
+    // 窗口交给 DWM 合成（Mica/Acrylic），卡片只贴半透明玻璃面，
+    // 不再对每张卡片做 BackdropFilter —— 既保留玻璃层次，又不让 GPU 翻倍。
     final autoLike = s == MatStyle.auto;
     final aeroLike = s == MatStyle.aero;
     final micaLike = s == MatStyle.mica;
@@ -246,7 +249,8 @@ class LiquidGlass extends StatelessWidget {
 
     // 液态玻璃开关只管玻璃档；云母和 Aero 是系统材质，不受它影响
     final glass = glassLike && (forceGlass || Ui.glass.value);
-    final blurOn = !solidLike && Ui.realtimeBlur.value;
+    // auto 的模糊由窗口 Mica/Acrylic 提供，卡片不再各自 BackdropFilter
+    final blurOn = !solidLike && !autoLike && Ui.realtimeBlur.value;
 
     // iPhone 式 R 角：四角统一走 squirclePath。
     // 不用 ContinuousRectangleBorder —— 它在大半径下角部偏方，
@@ -259,11 +263,24 @@ class LiquidGlass extends StatelessWidget {
     Gradient? grad;
     List<BoxShadow> shadows;
 
-    if (solidLike || autoLike) {
-      // 智能搭配 = 实色面 + 一层很浅的投影，GPU 开销和纯色基本一致
+    if (solidLike) {
       fill = isDark ? const Color(0xFF1B2029) : Colors.white;
       shadows = [
         BoxShadow(color: Colors.black.withOpacity(isDark ? 0.30 : 0.08), blurRadius: 18, offset: const Offset(0, 6)),
+      ];
+    } else if (autoLike) {
+      // 智能搭配：半透明玻璃面（能透出窗口的 Mica/Acrylic），顶部一道冷白高光，
+      // 不做模糊、不做折射 —— 观感是玻璃，开销接近实色。
+      grad = LinearGradient(
+        begin: Alignment.topLeft,
+        end: Alignment.bottomRight,
+        colors: isDark
+            ? [Colors.white.withOpacity(0.10), const Color(0xFF1A2230).withOpacity(0.46)]
+            : [Colors.white.withOpacity(0.72), const Color(0xFFE8F1FF).withOpacity(0.42)],
+        stops: const [0.0, 1.0],
+      );
+      shadows = [
+        BoxShadow(color: Colors.black.withOpacity(isDark ? 0.28 : 0.07), blurRadius: 16, offset: const Offset(0, 5)),
       ];
     } else if (aeroLike) {
       // Win7 Aero：顶部一道强白高光，中段蓝色雾面，底部收暗
