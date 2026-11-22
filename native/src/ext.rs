@@ -1146,10 +1146,14 @@ fn scan_roots(roots: Vec<PathBuf>, scope: String, buf: *mut u8, len: usize) -> i
     // 并且把扫描线程优先级压到 BELOW_NORMAL：
     //   大核照常跑扫描，小核留给系统/前台，
     //   即使全线程拉满，鼠标、窗口动画也不会被挤到「未响应」。
+    // 不再设人为上限：线程数严格等于逻辑处理器数。
+    // 之前的 16 是对 24/32 线程机器留的保守护栏，在 20 线程的机器上
+    // 等于白白切掉 4 个核。线程数超过核心数并不会更快——一个核同一时刻
+    // 只跑一个线程，多出来的只会在「抢占-切换-缓存失效」之间空转。
     let threads = std::thread::available_parallelism()
         .map(|n| n.get())
         .unwrap_or(4)
-        .clamp(2, 16);
+        .max(1);
     let _ = rayon::ThreadPoolBuilder::new()
         .num_threads(threads)
         .thread_name(|i| format!("qw-scan-{}", i))
