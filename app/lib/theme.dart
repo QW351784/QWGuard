@@ -301,9 +301,12 @@ class LiquidGlass extends StatelessWidget {
           ? LinearGradient(
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
+              // 再压一档：玻璃的「质感」来自背景被折射出来的层次，
+              // 面填得越白越像塑料。0.34/0.14 让模糊后的背景能透上来，
+              // 亮部交给下面 _Refraction 的边缘反射去做。
               colors: isDark
-                  ? [Colors.white.withOpacity(0.46), Colors.white.withOpacity(0.24), const Color(0xFF3A5E96).withOpacity(0.32)]
-                  : [Colors.white.withOpacity(0.86), Colors.white.withOpacity(0.52), const Color(0xFFE8F2FF).withOpacity(0.60)],
+                  ? [Colors.white.withOpacity(0.34), Colors.white.withOpacity(0.14), const Color(0xFF3A5E96).withOpacity(0.24)]
+                  : [Colors.white.withOpacity(0.62), Colors.white.withOpacity(0.28), const Color(0xFFE8F2FF).withOpacity(0.42)],
               stops: const [0.0, 0.55, 1.0],
             )
           : null;
@@ -722,15 +725,20 @@ class _RefractionPainter extends CustomPainter {
     final ux = dirX / norm;
     final uy = dirY / norm;
 
+    // 真玻璃的色散是一条很窄、很糊的光边，不是三色描边。
+    // 三道 0.7px + 模糊 2.4 叠加后，肉眼看到的是一条暖白↔冷白渐变的光晕，
+    // 只有贴近看才能分出RGB偏移，这才是折射而不是「彩色边框」。
     final offsets = [
-      (const Color(0xFFFF4D6D), Offset(ux * amp, uy * amp)),
-      (const Color(0xFF4DD2FF), Offset(-ux * amp, -uy * amp)),
+      (const Color(0xFFFF6B6B), Offset(ux * amp * 1.6, uy * amp * 1.6)),
+      (const Color(0xFF6BE3FF), Offset(-ux * amp * 1.2, -uy * amp * 1.2)),
+      (const Color(0xFFFFFFFF), Offset(0, -amp * 0.4)),
     ];
     for (final (color, off) in offsets) {
       final paint = Paint()
         ..style = PaintingStyle.stroke
-        ..strokeWidth = 1.0
-        ..color = color.withOpacity(dark ? 0.07 : 0.08);
+        ..strokeWidth = 0.9
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 2.4)
+        ..color = color.withOpacity(dark ? 0.09 : 0.11);
       canvas.save();
       canvas.translate(off.dx, off.dy);
       canvas.drawPath(path, paint);
@@ -794,6 +802,26 @@ class _RefractionPainter extends CustomPainter {
     canvas.drawRect(Offset.zero & size, Paint()..shader = bodyGlow);
     canvas.restore();
 
+    // 1.7 玻璃厚度：沿边 10px 的折射带。
+    // 这一圈是「厚玻璃」和「一张贴纸」的分界：光从边缘进入玻璃后
+    // 会在内壁反射一次，形成一圈比中心亮、且方向可辨的窄带。
+    // 用 Path 做差集，形状仍然跟外层同一条 squircle，四角不会错位。
+    final band = Path.combine(
+      PathOperation.difference,
+      squirclePath((Offset.zero & size).deflate(1.0), math.max(radius - 1.0, 1.0)),
+      squirclePath((Offset.zero & size).deflate(11.0), math.max(radius - 11.0, 1.0)),
+    );
+    final bandPaint = Paint()
+      ..shader = LinearGradient(
+        begin: Alignment.topLeft,
+        end: Alignment.bottomRight,
+        colors: dark
+            ? [Colors.white.withOpacity(0.13), Colors.white.withOpacity(0.02), Colors.white.withOpacity(0.10)]
+            : [Colors.white.withOpacity(0.30), Colors.white.withOpacity(0.04), Colors.white.withOpacity(0.16)],
+        stops: const [0.0, 0.52, 1.0],
+      ).createShader(Offset.zero & size);
+    canvas.drawPath(band, bandPaint);
+
     // 2. 指针柔光：范围压到短边的 40% 以内，且中心透明度很低。
     //
     //    以前这里是 `r = max(w,h) * 0.52` + `drawCircle`，
@@ -836,7 +864,18 @@ class _RayTrace extends StatefulWidget {
   State<_RayTrace> createState() => _RayTraceState();
 }
 
-class _RayTraceState extends State<_RayTrace> {
+class _RayTraceState extends State<_RayTrace> with SingleTickerProviderStateMixin {
+  // 9 秒一轮：玻璃上的高光移动必须慢，快了就成了「KTV 灯球」。
+  late final AnimationController _c = AnimationController(
+    vsync: this,
+    duration: const Duration(seconds: 9),
+  )..repeat();
+
+  @override
+  void dispose() {
+    _c.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -848,9 +887,12 @@ class _RayTraceState extends State<_RayTrace> {
         if (c.maxWidth < 420 || c.maxHeight < 200) return const SizedBox.shrink();
         return IgnorePointer(
           child: RepaintBoundary(
-            child: CustomPaint(
-              painter: _RayTracePainter(radius: widget.radius, dark: isDark),
-              size: Size.infinite,
+            child: AnimatedBuilder(
+              animation: _c,
+              builder: (_, __) => CustomPaint(
+                painter: _RayTracePainter(radius: widget.radius, dark: isDark, t: _c.value),
+                size: Size.infinite,
+              ),
             ),
           ),
         );
@@ -862,8 +904,9 @@ class _RayTraceState extends State<_RayTrace> {
 class _RayTracePainter extends CustomPainter {
   final double radius;
   final bool dark;
+  final double t;
 
-  _RayTracePainter({required this.radius, required this.dark});
+  _RayTracePainter({required this.radius, required this.dark, this.t = 0});
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -890,10 +933,59 @@ class _RayTracePainter extends CustomPainter {
         stops: const [0.0, 0.45, 1.0],
       ).createShader(Offset.zero & size);
     canvas.drawPath(path, edge);
+
+    // 主光束：一条斜切过玻璃的极淡高光，随 t 缓慢横移。
+    // 真光追的反射是有方向、有形状的；原来只有一道静态描边，
+    // 玻璃看起来就是「一块死的半透明板」。
+    canvas.save();
+    canvas.clipPath(path);
+    final beamX = -size.width * 0.45 + size.width * 1.9 * t;
+    final skew = size.height * 0.22;
+    final beam = Path()
+      ..moveTo(beamX, 0)
+      ..lineTo(beamX + size.width * 0.13, 0)
+      ..lineTo(beamX + size.width * 0.13 + skew, size.height)
+      ..lineTo(beamX + skew, size.height)
+      ..close();
+    final beamPaint = Paint()
+      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 22)
+      ..shader = LinearGradient(
+        begin: Alignment.centerLeft,
+        end: Alignment.centerRight,
+        colors: [
+          Colors.white.withOpacity(0.0),
+          Colors.white.withOpacity(dark ? 0.05 : 0.11),
+          Colors.white.withOpacity(0.0),
+        ],
+        stops: const [0.0, 0.5, 1.0],
+      ).createShader(Rect.fromLTWH(beamX, 0, size.width * 0.13 + skew, size.height));
+    canvas.drawPath(beam, beamPaint);
+
+    // 焦散：底部一道很淡的弧形聚光，位置固定在右下（模拟主光来自左上）
+    final caustic = Path()
+      ..addArc(
+        Rect.fromCenter(
+          center: Offset(size.width * 0.70, size.height * 1.04),
+          width: size.width * 0.95,
+          height: size.height * 0.52,
+        ),
+        math.pi * 1.08,
+        math.pi * 0.62,
+      );
+    canvas.drawPath(
+      caustic,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.8
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 9)
+        ..color = Colors.white.withOpacity(dark ? 0.08 : 0.16),
+    );
+    canvas.restore();
   }
 
   @override
-  bool shouldRepaint(covariant _RayTracePainter old) => old.dark != dark || old.radius != radius;
+  bool shouldRepaint(covariant _RayTracePainter old) =>
+      old.dark != dark || old.radius != radius || old.t != t;
 }
 
 /// 水纹层：指针按下 / 划过时在玻璃上溅起同心水波，越往外越淡

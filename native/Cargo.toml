@@ -19,7 +19,7 @@ sha2 = "0.10"
 ureq = "2.10"
 
 [target.'cfg(windows)'.dependencies]
-windows = { version = "0.58", features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging"] }
+windows = { version = "0.58", features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging", "Win32_System_Threading"] }
 
 # 性能优先：opt-level 3 而不是体积优先的 z
 # fat LTO + codegen-units=1 让 LLVM 跨模块优化

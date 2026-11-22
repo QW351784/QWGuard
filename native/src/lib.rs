@@ -9,6 +9,7 @@ use serde_json::Value;
 use std::ffi::{c_char, CStr};
 use std::fs;
 use std::path::{Path, PathBuf};
+use rayon::prelude::*;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Mutex;
 
@@ -302,35 +303,50 @@ pub extern "C" fn cleanup_scan_mode(mode: *const c_char, path: *const c_char, bu
     let mut items = Vec::new();
     let mut total = 0u64;
 
-    // 1) 内置垃圾目录：两种模式都要过一遍
-    for (id, raw, source, category) in rules() {
-        if let Ok(mut g) = CLEAN_CUR.lock() {
-            *g = format!("定位 {}", category);
-        }
-        let Some(p) = expand(raw) else { continue };
-        if !p.exists() {
-            continue;
-        }
-        let (mut f, mut b) = (0u64, 0u64);
-        walk_stat(&p, &mut f, &mut b, 0);
-        if b == 0 {
-            continue;
-        }
+    // 1) 内置垃圾目录：多个目录并行统计（rayon 保证结果顺序不变）。
+    // 以前 8 个目录一个接一个走，Temp 里几十万个小文件就卡在那儿；
+    // 现在每个目录一个任务，按核心数同时跑。
+    let scanned: Vec<(String, String, String, u64, String)> = rules()
+        .into_par_iter()
+        .filter_map(|(id, raw, source, category)| {
+            let p = expand(raw)?;
+            if !p.exists() {
+                return None;
+            }
+            if let Ok(mut g) = CLEAN_CUR.lock() {
+                *g = format!("定位 {}", category);
+            }
+            let (mut _f, mut b) = (0u64, 0u64);
+            walk_stat(&p, &mut _f, &mut b, 0);
+            if b == 0 {
+                return None;
+            }
+            Some((
+                id.to_string(),
+                category.to_string(),
+                p.to_string_lossy().to_string(),
+                b,
+                source.to_string(),
+            ))
+        })
+        .collect();
+
+    for (id, category, path, b, source) in scanned {
         total += b;
         if let Ok(mut g) = CLEAN_ITEMS.lock() {
             if g.len() < 40 {
                 g.push(serde_json::json!({
-                    "id": id, "category": category, "path": p.to_string_lossy(), "size": b
+                    "id": &id, "category": &category, "path": &path, "size": b
                 }));
             }
         }
         items.push(CleanItem {
-            id: id.into(),
-            category: category.into(),
-            path: p.to_string_lossy().into(),
+            id,
+            category,
+            path,
             size_bytes: b,
             default_checked: true,
-            source: source.into(),
+            source,
         });
     }
 

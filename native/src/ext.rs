@@ -1140,12 +1140,66 @@ fn scan_roots(roots: Vec<PathBuf>, scope: String, buf: *mut u8, len: usize) -> i
         *g = scope.clone();
     }
 
-    let mut sig_hits = 0u64;
-    let mut heu_hits = 0u64;
-    let mut threats: Vec<Value> = Vec::new();
-    let mut suspects: Vec<PathBuf> = Vec::new();
-    let mut done: u64 = 0;
+    // 并行扫描：文件攒成批（1024 个一批），整批丢给 rayon 线程池同时算。
+    // 以前是 while 循环里「读一个、算完、再读一个」，纯单线程 ——
+    // C 盘几十万文件走 15 分钟都出不来。现在按逻辑核心数开线程，
+    // 并且把扫描线程优先级压到 BELOW_NORMAL：
+    //   大核照常跑扫描，小核留给系统/前台，
+    //   即使全线程拉满，鼠标、窗口动画也不会被挤到「未响应」。
+    let threads = std::thread::available_parallelism()
+        .map(|n| n.get())
+        .unwrap_or(4)
+        .clamp(2, 16);
+    let _ = rayon::ThreadPoolBuilder::new()
+        .num_threads(threads)
+        .thread_name(|i| format!("qw-scan-{}", i))
+        .start_handler(|_| {
+            #[cfg(windows)]
+            unsafe {
+                use windows::Win32::System::Threading::{
+                    GetCurrentThread, SetThreadPriority, THREAD_PRIORITY_BELOW_NORMAL,
+                };
+                let _ = SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_BELOW_NORMAL);
+            }
+        })
+        .build_global();
+
+    let found: std::sync::Mutex<Vec<Value>> = std::sync::Mutex::new(Vec::new());
+    let suspect_pool: std::sync::Mutex<Vec<PathBuf>> = std::sync::Mutex::new(Vec::new());
     let mut skipped: u64 = 0;
+    let mut batch: Vec<PathBuf> = Vec::with_capacity(1024);
+
+    macro_rules! flush_batch {
+        () => {{
+            if !batch.is_empty() {
+                batch.par_iter().for_each(|p| {
+                    if SCAN_CANCEL.load(Ordering::Relaxed) {
+                        return;
+                    }
+                    if let Ok(mut g) = SCAN_CUR.lock() {
+                        *g = p.to_string_lossy().to_string();
+                    }
+                    let mut t: Vec<Value> = Vec::new();
+                    let mut s: Vec<PathBuf> = Vec::new();
+                    let (mut sh, mut hh) = (0u64, 0u64);
+                    scan_one_file(p, &mut s, &mut t, &mut sh, &mut hh);
+                    if !t.is_empty() {
+                        if let Ok(mut g) = found.lock() {
+                            g.extend(t);
+                        }
+                    }
+                    if !s.is_empty() {
+                        if let Ok(mut g) = suspect_pool.lock() {
+                            let room = 300usize.saturating_sub(g.len());
+                            g.extend(s.into_iter().take(room));
+                        }
+                    }
+                    SCAN_DONE.fetch_add(1, Ordering::Relaxed);
+                });
+                batch.clear();
+            }
+        }};
+    }
 
     let mut stack: Vec<PathBuf> = roots;
     while let Some(node) = stack.pop() {
@@ -1156,14 +1210,10 @@ fn scan_roots(roots: Vec<PathBuf>, scope: String, buf: *mut u8, len: usize) -> i
         if md.is_file() {
             if md.len() == 0 {
                 skipped += 1;
-                continue;
+            } else {
+                batch.push(node);
             }
-            if let Ok(mut g) = SCAN_CUR.lock() {
-                *g = node.to_string_lossy().to_string();
-            }
-            scan_one_file(&node, &mut suspects, &mut threats, &mut sig_hits, &mut heu_hits);
-            done += 1;
-            SCAN_DONE.fetch_add(1, Ordering::Relaxed);
+            flush_batch!();
             continue;
         }
         let Ok(rd) = fs::read_dir(&node) else { continue };
@@ -1181,18 +1231,18 @@ fn scan_roots(roots: Vec<PathBuf>, scope: String, buf: *mut u8, len: usize) -> i
             } else if md.is_file() {
                 if md.len() == 0 {
                     skipped += 1;
-                    continue;
+                } else {
+                    batch.push(e.path());
                 }
-                let path = e.path();
-                if let Ok(mut g) = SCAN_CUR.lock() {
-                    *g = path.to_string_lossy().to_string();
-                }
-                scan_one_file(&path, &mut suspects, &mut threats, &mut sig_hits, &mut heu_hits);
-                done += 1;
-                SCAN_DONE.fetch_add(1, Ordering::Relaxed);
             }
         }
+        flush_batch!();
     }
+    flush_batch!();
+
+    let mut threats = found.into_inner().unwrap_or_default();
+    let suspects = suspect_pool.into_inner().unwrap_or_default();
+    let done = SCAN_DONE.load(Ordering::Relaxed);
 
     // 第二阶段：只对启发式判可疑的文件跑 YARA，最多 20 个。
     // 原来这里是「300 个 YARA + 前 60 个 Defender」：YARA 每次起一个进程，
