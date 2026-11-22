@@ -342,23 +342,38 @@ class _ShellState extends State<Shell>
       await windowManager.show();
       await windowManager.focus();
       _resumeAnim();
+      // 等窗口真的可见再往下走。紧接着就 showDialog 时，如果窗口还没完成
+      // 显示，弹框会挂到一个尚未可见的 surface 上，用户仍然看不到。
+      await Future<void>.delayed(const Duration(milliseconds: 120));
     } catch (_) {}
   }
 
   /// 托盘菜单里点「退出」。
-  /// 之前这里直接 await _confirmClose()，但那一刻窗口已经 hide() 到托盘里了 ——
-  /// showDialog 会被渲染到那个不可见的窗口上，用户既看不到框也无处可点，
-  /// await 永远不返回，表现就是「点退出没任何反应、怎么点都退不掉」。
-  /// 现在：没开密码保护就直接退（也不再弹确认框，符合「别老提示确定要关闭」）；
-  /// 开了密码保护才把窗口叫出来、验一次密码。
+  /// 注意：点退出时窗口是 hide() 状态，必须先把窗口叫出来，
+  /// 否则 showDialog 会渲染在那个不可见的窗口上 —— 用户看不到框、
+  /// 没处可点，await 永远挂着，表现就是「点退出没反应、托盘一直在」。
   Future<void> _quitApp() async {
+    await _showFromTray();
+    if (!mounted) return;
+
+    // 退出必须提示：退出后防护全停，这台电脑就不再受保护
+    final yes = await showDialog<bool>(
+      context: context,
+      builder: (_) => QDialog(
+        icon: Icons.power_settings_new_rounded,
+        title: '确定要退出吗？',
+        body: '退出后实时防护和后台查杀都会停止，这台电脑将不再受保护。',
+        okText: '仍然退出',
+        cancelText: '继续保护',
+      ),
+    );
+    if (yes != true) return;
+
     final st = Api.passwordState();
     final needPwd =
         st['success'] == true && st['data'] is Map && st['data']['enabled'] == true;
-
     if (needPwd) {
-      await _showFromTray();
-      final ok = await _askPassword('关闭软件');
+      final ok = await _askPassword('退出软件');
       if (!ok) return;
     }
 
@@ -370,8 +385,7 @@ class _ShellState extends State<Shell>
       await windowManager.setPreventClose(false);
       await windowManager.destroy();
     } catch (_) {}
-    // 兜底：destroy() 在某些情况下会卡在窗口线程上不返回，
-    // 用户看到的就是「点了还是没反应」。这里直接结束进程。
+    // 兜底：destroy() 偶发卡在窗口线程上不返回，加个强制结束
     await Future<void>.delayed(const Duration(milliseconds: 300));
     exit(0);
   }
