@@ -3,6 +3,7 @@ import 'dart:ui';
 
 import 'package:flutter/material.dart';
 
+import 'glass_shader.dart';
 import 'state.dart';
 
 /// 界面材质档
@@ -312,8 +313,9 @@ class LiquidGlass extends StatelessWidget {
     // 液态玻璃开关只管玻璃档；云母和 Aero 是系统材质，不受它影响。
     // auto 也算「玻璃观感」：只开折射/光追灯带，不开逐卡 BackdropFilter。
     final glass = (glassLike || autoLike) && (forceGlass || Ui.glass.value);
-    // auto 的模糊由窗口 Mica/Acrylic 提供，卡片不再各自 BackdropFilter
-    final blurOn = !solidLike && !autoLike && Ui.realtimeBlur.value;
+    // auto 的模糊由窗口 Mica/Acrylic 提供，卡片不再各自 BackdropFilter；
+    // 但安装/卸载向导是 forceGlass（全局材质可能是 auto），那边必须出玻璃。
+    final blurOn = !solidLike && (!autoLike || forceGlass) && Ui.realtimeBlur.value;
 
     // iPhone 式 R 角：四角统一走 squirclePath。
     // 不用 ContinuousRectangleBorder —— 它在大半径下角部偏方，
@@ -434,16 +436,24 @@ class LiquidGlass extends StatelessWidget {
     );
 
     if (blurOn) {
-      // 档位不同模糊强度不同：Aero 最重（Win7 那种糊）、云母最轻
+      // 液态玻璃档改走 ImageFilter.shader：中心清晰、边缘 SDF 折射 + 色散。
+      // Aero/云母仍用传统 blur（它们本来就是雾面材质）。
+      final shaderFilter = glass
+          ? GlassShader.filter(
+              radius: radius,
+              devicePixelRatio: MediaQuery.of(context).devicePixelRatio,
+            )
+          : null;
       final double sigma = aeroLike
           ? (isDark ? 22 : 28)
           : micaLike
               ? (isDark ? 10 : 14)
-              : (isDark ? 18 : 24);
+              : (isDark ? 4 : 5);
       box = ClipPath(
         clipper: clipper,
         child: BackdropFilter(
-          filter: ImageFilter.blur(sigmaX: sigma, sigmaY: sigma),
+          filter: shaderFilter ??
+              ImageFilter.blur(sigmaX: sigma, sigmaY: sigma),
           child: box,
         ),
       );

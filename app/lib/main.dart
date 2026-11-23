@@ -12,6 +12,7 @@ import 'package:tray_manager/legacy.dart';
 import 'package:window_manager/window_manager.dart';
 
 import 'api.dart';
+import 'glass_shader.dart';
 import 'bridge.dart';
 import 'i18n.dart';
 import 'installer.dart';
@@ -156,6 +157,7 @@ Future<void> main(List<String> args) async {
     });
   }
 
+  await GlassShader.load();
   runApp(ToolboxApp(initialTheme: theme));
 }
 
