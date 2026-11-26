@@ -20,6 +20,7 @@ import 'oobe.dart';
 import 'pages.dart';
 import 'state.dart';
 import 'theme.dart';
+import 'update_util.dart';
 import 'desktop_monitor.dart';
 import 'floating_monitor.dart';
 
@@ -77,6 +78,13 @@ Future<void> _setupWindow({bool silent = false}) async {
   } catch (_) {}
 }
 
+String _argValue(List<String> args, String prefix) {
+  for (final a in args) {
+    if (a.startsWith(prefix)) return a.substring(prefix.length);
+  }
+  return '';
+}
+
 /// 从 Windows DWM 读系统强调色，作为 Material 3 的种子色实现动态取色。
 /// 读不到 / 非 Windows / 颜色太灰太暗时回退品牌蓝，不影响启动。
 Future<Color?> _readSystemAccent() async {
@@ -122,6 +130,7 @@ Future<void> main(List<String> args) async {
       uninstall: args.contains('--uninstall'),
       silent: silent,
       initialDir: dirArg.isEmpty ? null : dirArg.substring('--dir='.length),
+      assetTime: _argValue(args, '--asset-time='),
     ));
     return;
   }
@@ -147,6 +156,7 @@ Future<void> main(List<String> args) async {
         uninstall: false,
         silent: silent,
         initialDir: dirArg.isEmpty ? null : dirArg.substring('--dir='.length),
+        assetTime: _argValue(args, '--asset-time='),
       ));
       return;
     }
@@ -227,19 +237,23 @@ Future<void> _autoUpdateCheck() async {
         ? (sec['data'] as Map)['silent_update'] != false
         : true;
     if (!silent) return;
-    final r = Api.update(repo.trim(), '1.1');
+    final r = Api.update(repo.trim(), UpdateUtil.currentVersion);
     if (r['success'] != true || r['data'] is! Map) return;
     final d = (r['data'] as Map).cast<String, dynamic>();
     final url = d['download_url']?.toString() ?? '';
-    if (d['has_update'] != true || url.isEmpty) return;
+    // 版本更高，或同版本但 Release/资产是重新发布的，都走升级
+    if (!await UpdateUtil.shouldUpdate(d) || url.isEmpty) return;
     final dst = '${Directory.systemTemp.path}${Platform.pathSeparator}'
         'QWGuard-update-${DateTime.now().millisecondsSinceEpoch}.exe';
     final dl = Api.downloadUpdate(url, dst);
     if (dl['success'] != true) return;
     final installDir = File(Platform.resolvedExecutable).parent.path;
+    final assetTime = d['download_updated_at']?.toString() ??
+        d['published_at']?.toString() ??
+        '';
     await Process.start(
       dst,
-      ['--silent', '--dir=$installDir'],
+      ['--silent', '--dir=$installDir', '--asset-time=$assetTime'],
       mode: ProcessStartMode.detached,
     );
     // 给安装器留出解包时间，然后退出主程序，避免它占着要替换的 exe/dll。

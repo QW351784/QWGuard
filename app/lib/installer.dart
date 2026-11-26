@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'api.dart';
 import 'state.dart';
 import 'theme.dart';
+import 'update_util.dart';
 
 /// 安装 / 卸载界面
 ///
@@ -19,7 +20,15 @@ class SetupApp extends StatefulWidget {
   final bool silent;
   /// 自动更新传入的原安装目录；为空时仍走推荐目录
   final String? initialDir;
-  const SetupApp({super.key, this.uninstall = false, this.silent = false, this.initialDir});
+  /// 自动更新传入的这次发布包时间；安装成功后写成本地更新基线
+  final String? assetTime;
+  const SetupApp({
+    super.key,
+    this.uninstall = false,
+    this.silent = false,
+    this.initialDir,
+    this.assetTime,
+  });
 
   @override
   State<SetupApp> createState() => _SetupAppState();
@@ -209,6 +218,11 @@ class _SetupAppState extends State<SetupApp> {
           ? '已写入 ${r['data']?['copied'] ?? 0} 个文件'
           : (r['message']?.toString() ?? '安装失败');
     });
+    if (ok && !widget.uninstall) {
+      // 无论手动装还是静默升级，成功后都把这次包的发布时间记下来。
+      // 下次同版本重发时，发布时间晚于这个基线才会再次升级。
+      await UpdateUtil.writeInstallBaseline(widget.assetTime);
+    }
     if (widget.silent) {
       // 静默升级没有界面可看，失败原因写到临时文件，方便排查
       try {

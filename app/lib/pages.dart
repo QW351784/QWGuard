@@ -16,6 +16,7 @@ import 'state.dart';
 import 'i18n.dart';
 import 'scan_fx.dart';
 import 'theme.dart';
+import 'update_util.dart';
 
 String _size(num bytes) {
   if (bytes < 1024) return '${bytes.toInt()} B';
@@ -3293,14 +3294,17 @@ class _SettingsPageState extends State<SettingsPage> {
     final r = Api.update(_repo, _current);
     if (!mounted) return;
     if (r['success'] == true) {
-      final d = r['data'];
-      final has = d['has_update'] == true;
+      final d = (r['data'] as Map).cast<String, dynamic>();
+      final has = await UpdateUtil.shouldUpdate(d);
       setState(() => _updateMsg = has
           ? '${I18n.t('hasUpdate')}: ${d['latest']}'
           : I18n.t('noUpdate'));
-      // 静默更新开启时，检查到新版就直接下载并后台覆盖升级。
+      // 静默更新开启时，检查到新版、或同版本重发包，就直接下载并后台覆盖升级。
       // 不再弹安装向导，也不让用户再确认一次。
       final url = d['download_url']?.toString() ?? '';
+      final assetTime = d['download_updated_at']?.toString() ??
+          d['published_at']?.toString() ??
+          '';
       if (has && _silentUpdate && url.isNotEmpty) {
         setState(() => _updateMsg = '正在后台下载新版本…');
         final dst = '${Directory.systemTemp.path}${Platform.pathSeparator}'
@@ -3310,7 +3314,7 @@ class _SettingsPageState extends State<SettingsPage> {
           final dir = File(Platform.resolvedExecutable).parent.path;
           await Process.start(
             dst,
-            ['--silent', '--dir=$dir'],
+            ['--silent', '--dir=$dir', '--asset-time=$assetTime'],
             mode: ProcessStartMode.detached,
           );
           await Future.delayed(const Duration(seconds: 2));

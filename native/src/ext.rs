@@ -1030,23 +1030,30 @@ pub extern "C" fn check_update(
                 // 自动更新需要直接拿到安装包。Release 里可能有源码包/校验文件，
                 // 只认 .exe，且优先名字里带 Setup 的那个。
                 let assets = v.get("assets").and_then(|x| x.as_array());
-                let mut setup_asset: Option<&str> = None;
-                let mut any_exe: Option<&str> = None;
+                // 同版本重发时版本号不变，只能靠资产更新时间判断是不是新包。
+                let mut setup_asset: Option<(&str, &str)> = None;
+                let mut any_exe: Option<(&str, &str)> = None;
                 if let Some(list) = assets {
                     for a in list {
                         let name = a.get("name").and_then(|x| x.as_str()).unwrap_or("");
                         let dl = a.get("browser_download_url").and_then(|x| x.as_str()).unwrap_or("");
+                        let at = a
+                            .get("updated_at")
+                            .or_else(|| a.get("created_at"))
+                            .and_then(|x| x.as_str())
+                            .unwrap_or("");
                         if !name.to_ascii_lowercase().ends_with(".exe") || dl.is_empty() {
                             continue;
                         }
                         if name.to_ascii_lowercase().contains("setup") && setup_asset.is_none() {
-                            setup_asset = Some(dl);
+                            setup_asset = Some((dl, at));
                         } else if any_exe.is_none() {
-                            any_exe = Some(dl);
+                            any_exe = Some((dl, at));
                         }
                     }
                 }
-                let download_url = setup_asset.or(any_exe).unwrap_or("");
+                let (download_url, download_updated_at) =
+                    setup_asset.or(any_exe).unwrap_or(("", ""));
                 ok(
                     buf,
                     len,
@@ -1057,6 +1064,7 @@ pub extern "C" fn check_update(
                         "has_update": newer(tag, &current),
                         "url": html,
                         "download_url": download_url,
+                        "download_updated_at": download_updated_at,
                         "notes": notes.chars().take(500).collect::<String>(),
                         "published_at": published
                     }),

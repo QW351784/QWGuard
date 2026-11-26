@@ -64,6 +64,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     // 保证覆盖升级装回原来的位置，而不是另装一份。
     let silent = env::args().any(|a| a == "--silent");
     let dir_arg = env::args().find(|a| a.starts_with("--dir="));
+    let asset_arg = env::args().find(|a| a.starts_with("--asset-time="));
     let mut cmd = Command::new(&setup);
     cmd.arg("--setup").current_dir(&tmp);
     if silent {
@@ -71,6 +72,9 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     }
     if let Some(d) = dir_arg {
         cmd.arg(d);
+    }
+    if let Some(a) = asset_arg {
+        cmd.arg(a);
     }
     cmd.spawn()?;
     Ok(())
