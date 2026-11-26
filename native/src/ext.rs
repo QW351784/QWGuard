@@ -1096,7 +1096,7 @@ pub extern "C" fn download_update(
         if !cfg!(windows) {
             return fail(buf, len, -1, "自动更新仅在 Windows 上可用");
         }
-        let parent = std::path::Path::new(dst)
+        let parent = std::path::Path::new(&dst)
             .parent()
             .map(|p| p.to_path_buf())
             .unwrap_or_else(std::env::temp_dir);
