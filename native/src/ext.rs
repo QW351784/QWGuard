@@ -1027,6 +1027,26 @@ pub extern "C" fn check_update(
                 let html = v.get("html_url").and_then(|x| x.as_str()).unwrap_or("");
                 let notes = v.get("body").and_then(|x| x.as_str()).unwrap_or("");
                 let published = v.get("published_at").and_then(|x| x.as_str()).unwrap_or("");
+                // 自动更新需要直接拿到安装包。Release 里可能有源码包/校验文件，
+                // 只认 .exe，且优先名字里带 Setup 的那个。
+                let assets = v.get("assets").and_then(|x| x.as_array());
+                let mut setup_asset: Option<&str> = None;
+                let mut any_exe: Option<&str> = None;
+                if let Some(list) = assets {
+                    for a in list {
+                        let name = a.get("name").and_then(|x| x.as_str()).unwrap_or("");
+                        let dl = a.get("browser_download_url").and_then(|x| x.as_str()).unwrap_or("");
+                        if !name.to_ascii_lowercase().ends_with(".exe") || dl.is_empty() {
+                            continue;
+                        }
+                        if name.to_ascii_lowercase().contains("setup") && setup_asset.is_none() {
+                            setup_asset = Some(dl);
+                        } else if any_exe.is_none() {
+                            any_exe = Some(dl);
+                        }
+                    }
+                }
+                let download_url = setup_asset.or(any_exe).unwrap_or("");
                 ok(
                     buf,
                     len,
@@ -1036,6 +1056,7 @@ pub extern "C" fn check_update(
                         "current": current,
                         "has_update": newer(tag, &current),
                         "url": html,
+                        "download_url": download_url,
                         "notes": notes.chars().take(500).collect::<String>(),
                         "published_at": published
                     }),
@@ -1047,6 +1068,60 @@ pub extern "C" fn check_update(
                 -3,
                 &format!("{e}（若为 403 限流，可在设置里填 GitHub Token）"),
             ),
+        }
+    })
+}
+
+/// 下载更新安装包。只接受 https://github.com / https://objects.githubusercontent.com 的地址，
+/// 避免把任意 URL 变成「下载并执行」的入口。
+#[no_mangle]
+pub extern "C" fn download_update(
+    url: *const c_char,
+    dst: *const c_char,
+    buf: *mut u8,
+    len: usize,
+) -> i32 {
+    crate::ffi_guard!(buf, len, {
+        let (Some(url), Some(dst)) = (cstr(url), cstr(dst)) else {
+            return fail(buf, len, -1, "参数为空");
+        };
+        if !(url.starts_with("https://github.com/")
+            || url.starts_with("https://objects.githubusercontent.com/"))
+        {
+            return fail(buf, len, -1, "更新地址不在允许的 GitHub 域名内");
+        }
+        if dst.is_empty() {
+            return fail(buf, len, -1, "保存路径为空");
+        }
+        if !cfg!(windows) {
+            return fail(buf, len, -1, "自动更新仅在 Windows 上可用");
+        }
+        let parent = std::path::Path::new(dst)
+            .parent()
+            .map(|p| p.to_path_buf())
+            .unwrap_or_else(std::env::temp_dir);
+        let _ = fs::create_dir_all(&parent);
+        let script = "$ProgressPreference='SilentlyContinue';[Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12;
+try { Invoke-WebRequest -Uri $env:QW_URL -OutFile $env:QW_DST -UseBasicParsing -TimeoutSec 300; Write-Output 'OK' }
+catch { Write-Output \"__ERR__ $($_.Exception.Message)\" }";
+        match crate::proc::cmd("powershell")
+            .args(["-NoProfile", "-WindowStyle", "Hidden", "-Command", script])
+            .env("QW_URL", url)
+            .env("QW_DST", dst)
+            .output()
+        {
+            Ok(o) => {
+                let text = String::from_utf8_lossy(&o.stdout).trim().to_string();
+                if text.starts_with("__ERR__") {
+                    return fail(buf, len, -3, text.trim_start_matches("__ERR__ ").trim());
+                }
+                let size = fs::metadata(dst).map(|m| m.len()).unwrap_or(0);
+                if size < 1024 * 1024 {
+                    return fail(buf, len, -3, "下载的安装包不完整");
+                }
+                ok(buf, len, "下载完成", json!({"path": dst, "size": size}))
+            }
+            Err(e) => fail(buf, len, -3, &format!("调用 PowerShell 失败: {e}")),
         }
     })
 }

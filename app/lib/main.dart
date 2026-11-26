@@ -49,7 +49,7 @@ Future<void> _preferHighPerformanceGpu() async {
   } catch (_) {}
 }
 
-Future<void> _setupWindow() async {
+Future<void> _setupWindow({bool silent = false}) async {
   if (!Platform.isWindows) return;
   try {
     await windowManager.ensureInitialized();
@@ -64,8 +64,13 @@ Future<void> _setupWindow() async {
       title: 'QW 安全电脑管家',
     );
     await windowManager.waitUntilReadyToShow(opts, () async {
-      await windowManager.show();
-      await windowManager.focus();
+      if (silent) {
+        // 自动更新：不在前台露安装向导，窗口只作为 Flutter 引擎的宿主
+        await windowManager.hide();
+      } else {
+        await windowManager.show();
+        await windowManager.focus();
+      }
     });
     await windowManager.setResizable(false);
     await windowManager.setMaximizable(false);
@@ -107,8 +112,17 @@ Future<void> main(List<String> args) async {
 
   // 安装 / 卸载模式：跟主程序同一个二进制，靠参数分流
   if (args.contains('--setup') || args.contains('--uninstall')) {
-    await _setupWindow();
-    runApp(SetupApp(uninstall: args.contains('--uninstall')));
+    final silent = args.contains('--silent');
+    final dirArg = args.firstWhere(
+      (a) => a.startsWith('--dir='),
+      orElse: () => '',
+    );
+    await _setupWindow(silent: silent);
+    runApp(SetupApp(
+      uninstall: args.contains('--uninstall'),
+      silent: silent,
+      initialDir: dirArg.isEmpty ? null : dirArg.substring('--dir='.length),
+    ));
     return;
   }
 
@@ -123,8 +137,17 @@ Future<void> main(List<String> args) async {
         .last
         .toLowerCase();
     if (exeName.contains('setup')) {
-      await _setupWindow();
-      runApp(const SetupApp(uninstall: false));
+      final silent = args.contains('--silent');
+      final dirArg = args.firstWhere(
+        (a) => a.startsWith('--dir='),
+        orElse: () => '',
+      );
+      await _setupWindow(silent: silent);
+      runApp(SetupApp(
+        uninstall: false,
+        silent: silent,
+        initialDir: dirArg.isEmpty ? null : dirArg.substring('--dir='.length),
+      ));
       return;
     }
     if (exeName.contains('uninstall')) {
@@ -188,6 +211,43 @@ Future<void> main(List<String> args) async {
 
   await GlassShader.load();
   runApp(ToolboxApp(initialTheme: theme));
+  WidgetsBinding.instance.addPostFrameCallback((_) => _autoUpdateCheck());
+}
+
+/// 启动后在后台检查一次更新：有新版就直接下载安装包并以静默模式拉起安装器。
+/// 不在前台弹窗，也不打断用户当前操作；安装器窗口会被隐藏。
+Future<void> _autoUpdateCheck() async {
+  if (!Platform.isWindows) return;
+  try {
+    final sp = await SharedPreferences.getInstance();
+    final repo = sp.getString('github_repo') ?? 'QW351784/QWGuard';
+    if (repo.trim().isEmpty) return;
+    final sec = Api.securitySettings();
+    final silent = sec['success'] == true && sec['data'] is Map
+        ? (sec['data'] as Map)['silent_update'] != false
+        : true;
+    if (!silent) return;
+    final r = Api.update(repo.trim(), '1.1');
+    if (r['success'] != true || r['data'] is! Map) return;
+    final d = (r['data'] as Map).cast<String, dynamic>();
+    final url = d['download_url']?.toString() ?? '';
+    if (d['has_update'] != true || url.isEmpty) return;
+    final dst = '${Directory.systemTemp.path}${Platform.pathSeparator}'
+        'QWGuard-update-${DateTime.now().millisecondsSinceEpoch}.exe';
+    final dl = Api.downloadUpdate(url, dst);
+    if (dl['success'] != true) return;
+    final installDir = File(Platform.resolvedExecutable).parent.path;
+    await Process.start(
+      dst,
+      ['--silent', '--dir=$installDir'],
+      mode: ProcessStartMode.detached,
+    );
+    // 给安装器留出解包时间，然后退出主程序，避免它占着要替换的 exe/dll。
+    await Future.delayed(const Duration(seconds: 3));
+    exit(0);
+  } catch (_) {
+    // 更新失败不影响正常启动；下次启动会再试。
+  }
 }
 
 class ToolboxApp extends StatefulWidget {

@@ -3294,9 +3294,31 @@ class _SettingsPageState extends State<SettingsPage> {
     if (!mounted) return;
     if (r['success'] == true) {
       final d = r['data'];
-      setState(() => _updateMsg = d['has_update'] == true
+      final has = d['has_update'] == true;
+      setState(() => _updateMsg = has
           ? '${I18n.t('hasUpdate')}: ${d['latest']}'
           : I18n.t('noUpdate'));
+      // 静默更新开启时，检查到新版就直接下载并后台覆盖升级。
+      // 不再弹安装向导，也不让用户再确认一次。
+      final url = d['download_url']?.toString() ?? '';
+      if (has && _silentUpdate && url.isNotEmpty) {
+        setState(() => _updateMsg = '正在后台下载新版本…');
+        final dst = '${Directory.systemTemp.path}${Platform.pathSeparator}'
+            'QWGuard-update-${DateTime.now().millisecondsSinceEpoch}.exe';
+        final dl = Api.downloadUpdate(url, dst);
+        if (dl['success'] == true) {
+          final dir = File(Platform.resolvedExecutable).parent.path;
+          await Process.start(
+            dst,
+            ['--silent', '--dir=$dir'],
+            mode: ProcessStartMode.detached,
+          );
+          await Future.delayed(const Duration(seconds: 2));
+          exit(0);
+        } else {
+          setState(() => _updateMsg = '下载失败：${dl['message']}');
+        }
+      }
     } else {
       setState(() => _updateMsg = r['message']?.toString() ?? '失败');
     }

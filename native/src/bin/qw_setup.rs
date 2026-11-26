@@ -59,9 +59,19 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     if !setup.exists() {
         return Err("payload 里没有 QWGuard.exe".into());
     }
-    Command::new(&setup)
-        .arg("--setup")
-        .current_dir(&tmp)
-        .spawn()?;
+    // 自动更新时由主程序带 --silent 拉起：安装向导不显示到前台，
+    // 直接把同一套安装流程在后台走完。--dir= 用来覆盖默认推荐目录，
+    // 保证覆盖升级装回原来的位置，而不是另装一份。
+    let silent = env::args().any(|a| a == "--silent");
+    let dir_arg = env::args().find(|a| a.starts_with("--dir="));
+    let mut cmd = Command::new(&setup);
+    cmd.arg("--setup").current_dir(&tmp);
+    if silent {
+        cmd.arg("--silent");
+    }
+    if let Some(d) = dir_arg {
+        cmd.arg(d);
+    }
+    cmd.spawn()?;
     Ok(())
 }

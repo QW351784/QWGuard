@@ -15,7 +15,11 @@ import 'theme.dart';
 /// 配色不跟随软件设置，而是跟随系统深浅色。
 class SetupApp extends StatefulWidget {
   final bool uninstall;
-  const SetupApp({super.key, this.uninstall = false});
+  /// 自动更新：不显示向导，直接按原安装目录静默覆盖升级
+  final bool silent;
+  /// 自动更新传入的原安装目录；为空时仍走推荐目录
+  final String? initialDir;
+  const SetupApp({super.key, this.uninstall = false, this.silent = false, this.initialDir});
 
   @override
   State<SetupApp> createState() => _SetupAppState();
@@ -84,16 +88,22 @@ class _SetupAppState extends State<SetupApp> {
     }
     final t = Api.systemTheme();
     final dark = t['success'] == true && t['data'] is Map ? (t['data']['dark'] == true) : false;
-    final rec = Api.recommendDir();
     String dir = _dir;
-    if (rec['success'] == true && rec['data'] is Map) {
-      final p = rec['data']['path']?.toString() ?? '';
-      if (p.isNotEmpty) {
-        // 推荐盘符 + 固定目录名
-        final base = p.endsWith('\\') || p.endsWith('/') ? p : '$p${Platform.pathSeparator}';
-        dir = '$base${widget.uninstall ? '' : 'QWGuard'}';
-        if (widget.uninstall) {
-          dir = p;
+    final forced = widget.initialDir?.trim() ?? '';
+    if (forced.isNotEmpty) {
+      // 覆盖升级必须装回原位置，不能按“推荐盘符”另装一份
+      dir = forced;
+    } else {
+      final rec = Api.recommendDir();
+      if (rec['success'] == true && rec['data'] is Map) {
+        final p = rec['data']['path']?.toString() ?? '';
+        if (p.isNotEmpty) {
+          // 推荐盘符 + 固定目录名
+          final base = p.endsWith('\\') || p.endsWith('/') ? p : '$p${Platform.pathSeparator}';
+          dir = '$base${widget.uninstall ? '' : 'QWGuard'}';
+          if (widget.uninstall) {
+            dir = p;
+          }
         }
       }
     }
@@ -104,6 +114,12 @@ class _SetupAppState extends State<SetupApp> {
       _recDir = dir;
       _ready = true;
     });
+    if (widget.silent && !widget.uninstall) {
+      // 等这一帧把状态落下去再跑安装，避免在 initState 里同步 setState
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _doInstall();
+      });
+    }
   }
 
   double get _progress => _step == 2 ? 1.0 : 0.0;
@@ -193,6 +209,15 @@ class _SetupAppState extends State<SetupApp> {
           ? '已写入 ${r['data']?['copied'] ?? 0} 个文件'
           : (r['message']?.toString() ?? '安装失败');
     });
+    if (widget.silent) {
+      // 静默升级没有界面可看，失败原因写到临时文件，方便排查
+      try {
+        File('${Directory.systemTemp.path}${Platform.pathSeparator}qw_update_result.txt')
+            .writeAsStringSync('${ok ? 'OK' : 'FAIL'}: $_result');
+      } catch (_) {}
+      await Future.delayed(const Duration(milliseconds: 600));
+      exit(ok ? 0 : 1);
+    }
   }
 
   /// 点「确认卸载」后先查密码状态：开了密码保护就先弹输入页

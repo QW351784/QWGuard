@@ -130,6 +130,10 @@ class Api {
   static Map<String, dynamic> scanDirFast(String dir) => _str('scan_dir_fast', [dir]);
   static Map<String, dynamic> update(String repo, String current) => _str('check_update', [repo, current]);
 
+  /// 下载更新安装包到本地临时文件（仅允许 GitHub Release 的 https 地址）
+  static Map<String, dynamic> downloadUpdate(String url, String dst) =>
+      _str('download_update', [url, dst], cap: 8192);
+
   static Map<String, dynamic> whitelist() => _buf('whitelist_list');
   static Map<String, dynamic> whitelistAdd(String p) => _str('whitelist_add', [p]);
   static Map<String, dynamic> whitelistRemove(String p) => _str('whitelist_remove', [p]);
