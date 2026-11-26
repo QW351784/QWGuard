@@ -1107,7 +1107,7 @@ catch { Write-Output \"__ERR__ $($_.Exception.Message)\" }";
         match crate::proc::cmd("powershell")
             .args(["-NoProfile", "-WindowStyle", "Hidden", "-Command", script])
             .env("QW_URL", url)
-            .env("QW_DST", dst)
+            .env("QW_DST", &dst)
             .output()
         {
             Ok(o) => {
@@ -1115,7 +1115,7 @@ catch { Write-Output \"__ERR__ $($_.Exception.Message)\" }";
                 if text.starts_with("__ERR__") {
                     return fail(buf, len, -3, text.trim_start_matches("__ERR__ ").trim());
                 }
-                let size = fs::metadata(dst).map(|m| m.len()).unwrap_or(0);
+                let size = fs::metadata(&dst).map(|m| m.len()).unwrap_or(0);
                 if size < 1024 * 1024 {
                     return fail(buf, len, -3, "下载的安装包不完整");
                 }
