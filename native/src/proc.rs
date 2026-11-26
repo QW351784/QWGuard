@@ -25,3 +25,25 @@ pub fn cmd<S: AsRef<std::ffi::OsStr>>(program: S) -> Command {
     }
     c
 }
+
+/// PowerShell 统一入口：参数组合只在这里写一次
+pub fn ps(script: &str) -> Command {
+    let mut c = cmd("powershell");
+    c.args(["-NoProfile", "-NonInteractive", "-Command", script]);
+    c
+}
+
+/// 跑一段 PowerShell 并解析 JSON；脚本自己输出 __ERR__ 开头表示失败
+pub fn ps_json(script: &str) -> Result<serde_json::Value, String> {
+    let o = ps(script)
+        .output()
+        .map_err(|e| format!("调用 PowerShell 失败: {e}"))?;
+    let text = String::from_utf8_lossy(&o.stdout).trim().to_string();
+    if let Some(msg) = text.strip_prefix("__ERR__") {
+        return Err(format!("命令执行失败:{msg}"));
+    }
+    if text.is_empty() {
+        return Err("命令没有输出".into());
+    }
+    serde_json::from_str(&text).map_err(|e| format!("解析失败: {e}"))
+}

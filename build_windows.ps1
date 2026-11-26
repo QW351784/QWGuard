@@ -1,7 +1,7 @@
 # 系统工具箱 —— Windows 一键构建脚本
 # 用法：在项目根目录执行  powershell -ExecutionPolicy Bypass -File .\build_windows.ps1
 
-$ErrorCost = "Stop"
+$ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $MyInvocation.MyCommand.Path
 Write-Host "==> 项目根目录: $root"
 
@@ -33,6 +33,13 @@ if ($LASTEXITCODE -ne 0) { throw "Flutter 打包失败" }
 
 $out = "$root\app\build\windows\x64\runner\Release"
 Copy-Item "$root\native\target\release\toolkit_native.dll" $out -Force
+# MCP 只读服务端：给 Claude / Cursor 等 AI 客户端拉起
+Copy-Item "$root\native\target\release\qw_mcp.exe" $out -Force
+# Flutter 工程名还是 system_toolbox，产物叫 system_toolbox.exe；
+# 安装器/快捷方式/自启动都按 QWGuard.exe 找，这里统一改名。
+if (Test-Path "$out\system_toolbox.exe") {
+    Rename-Item "$out\system_toolbox.exe" "QWGuard.exe" -Force
+}
 # 内置引擎与运行库工具要跟着 exe 走
 foreach ($d in @('runtime', 'yara')) {
     $src = Join-Path $root "vendor\$d"
@@ -42,6 +49,9 @@ foreach ($d in @('runtime', 'yara')) {
         Write-Warning "vendor\$d 不存在"
     }
 }
+# 生成安装完整性清单：安装器会校验「清单内哈希 + 不允许清单外文件」
+& "$root\build_manifest.ps1" -Dir $out
+
 Write-Host "==> 完成：$out"
-Write-Host "==> 可执行文件：$out\system_toolbox.exe"
+Write-Host "==> 可执行文件：$out\QWGuard.exe"
 Pop-Location

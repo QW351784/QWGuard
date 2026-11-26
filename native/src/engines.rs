@@ -7,9 +7,12 @@
 //! 规则文件放 `%APPDATA%\QWGuard\rules\`，没有规则文件时引擎照常工作、只是不命中。
 
 use sha2::{Digest, Sha256};
+use std::collections::HashMap;
 use std::fs;
 use std::io::Read;
 use std::path::{Path, PathBuf};
+use std::sync::{OnceLock, RwLock};
+use std::time::UNIX_EPOCH;
 
 use crate::ext::cfg_dir;
 
@@ -18,6 +21,67 @@ const MAX_SCRIPT_BYTES: usize = 512 * 1024;
 
 fn rules_dir() -> PathBuf {
     cfg_dir().join("rules")
+}
+
+// 规则原来每个文件都 read_to_string 一遍：全盘几万个文件就是几万次磁盘读。
+// 这里做成进程内缓存，导入新规则时 reload 一次。
+static NAME_RULES: OnceLock<RwLock<Vec<String>>> = OnceLock::new();
+static HASH_RULES: OnceLock<RwLock<Vec<String>>> = OnceLock::new();
+
+fn load_name_rules() -> Vec<String> {
+    fs::read_to_string(rules_dir().join("name_blacklist.txt"))
+        .map(|t| {
+            t.lines()
+                .map(|l| l.trim().to_lowercase())
+                .filter(|l| !l.is_empty() && !l.starts_with('#'))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+fn load_hash_rules() -> Vec<String> {
+    fs::read_to_string(rules_dir().join("hash_blacklist.txt"))
+        .map(|t| {
+            t.lines()
+                .map(|l| l.trim().to_lowercase())
+                .filter(|l| l.len() == 64 && l.bytes().all(|b| b.is_ascii_hexdigit()))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+fn name_rules() -> &'static RwLock<Vec<String>> {
+    NAME_RULES.get_or_init(|| RwLock::new(load_name_rules()))
+}
+
+fn hash_rules() -> &'static RwLock<Vec<String>> {
+    HASH_RULES.get_or_init(|| RwLock::new(load_hash_rules()))
+}
+
+/// 规则文件变化后调用（导入、首次生成内置规则）
+pub(crate) fn reload_rules() {
+    let names = load_name_rules();
+    let hashes = load_hash_rules();
+    match NAME_RULES.get() {
+        Some(l) => {
+            if let Ok(mut g) = l.write() {
+                *g = names;
+            }
+        }
+        None => {
+            let _ = NAME_RULES.set(RwLock::new(names));
+        }
+    }
+    match HASH_RULES.get() {
+        Some(l) => {
+            if let Ok(mut g) = l.write() {
+                *g = hashes;
+            }
+        }
+        None => {
+            let _ = HASH_RULES.set(RwLock::new(hashes));
+        }
+    }
 }
 
 fn read_head(p: &Path, limit: usize) -> std::io::Result<Vec<u8>> {
@@ -44,7 +108,7 @@ fn read_head_text(p: &Path, limit: usize) -> std::io::Result<String> {
     Ok(String::from_utf8_lossy(&b).to_string())
 }
 
-fn sha256_file(p: &Path) -> std::io::Result<String> {
+pub(crate) fn sha256_file(p: &Path) -> std::io::Result<String> {
     let mut f = fs::File::open(p)?;
     let mut h = Sha256::new();
     let mut buf = vec![0u8; 1 << 20];
@@ -59,22 +123,61 @@ fn sha256_file(p: &Path) -> std::io::Result<String> {
 }
 
 /// 特征库引擎：SHA-256 黑名单 + 文件名黑名单
+/// 哈希缓存：同一文件在本次运行里重复扫（手动扫完又后台扫）时不再重算 SHA-256。
+/// 键是路径，值记录大小 + 修改时间；文件一变就失效。上限 20 万条，防止全盘扫描撑爆内存。
+struct HashCacheEntry {
+    size: u64,
+    mtime: u64,
+    digest: String,
+}
+
+static HASH_CACHE: OnceLock<RwLock<HashMap<PathBuf, HashCacheEntry>>> = OnceLock::new();
+
+fn cached_sha256(p: &Path) -> Option<String> {
+    let md = fs::metadata(p).ok()?;
+    let mtime = md
+        .modified()
+        .ok()
+        .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
+        .map(|d| d.as_secs().saturating_mul(1_000_000_000) + d.subsec_nanos() as u64)
+        .unwrap_or(0);
+    let cache = HASH_CACHE.get_or_init(|| RwLock::new(HashMap::new()));
+    if let Ok(g) = cache.read() {
+        if let Some(e) = g.get(p) {
+            if e.size == md.len() && e.mtime == mtime {
+                return Some(e.digest.clone());
+            }
+        }
+    }
+    let digest = sha256_file(p).ok()?;
+    if let Ok(mut g) = cache.write() {
+        if g.len() > 200_000 {
+            g.clear();
+        }
+        g.insert(
+            p.to_path_buf(),
+            HashCacheEntry {
+                size: md.len(),
+                mtime,
+                digest: digest.clone(),
+            },
+        );
+    }
+    Some(digest)
+}
+
 pub(crate) fn signature_scan(path: &str) -> (bool, Vec<String>) {
     let p = Path::new(path);
     let mut threats = Vec::new();
 
-    // 文件名黑名单：rules/name_blacklist.txt，每行一条子串，# 开头是注释
-    if let Ok(text) = fs::read_to_string(rules_dir().join("name_blacklist.txt")) {
-        let fname = p
-            .file_name()
-            .map(|s| s.to_string_lossy().to_lowercase())
-            .unwrap_or_default();
-        for line in text.lines() {
-            let pat = line.trim();
-            if pat.is_empty() || pat.starts_with('#') {
-                continue;
-            }
-            if fname.contains(&pat.to_lowercase()) {
+    // 文件名黑名单：走内存缓存，不再每个文件读一次盘
+    let fname = p
+        .file_name()
+        .map(|s| s.to_string_lossy().to_lowercase())
+        .unwrap_or_default();
+    if let Ok(rules) = name_rules().read() {
+        for pat in rules.iter() {
+            if fname.contains(pat) {
                 threats.push(format!("SIG.Name.{pat}"));
             }
         }
@@ -82,16 +185,13 @@ pub(crate) fn signature_scan(path: &str) -> (bool, Vec<String>) {
 
     // SHA-256 黑名单：rules/hash_blacklist.txt，每行一个 64 位 hex
     if p.is_file() {
-        // 不设大小上限：多大的文件都流式读一遍算 SHA-256（1MB 缓冲，内存恒定）
-        if let Ok(digest) = sha256_file(p) {
-            if let Ok(text) = fs::read_to_string(rules_dir().join("hash_blacklist.txt")) {
-                for line in text.lines() {
-                    let h = line.trim().to_lowercase();
-                    if h.len() == 64 && h == digest {
-                        let short: String = digest.chars().take(16).collect();
-                        threats.push(format!("SIG.Sha256.{short}"));
-                        break;
-                    }
+        let hashes = hash_rules().read().unwrap_or_else(|e| e.into_inner());
+        // 规则库是空的就别白算一遍 SHA-256
+        if !hashes.is_empty() {
+            if let Some(digest) = cached_sha256(p) {
+                if hashes.iter().any(|h| h == &digest) {
+                    let short: String = digest.chars().take(16).collect();
+                    threats.push(format!("SIG.Sha256.{short}"));
                 }
             }
         }
@@ -120,8 +220,22 @@ pub(crate) fn heuristic_scan(path: &str) -> (bool, Vec<String>) {
                 let se = se.to_string_lossy().to_lowercase();
                 if matches!(
                     se.as_str(),
-                    "pdf" | "doc" | "docx" | "xls" | "xlsx" | "ppt" | "pptx" | "jpg" | "jpeg"
-                        | "png" | "gif" | "txt" | "mp4" | "zip" | "rar" | "7z"
+                    "pdf"
+                        | "doc"
+                        | "docx"
+                        | "xls"
+                        | "xlsx"
+                        | "ppt"
+                        | "pptx"
+                        | "jpg"
+                        | "jpeg"
+                        | "png"
+                        | "gif"
+                        | "txt"
+                        | "mp4"
+                        | "zip"
+                        | "rar"
+                        | "7z"
                 ) {
                     threats.push(format!("HEUR.DoubleExt.{se}.{ext}"));
                 }
@@ -130,7 +244,10 @@ pub(crate) fn heuristic_scan(path: &str) -> (bool, Vec<String>) {
     }
 
     // 脚本类：看内容
-    if matches!(ext.as_str(), "ps1" | "psm1" | "vbs" | "vbe" | "bat" | "cmd" | "js" | "jse" | "hta" | "wsf") {
+    if matches!(
+        ext.as_str(),
+        "ps1" | "psm1" | "vbs" | "vbe" | "bat" | "cmd" | "js" | "jse" | "hta" | "wsf"
+    ) {
         if let Ok(text) = read_head_text(p, MAX_SCRIPT_BYTES) {
             script_checks(&text, &mut threats);
         }
@@ -222,9 +339,9 @@ fn entropy(b: &[u8]) -> f64 {
 fn shell_by_name(name: &str) -> Option<&'static str> {
     let n = name.to_uppercase();
     let shells = [
-        ".UPX0", ".UPX1", ".UPX2", ".VMP0", ".VMP1", ".THEMIDA", ".THEMID",
-        ".ASPACK", ".ASDATA", ".PETITE", ".MPRESS1", ".MPRESS2", ".PACKED",
-        ".ENIGMA1", ".ENIGMA2", ".RLPACK", ".SPACK", ".BS.PACK", ".PEC1",
+        ".UPX0", ".UPX1", ".UPX2", ".VMP0", ".VMP1", ".THEMIDA", ".THEMID", ".ASPACK", ".ASDATA",
+        ".PETITE", ".MPRESS1", ".MPRESS2", ".PACKED", ".ENIGMA1", ".ENIGMA2", ".RLPACK", ".SPACK",
+        ".BS.PACK", ".PEC1",
     ];
     for k in shells {
         if n.starts_with(k) {
@@ -259,8 +376,10 @@ fn pe_checks(data: &[u8], out: &mut Vec<String>) {
             .take_while(|b| **b != 0)
             .map(|b| *b as char)
             .collect();
-        let rawsize = u32::from_le_bytes([data[s + 16], data[s + 17], data[s + 18], data[s + 19]]) as usize;
-        let rawptr = u32::from_le_bytes([data[s + 20], data[s + 21], data[s + 22], data[s + 23]]) as usize;
+        let rawsize =
+            u32::from_le_bytes([data[s + 16], data[s + 17], data[s + 18], data[s + 19]]) as usize;
+        let rawptr =
+            u32::from_le_bytes([data[s + 20], data[s + 21], data[s + 22], data[s + 23]]) as usize;
         let chars = u32::from_le_bytes([data[s + 36], data[s + 37], data[s + 38], data[s + 39]]);
 
         if let Some(k) = shell_by_name(&name) {
@@ -269,7 +388,9 @@ fn pe_checks(data: &[u8], out: &mut Vec<String>) {
 
         let exec = chars & 0x2000_0000 != 0;
         if exec && rawsize > 4096 && rawptr > 0 && rawptr < data.len() {
-            let end = rawptr.saturating_add(rawsize.min(4 * 1024 * 1024)).min(data.len());
+            let end = rawptr
+                .saturating_add(rawsize.min(4 * 1024 * 1024))
+                .min(data.len());
             if end > rawptr + 512 {
                 let e = entropy(&data[rawptr..end]);
                 if e > 7.25 {
@@ -301,8 +422,10 @@ fn pe_checks(data: &[u8], out: &mut Vec<String>) {
     let mut last_end = 0usize;
     for i in 0..num_sections.min(96) {
         let s = sect_table + i * 40;
-        let rawsize = u32::from_le_bytes([data[s + 16], data[s + 17], data[s + 18], data[s + 19]]) as usize;
-        let rawptr = u32::from_le_bytes([data[s + 20], data[s + 21], data[s + 22], data[s + 23]]) as usize;
+        let rawsize =
+            u32::from_le_bytes([data[s + 16], data[s + 17], data[s + 18], data[s + 19]]) as usize;
+        let rawptr =
+            u32::from_le_bytes([data[s + 20], data[s + 21], data[s + 22], data[s + 23]]) as usize;
         last_end = last_end.max(rawptr.saturating_add(rawsize));
     }
     if last_end > 0 && last_end < data.len() {
@@ -314,8 +437,16 @@ fn pe_checks(data: &[u8], out: &mut Vec<String>) {
             let mut i = 0usize;
             while i + 0x40 < tail.len() {
                 if &tail[i..i + 2] == b"MZ" {
-                    let lf = u32::from_le_bytes([tail[i + 0x3c], tail[i + 0x3d], tail[i + 0x3e], tail[i + 0x3f]]) as usize;
-                    if lf < 0x400 && i + lf + 4 <= tail.len() && &tail[i + lf..i + lf + 4] == b"PE\0\0" {
+                    let lf = u32::from_le_bytes([
+                        tail[i + 0x3c],
+                        tail[i + 0x3d],
+                        tail[i + 0x3e],
+                        tail[i + 0x3f],
+                    ]) as usize;
+                    if lf < 0x400
+                        && i + lf + 4 <= tail.len()
+                        && &tail[i + lf..i + lf + 4] == b"PE\0\0"
+                    {
                         out.push("HEUR.Dropper.EmbeddedPE".to_string());
                         break;
                     }
@@ -338,7 +469,12 @@ fn pe_checks(data: &[u8], out: &mut Vec<String>) {
     // ⑦ 入口点 RVA 为 0：被打包器改过头的常见特征
     let ep_off = coff + 20 + 16;
     if ep_off + 4 <= data.len() {
-        let ep = u32::from_le_bytes([data[ep_off], data[ep_off + 1], data[ep_off + 2], data[ep_off + 3]]);
+        let ep = u32::from_le_bytes([
+            data[ep_off],
+            data[ep_off + 1],
+            data[ep_off + 2],
+            data[ep_off + 3],
+        ]);
         if ep == 0 {
             out.push("HEUR.EP.Zero".to_string());
         }
@@ -667,17 +803,17 @@ fn ensure_default_rules_inner() {
     }
     let name = dir.join("name_blacklist.txt");
     if !name.exists() {
-        let _ = fs::write(&name, "# QW 特征库 · 文件名子串黑名单\n# 一行一个子串，不区分大小写\n");
+        let _ = fs::write(
+            &name,
+            "# QW 特征库 · 文件名子串黑名单\n# 一行一个子串，不区分大小写\n",
+        );
     }
 }
 
 pub(crate) fn ensure_default_rules() {
     ensure_default_rules_inner();
-}
-
-pub(crate) fn default_yara_rules() -> PathBuf {
-    ensure_default_rules_inner();
-    rules_dir().join("qw_basic.yar")
+    // 内置规则刚落地时要让缓存看到它们
+    reload_rules();
 }
 
 fn merge_hashes(incoming: Vec<String>) -> Result<(usize, usize, usize), String> {
@@ -717,6 +853,7 @@ fn merge_hashes(incoming: Vec<String>) -> Result<(usize, usize, usize), String> 
         format!("# QW 特征库 · SHA-256 黑名单 · 共 {kept} 条\n{body}"),
     )
     .map_err(|e| format!("写规则库失败: {e}"))?;
+    reload_rules();
     Ok((parsed, added, kept))
 }
 
@@ -744,12 +881,18 @@ fn yara_rules() -> Option<&'static yara_x::Rules> {
 
 /// 进程内 YARA 扫描：返回 (是否命中, 命中的规则名)。
 pub(crate) fn yara_scan(path: &str) -> (bool, Vec<String>) {
-    let Some(rules) = yara_rules() else { return (false, Vec::new()) };
-    let Ok(md) = fs::metadata(path) else { return (false, Vec::new()) };
+    let Some(rules) = yara_rules() else {
+        return (false, Vec::new());
+    };
+    let Ok(md) = fs::metadata(path) else {
+        return (false, Vec::new());
+    };
     if !md.is_file() || md.len() == 0 {
         return (false, Vec::new());
     }
-    let Ok(file) = fs::File::open(path) else { return (false, Vec::new()) };
+    let Ok(file) = fs::File::open(path) else {
+        return (false, Vec::new());
+    };
     let mut scanner = yara_x::Scanner::new(rules);
 
     // 不再有 128 MB 硬上限：

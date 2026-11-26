@@ -72,9 +72,38 @@ Future<void> _setupWindow() async {
   } catch (_) {}
 }
 
+/// 从 Windows DWM 读系统强调色，作为 Material 3 的种子色实现动态取色。
+/// 读不到 / 非 Windows / 颜色太灰太暗时回退品牌蓝，不影响启动。
+Future<Color?> _readSystemAccent() async {
+  if (!Platform.isWindows) return null;
+  try {
+    final r = await Process.run(
+      'reg',
+      ['query', r'HKCU\Software\Microsoft\Windows\DWM', '/v', 'ColorizationColor'],
+    );
+    if (r.exitCode != 0) return null;
+    final m = RegExp(r'0x[0-9a-fA-F]{8}').firstMatch(r.stdout.toString());
+    if (m == null) return null;
+    final v = int.parse(m.group(0)!.substring(2), radix: 16);
+    final rgb = v & 0xFFFFFF;
+    if (rgb == 0) return null;
+    final c = Color(0xFF000000 | rgb);
+    final hsl = HSLColor.fromColor(c);
+    if (hsl.saturation < 0.18) return AppTheme.fallbackSeed;
+    return hsl
+        .withSaturation(hsl.saturation.clamp(0.30, 0.80).toDouble())
+        .withLightness(hsl.lightness.clamp(0.38, 0.68).toDouble())
+        .toColor();
+  } catch (_) {
+    return null;
+  }
+}
+
 Future<void> main(List<String> args) async {
   WidgetsFlutterBinding.ensureInitialized();
   await _preferHighPerformanceGpu();
+  final accent = await _readSystemAccent();
+  if (accent != null) AppTheme.setSeed(accent);
 
   // 安装 / 卸载模式：跟主程序同一个二进制，靠参数分流
   if (args.contains('--setup') || args.contains('--uninstall')) {
@@ -290,6 +319,13 @@ class _ShellState extends State<Shell>
     duration: const Duration(milliseconds: 619),
   );
 
+  /// Tab 切换的入场动效：保留 IndexedStack 里的页面状态，只动整页的透明/位移/缩放。
+  late final AnimationController _pageAnim = AnimationController(
+    vsync: this,
+    value: 1.0,
+    duration: const Duration(milliseconds: 320),
+  );
+
   /// 墙钟时钟：只在启动时归零，之后一直往前走。
   /// 用它而不是 Ticker 的 elapsed，是因为窗口最小化 / 失焦 / 被系统挂起时
   /// 引擎会停发帧，Ticker 也跟着停，恢复后画面等于"停在那"。
@@ -350,6 +386,7 @@ class _ShellState extends State<Shell>
 
   @override
   void dispose() {
+    _pageAnim.dispose();
     _reveal.dispose();
     SchedulerBinding.instance.removeTimingsCallback(_onFrameTimings);
     _clock.stop();
@@ -386,6 +423,13 @@ class _ShellState extends State<Shell>
       _tickerTimer!.cancel();
       _tickerTimer = null;
     }
+  }
+
+  void _switchPage(int i) {
+    if (i == _index) return;
+    setState(() => _index = i);
+    _pageAnim.duration = Ui.dur('pageTransition', 320);
+    _pageAnim.forward(from: 0);
   }
 
   void _rebuild() {
@@ -739,6 +783,14 @@ class _ShellState extends State<Shell>
     final content = Stack(
         children: [
           Positioned.fill(child: RepaintBoundary(child: DecoratedBox(decoration: AppTheme.background(brightness)))),
+          Positioned.fill(
+            child: ValueListenableBuilder<bool>(
+              valueListenable: Ui.on('aurora'),
+              builder: (_, on, __) => on
+                  ? const IgnorePointer(child: AuroraFlow())
+                  : const SizedBox.shrink(),
+            ),
+          ),
           Positioned.fill(child: ParticleLayer()),
           Positioned(top: -120, left: -100, child: FloatingBlob(color: AppTheme.blobTop(brightness), size: 320, phase: 0.4)),
           Positioned(bottom: -160, right: -130, child: FloatingBlob(color: AppTheme.blobBottom(brightness), size: 400, phase: 2.1)),
@@ -762,16 +814,32 @@ class _ShellState extends State<Shell>
                   // 扫描进度、清理进度、已读到的硬件信息都留在原页面。
                   // 之前切到「工具合集」扫描就停、切回来进度归零，就是 AnimatedSwitcher
                   // 把页面 dispose 掉了。
-                  child: IndexedStack(
-                    index: _index,
-                    children: const [
-                      HardwarePage(),
-                      CleanPage(),
-                      ScanPage(),
-                      ToolsPage(),
-                      QuarantinePage(),
-                      SettingsPage(),
-                    ],
+                  child: AnimatedBuilder(
+                    animation: _pageAnim,
+                    child: IndexedStack(
+                      index: _index,
+                      children: const [
+                        HardwarePage(),
+                        CleanPage(),
+                        ScanPage(),
+                        ToolsPage(),
+                        QuarantinePage(),
+                        SettingsPage(),
+                      ],
+                    ),
+                    builder: (_, child) {
+                      final v = Curves.easeOutCubic.transform(_pageAnim.value);
+                      return Opacity(
+                        opacity: 0.72 + 0.28 * v,
+                        child: Transform.translate(
+                          offset: Offset(0, 16 * (1 - v)),
+                          child: Transform.scale(
+                            scale: 0.985 + 0.015 * v,
+                            child: child,
+                          ),
+                        ),
+                      );
+                    },
                   ),
                 ),
               ),
@@ -784,7 +852,7 @@ class _ShellState extends State<Shell>
             left: 0,
             right: 0,
             bottom: 22,
-            child: Center(child: RepaintBoundary(child: _Dock(index: _index, icons: _icons, onTap: (i) => setState(() => _index = i)))),
+            child: Center(child: RepaintBoundary(child: _Dock(index: _index, icons: _icons, onTap: _switchPage))),
           ),
 
           // 窗口标题栏（拖动区 + 三键）

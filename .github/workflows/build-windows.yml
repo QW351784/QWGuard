@@ -60,6 +60,7 @@ jobs:
         run: |
           $rel = 'app\build\windows\x64\runner\Release'
           Copy-Item native\target\release\toolkit_native.dll $rel -Force
+          Copy-Item native\target\release\qw_mcp.exe $rel -Force
           # Flutter 的工程名是 system_toolbox，产出的 exe 也叫 system_toolbox.exe。
           # 安装器/快捷方式/自启动都按 QWGuard.exe 找，名字不改就“点立即启动直接消失”。
           if (Test-Path "$rel\system_toolbox.exe") {
@@ -90,7 +91,7 @@ jobs:
           # 之前切出来的是 s/x64/runner/Release/dartjni.dll（那个 s 是 windows 的末字母），
           # 安装器按这份清单逐个找文件，找不到就报「缺少文件」。
           $rel = (Resolve-Path 'app\build\windows\x64\runner\Release').Path
-          $items = Get-ChildItem $rel -Recurse -File |
+          $items = Get-ChildItem $rel -Recurse -File -Force |
             Where-Object { $_.Name -ne 'manifest.json' } |
             ForEach-Object {
               [pscustomobject]@{
@@ -99,7 +100,7 @@ jobs:
                 size   = $_.Length
               }
             }
-          @{ version = '1.0'; files = $items } |
+          @{ version = '1.1'; files = $items } |
             ConvertTo-Json -Depth 4 |
             Set-Content (Join-Path $rel 'manifest.json') -Encoding utf8
           Write-Host "清单条目数：$($items.Count)"
@@ -113,7 +114,7 @@ jobs:
           $rel = 'app\build\windows\x64\runner\Release'
           if (Test-Path 'payload.zip') { Remove-Item 'payload.zip' -Force }
           Compress-Archive -Path "$rel\*" -DestinationPath 'payload.zip' -CompressionLevel Optimal
-          $out = 'QWGuard-Setup-1.0.exe'
+          $out = 'QWGuard-Setup-1.1.exe'
           Copy-Item 'native\target\release\qw_setup.exe' $out -Force
           $payload = [IO.File]::ReadAllBytes('payload.zip')
           $fs = [IO.File]::Open($out, 'Append', 'Write')
@@ -135,5 +136,5 @@ jobs:
         with:
           name: QWGuard-windows-x64
           path: |
-            QWGuard-Setup-1.0.exe
+            QWGuard-Setup-1.1.exe
           if-no-files-found: warn

@@ -20,6 +20,7 @@ class _FloatingMonitorState extends State<FloatingMonitor> {
   Timer? _timer;
   Offset _pos = const Offset(0, 0);
   bool _inited = false;
+  bool _polling = false;
 
   @override
   void initState() {
@@ -28,11 +29,19 @@ class _FloatingMonitorState extends State<FloatingMonitor> {
     _timer = Timer.periodic(const Duration(milliseconds: 1600), (_) => _poll());
   }
 
-  void _poll() {
-    final r = Native.hardware();
-    if (!mounted) return;
-    if (r['success'] == true && r['data'] is Map) {
-      setState(() => _data = (r['data'] as Map).cast<String, dynamic>());
+  Future<void> _poll() async {
+    if (_polling) return;
+    _polling = true;
+    try {
+      final r = await Native.hardwareMetricsAsync();
+      if (!mounted) return;
+      if (r['success'] == true && r['data'] is Map) {
+        setState(() => _data = (r['data'] as Map).cast<String, dynamic>());
+      }
+    } catch (_) {
+      // 采样失败就保持上一帧
+    } finally {
+      _polling = false;
     }
   }
 

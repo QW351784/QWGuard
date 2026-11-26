@@ -10,14 +10,12 @@ use std::ffi::c_char;
 use std::fs;
 use std::io::{Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
 use crate::ext::cfg_dir;
 use crate::{cstr, fail, ok};
 
 const SHELL_ICONS: &str = r"HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\Shell Icons";
-const EXPLORER_ADV: &str =
-    r"HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced";
+const EXPLORER_ADV: &str = r"HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced";
 
 fn refresh_explorer() {
     // 让资源管理器重新读注册表，不然要等下次登录
@@ -32,37 +30,53 @@ fn refresh_explorer() {
 /// `on = true` 去掉小箭头，`false` 恢复系统默认
 #[no_mangle]
 pub extern "C" fn shortcut_arrow(on: i32, buf: *mut u8, len: usize) -> i32 {
-    if !cfg!(windows) {
-        return fail(buf, len, -3, "仅支持 Windows");
-    }
-    let ok_flag = if on != 0 {
-        // 值 29 是快捷方式角标，指向一个空图标就等于把它抹掉
-        crate::proc::cmd("reg")
-            .args([
-                "add", SHELL_ICONS, "/v", "29", "/t", "REG_SZ",
-                "/d", r"%SystemRoot%\System32\shell32.dll,50", "/f",
-            ])
-            .output()
-            .map(|o| o.status.success())
-            .unwrap_or(false)
-    } else {
-        crate::proc::cmd("reg")
-            .args(["delete", SHELL_ICONS, "/v", "29", "/f"])
-            .output()
-            .map(|o| o.status.success())
-            .unwrap_or(true)
-    };
+    crate::ffi_guard!(buf, len, {
+        if let Err(e) = crate::security::require_admin("修改快捷方式小箭头") {
+            return fail(buf, len, -5, &e);
+        }
+        if !cfg!(windows) {
+            return fail(buf, len, -3, "仅支持 Windows");
+        }
+        let ok_flag = if on != 0 {
+            // 值 29 是快捷方式角标，指向一个空图标就等于把它抹掉
+            crate::proc::cmd("reg")
+                .args([
+                    "add",
+                    SHELL_ICONS,
+                    "/v",
+                    "29",
+                    "/t",
+                    "REG_SZ",
+                    "/d",
+                    r"%SystemRoot%\System32\shell32.dll,50",
+                    "/f",
+                ])
+                .output()
+                .map(|o| o.status.success())
+                .unwrap_or(false)
+        } else {
+            crate::proc::cmd("reg")
+                .args(["delete", SHELL_ICONS, "/v", "29", "/f"])
+                .output()
+                .map(|o| o.status.success())
+                .unwrap_or(true)
+        };
 
-    if !ok_flag {
-        return fail(buf, len, -3, "注册表写入失败（需要管理员权限）");
-    }
-    refresh_explorer();
-    ok(
-        buf,
-        len,
-        if on != 0 { "小箭头已去掉" } else { "小箭头已恢复" },
-        json!({"removed": on != 0, "reversible": true}),
-    )
+        if !ok_flag {
+            return fail(buf, len, -3, "注册表写入失败（需要管理员权限）");
+        }
+        refresh_explorer();
+        ok(
+            buf,
+            len,
+            if on != 0 {
+                "小箭头已去掉"
+            } else {
+                "小箭头已恢复"
+            },
+            json!({"removed": on != 0, "reversible": true}),
+        )
+    })
 }
 
 // ================= 文件后缀显示 =================
@@ -70,27 +84,44 @@ pub extern "C" fn shortcut_arrow(on: i32, buf: *mut u8, len: usize) -> i32 {
 /// `show = true` 显示所有扩展名，`false` 恢复隐藏
 #[no_mangle]
 pub extern "C" fn file_ext_show(show: i32, buf: *mut u8, len: usize) -> i32 {
-    if !cfg!(windows) {
-        return fail(buf, len, -3, "仅支持 Windows");
-    }
-    let v = if show != 0 { "0" } else { "1" };
-    let done = crate::proc::cmd("reg")
-        .args([
-            "add", EXPLORER_ADV, "/v", "HideFileExt", "/t", "REG_DWORD", "/d", v, "/f",
-        ])
-        .output()
-        .map(|o| o.status.success())
-        .unwrap_or(false);
-    if !done {
-        return fail(buf, len, -3, "注册表写入失败");
-    }
-    refresh_explorer();
-    ok(
-        buf,
-        len,
-        if show != 0 { "已显示所有扩展名" } else { "已恢复隐藏扩展名" },
-        json!({"shown": show != 0, "reversible": true}),
-    )
+    crate::ffi_guard!(buf, len, {
+        if let Err(e) = crate::security::require_admin("修改文件后缀显示") {
+            return fail(buf, len, -5, &e);
+        }
+        if !cfg!(windows) {
+            return fail(buf, len, -3, "仅支持 Windows");
+        }
+        let v = if show != 0 { "0" } else { "1" };
+        let done = crate::proc::cmd("reg")
+            .args([
+                "add",
+                EXPLORER_ADV,
+                "/v",
+                "HideFileExt",
+                "/t",
+                "REG_DWORD",
+                "/d",
+                v,
+                "/f",
+            ])
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false);
+        if !done {
+            return fail(buf, len, -3, "注册表写入失败");
+        }
+        refresh_explorer();
+        ok(
+            buf,
+            len,
+            if show != 0 {
+                "已显示所有扩展名"
+            } else {
+                "已恢复隐藏扩展名"
+            },
+            json!({"shown": show != 0, "reversible": true}),
+        )
+    })
 }
 
 // ================= 文件粉碎 =================
@@ -114,42 +145,6 @@ fn is_self_file(p: &Path) -> bool {
 
 /// 系统关键位置，禁止粉碎——防止手滑把系统删了
 /// 只在入口判一次（路径数量有限），不跟着递归跑
-fn is_protected(p: &Path) -> bool {
-    if !cfg!(windows) {
-        return false;
-    }
-    let comps: Vec<String> = p
-        .components()
-        .map(|c| c.as_os_str().to_string_lossy().to_uppercase())
-        .collect();
-    // 空路径 / 盘根（C:\）直接拒
-    if comps.len() <= 1 {
-        return true;
-    }
-    let seg = comps[1].as_str();
-    let guarded = matches!(
-        seg,
-        "WINDOWS"
-            | "PROGRAM FILES"
-            | "PROGRAM FILES (X86)"
-            | "PROGRAMDATA"
-            | "$RECYCLE.BIN"
-            | "SYSTEM VOLUME INFORMATION"
-            | "BOOT"
-            | "EFI"
-            | "RECOVERY"
-            | "PERFLOGS"
-            | "ESD"
-    );
-    if guarded {
-        return true;
-    }
-    // C:\Users\xxx 这一层（整个用户配置目录）也不让删
-    if seg == "USERS" && comps.len() <= 3 {
-        return true;
-    }
-    false
-}
 
 /// 尝试解除占用：rename 探测三次，成功就说明句柄已经放开
 fn try_unlock(path: &Path) -> bool {
@@ -182,7 +177,8 @@ fn shred_file(path: &Path, passes: u8) -> Result<u64, String> {
     let mut buf = vec![0u8; 65536];
 
     for pass in 0..passes {
-        f.seek(SeekFrom::Start(0)).map_err(|e| format!("定位失败: {e}"))?;
+        f.seek(SeekFrom::Start(0))
+            .map_err(|e| format!("定位失败: {e}"))?;
         let mut written = 0u64;
         while written < len {
             let chunk = ((len - written) as usize).min(buf.len());
@@ -193,7 +189,8 @@ fn shred_file(path: &Path, passes: u8) -> Result<u64, String> {
                     _ => ((written + i as u64) % 251) as u8,
                 };
             }
-            f.write_all(&buf[..chunk]).map_err(|e| format!("写入失败: {e}"))?;
+            f.write_all(&buf[..chunk])
+                .map_err(|e| format!("写入失败: {e}"))?;
             written += chunk as u64;
         }
         let _ = f.sync_all();
@@ -251,54 +248,71 @@ fn shred_walk(
 
 /// 粉碎入口：接受 JSON 数组，元素可以是文件或目录
 #[no_mangle]
-pub extern "C" fn shredder_run(paths: *const c_char, passes: i32, dry_run: i32, buf: *mut u8, len: usize) -> i32 {
-    let Some(raw) = cstr(paths) else {
-        return fail(buf, len, -1, "参数为空");
-    };
-    let Ok(list) = serde_json::from_str::<Vec<String>>(&raw) else {
-        return fail(buf, len, -1, "路径列表解析失败");
-    };
-    if list.is_empty() {
-        return fail(buf, len, -1, "没有选中任何文件");
-    }
-
-    let p = passes.clamp(1, 7) as u8;
-    let (mut done, mut bytes, mut failed) = (0u64, 0u64, Vec::new());
-
-    for item in &list {
-        let path = PathBuf::from(item);
-        if is_protected(&path) {
-            failed.push(format!("{item}: 系统关键位置，禁止粉碎"));
-            continue;
+pub extern "C" fn shredder_run(
+    paths: *const c_char,
+    passes: i32,
+    dry_run: i32,
+    buf: *mut u8,
+    len: usize,
+) -> i32 {
+    crate::ffi_guard!(buf, len, {
+        let Some(raw) = cstr(paths) else {
+            return fail(buf, len, -1, "参数为空");
+        };
+        let Ok(list) = serde_json::from_str::<Vec<String>>(&raw) else {
+            return fail(buf, len, -1, "路径列表解析失败");
+        };
+        if list.is_empty() {
+            return fail(buf, len, -1, "没有选中任何文件");
         }
-        if dry_run != 0 {
-            let Ok(meta) = fs::symlink_metadata(&path) else {
-                failed.push(format!("{item}: 不存在"));
-                continue;
-            };
-            if is_self_file(&path) {
-                failed.push(format!("{item}: 本程序自己的文件，拒绝粉碎"));
+        if dry_run == 0 {
+            if let Err(e) = crate::security::require_admin("文件粉碎") {
+                return fail(buf, len, -5, &e);
+            }
+        }
+
+        let p = passes.clamp(1, 7) as u8;
+        let (mut done, mut bytes, mut failed) = (0u64, 0u64, Vec::new());
+
+        for item in &list {
+            let path = PathBuf::from(item);
+            if crate::util::is_protected(&path) {
+                failed.push(format!("{item}: 系统关键位置，禁止粉碎"));
                 continue;
             }
-            done += 1;
-            bytes += if meta.is_file() { meta.len() } else { 0 };
-            continue;
+            if dry_run != 0 {
+                let Ok(meta) = fs::symlink_metadata(&path) else {
+                    failed.push(format!("{item}: 不存在"));
+                    continue;
+                };
+                if is_self_file(&path) {
+                    failed.push(format!("{item}: 本程序自己的文件，拒绝粉碎"));
+                    continue;
+                }
+                done += 1;
+                bytes += if meta.is_file() { meta.len() } else { 0 };
+                continue;
+            }
+            shred_walk(&path, p, 0, &mut done, &mut bytes, &mut failed);
         }
-        shred_walk(&path, p, 0, &mut done, &mut bytes, &mut failed);
-    }
 
-    ok(
-        buf,
-        len,
-        if dry_run != 0 { "预演完成" } else { "粉碎完成" },
-        json!({
-            "files": done,
-            "bytes": bytes,
-            "passes": p,
-            "failed": failed,
-            "dry_run": dry_run != 0
-        }),
-    )
+        ok(
+            buf,
+            len,
+            if dry_run != 0 {
+                "预演完成"
+            } else {
+                "粉碎完成"
+            },
+            json!({
+                "files": done,
+                "bytes": bytes,
+                "passes": p,
+                "failed": failed,
+                "dry_run": dry_run != 0
+            }),
+        )
+    })
 }
 
 // ================= 环境自检 =================
@@ -307,57 +321,68 @@ pub extern "C" fn shredder_run(paths: *const c_char, passes: i32, dry_run: i32, 
 /// 只被单独提取出去（没装本程序）时，这里会列出一堆缺失，前端据此报错
 #[no_mangle]
 pub extern "C" fn env_check(buf: *mut u8, len: usize) -> i32 {
-    let exe = std::env::current_exe().ok();
-    let root = exe.as_ref().and_then(|p| p.parent()).map(|p| p.to_path_buf());
+    crate::ffi_guard!(buf, len, {
+        let exe = std::env::current_exe().ok();
+        let root = exe
+            .as_ref()
+            .and_then(|p| p.parent())
+            .map(|p| p.to_path_buf());
 
-    let mut issues: Vec<String> = Vec::new();
-    let mut installed = false;
+        let mut issues: Vec<String> = Vec::new();
+        let mut installed = false;
 
-    if let Some(dir) = &root {
-        for need in ["flutter_windows.dll", "data", "toolkit_native.dll"] {
-            if !dir.join(need).exists() {
-                issues.push(format!("缺少 {need}"));
+        if let Some(dir) = &root {
+            for need in ["flutter_windows.dll", "data", "toolkit_native.dll"] {
+                if !dir.join(need).exists() {
+                    issues.push(format!("缺少 {need}"));
+                }
             }
+            // 装没装过，不能拿注册表说了算：
+            //   · Inno 写的是 Uninstall\{GUID}_is1，跟这里的 QWGuard 永远对不上
+            //   · 免安装版压根没有卸载项
+            //   · 换台机器拷贝过去的、系统还原后注册表丢了的，文件其实都是齐的
+            // 只要三个文件在，就说明是一份完整的程序，能跑。装没装过只影响
+            // 「有没有卸载入口」，不影响能不能启动。
+            installed = dir.join("toolkit_native.dll").exists() && dir.join("data").exists();
+        } else {
+            issues.push("拿不到自身路径".into());
         }
-        // 装没装过，不能拿注册表说了算：
-        //   · Inno 写的是 Uninstall\{GUID}_is1，跟这里的 QWGuard 永远对不上
-        //   · 免安装版压根没有卸载项
-        //   · 换台机器拷贝过去的、系统还原后注册表丢了的，文件其实都是齐的
-        // 只要三个文件在，就说明是一份完整的程序，能跑。装没装过只影响
-        // 「有没有卸载入口」，不影响能不能启动。
-        installed = dir.join("toolkit_native.dll").exists() && dir.join("data").exists();
-    } else {
-        issues.push("拿不到自身路径".into());
-    }
 
-    ok(
-        buf,
-        len,
-        if issues.is_empty() { "环境正常" } else { "环境异常" },
-        json!({
-            "ok": issues.is_empty(),
-            "installed": installed,
-            "root": root.map(|p| p.to_string_lossy().to_string()).unwrap_or_default(),
-            "issues": issues
-        }),
-    )
+        ok(
+            buf,
+            len,
+            if issues.is_empty() {
+                "环境正常"
+            } else {
+                "环境异常"
+            },
+            json!({
+                "ok": issues.is_empty(),
+                "installed": installed,
+                "root": root.map(|p| p.to_string_lossy().to_string()).unwrap_or_default(),
+                "issues": issues
+            }),
+        )
+    })
 }
 
 /// 当前是否已装（轻量版，只查注册表）
 #[no_mangle]
 pub extern "C" fn is_installed(buf: *mut u8, len: usize) -> i32 {
-    if !cfg!(windows) {
-        return ok(buf, len, "非 Windows", json!({"installed": false}));
-    }
-    let installed = crate::proc::cmd("reg")
-        .args([
-            "query",
-            r"HKCU\Software\Microsoft\Windows\CurrentVersion\Uninstall\QWGuard",
-        ])
-        .output()
-        .map(|o| o.status.success())
-        .unwrap_or(false);
-    ok(buf, len, "安装状态", json!({"installed": installed}))
+    crate::ffi_guard!(buf, len, {
+        if !cfg!(windows) {
+            return ok(buf, len, "非 Windows", json!({"installed": false}));
+        }
+        let installed = crate::proc::cmd("reg")
+            .args([
+                "query",
+                r"HKCU\Software\Microsoft\Windows\CurrentVersion\Uninstall\QWGuard",
+            ])
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false);
+        ok(buf, len, "安装状态", json!({"installed": installed}))
+    })
 }
 
 /// 系统版本：判断是否达到 Windows 10 1809（内部版本 17763）
@@ -365,65 +390,69 @@ pub extern "C" fn is_installed(buf: *mut u8, len: usize) -> i32 {
 /// 达不到不给装、也不假装能跑，界面直接给一句人话，别让用户以为软件坏了。
 #[no_mangle]
 pub extern "C" fn os_version(buf: *mut u8, len: usize) -> i32 {
-    let mut build: u32 = 0;
-    let mut product = String::new();
+    crate::ffi_guard!(buf, len, {
+        let mut build: u32 = 0;
+        let mut product = String::new();
 
-    if cfg!(windows) {
-        for (key, slot) in [("CurrentBuildNumber", 0u8), ("ProductName", 1u8)] {
-            let Ok(o) = crate::proc::cmd("reg")
-                .args([
-                    "query",
-                    r"HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion",
-                    "/v",
-                    key,
-                ])
-                .output()
-            else {
-                continue;
-            };
-            let text = String::from_utf8_lossy(&o.stdout).to_string();
-            let Some(pos) = text.find("REG_SZ") else { continue };
-            let rest = text[pos + 6..].trim();
-            if slot == 0 {
-                build = rest
-                    .split_whitespace()
-                    .next()
-                    .unwrap_or("0")
-                    .parse()
-                    .unwrap_or(0);
-            } else {
-                product = rest.lines().next().unwrap_or("").trim().to_string();
+        if cfg!(windows) {
+            for (key, slot) in [("CurrentBuildNumber", 0u8), ("ProductName", 1u8)] {
+                let Ok(o) = crate::proc::cmd("reg")
+                    .args([
+                        "query",
+                        r"HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion",
+                        "/v",
+                        key,
+                    ])
+                    .output()
+                else {
+                    continue;
+                };
+                let text = String::from_utf8_lossy(&o.stdout).to_string();
+                let Some(pos) = text.find("REG_SZ") else {
+                    continue;
+                };
+                let rest = text[pos + 6..].trim();
+                if slot == 0 {
+                    build = rest
+                        .split_whitespace()
+                        .next()
+                        .unwrap_or("0")
+                        .parse()
+                        .unwrap_or(0);
+                } else {
+                    product = rest.lines().next().unwrap_or("").trim().to_string();
+                }
             }
         }
-    }
 
-    const MIN_BUILD: u32 = 17763;
-    let supported = !cfg!(windows) || build >= MIN_BUILD;
-    let label = if build >= 22000 {
-        "Windows 11"
-    } else if build >= MIN_BUILD {
-        "Windows 10"
-    } else if build > 0 {
-        "低于 Windows 10 1809"
-    } else {
-        "未知系统"
-    };
+        const MIN_BUILD: u32 = 17763;
+        let supported = !cfg!(windows) || build >= MIN_BUILD;
+        let label = if build >= 22000 {
+            "Windows 11"
+        } else if build >= MIN_BUILD {
+            "Windows 10"
+        } else if build > 0 {
+            "低于 Windows 10 1809"
+        } else {
+            "未知系统"
+        };
 
-    ok(
-        buf,
-        len,
-        "系统版本",
-        json!({
-            "build": build,
-            "product": product,
-            "label": label,
-            "supported": supported,
-            "min_build": MIN_BUILD,
-            "tip": if supported {
-                "".to_string()
-            } else {
-                "本程序需要 Windows 10 1809（内部版本 17763）及以上。当前系统版本过低，装上也跑不起来，建议先在设置里更新系统。".to_string()
-            }
-        }),
-    )
+        ok(
+            buf,
+            len,
+            "系统版本",
+            json!({
+                "build": build,
+                "product": product,
+                "label": label,
+                "supported": supported,
+                "min_build": MIN_BUILD,
+                "tip": if supported {
+                    "".to_string()
+                } else {
+                    "本程序需要 Windows 10 1809（内部版本 17763）及以上。当前系统版本过低，装上也跑不起来，建议先在设置里更新系统。".to_string()
+                }
+            }),
+        )
+    })
 }

@@ -16,7 +16,7 @@ use serde::Serialize;
 use std::ffi::c_char;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::Stdio;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
@@ -210,146 +210,153 @@ fn dll_exists(name: &str) -> bool {
 
 #[no_mangle]
 pub extern "C" fn runtime_scan(buf: *mut u8, len: usize) -> i32 {
-    let items: Vec<LibItem> = LIBS
-        .iter()
-        .map(|(k, n, d)| LibItem {
-            key: *k,
-            name: *n,
-            dll: *d,
-            ok: dll_exists(*d),
-        })
-        .collect();
+    crate::ffi_guard!(buf, len, {
+        let items: Vec<LibItem> = LIBS
+            .iter()
+            .map(|(k, n, d)| LibItem {
+                key: *k,
+                name: *n,
+                dll: *d,
+                ok: dll_exists(*d),
+            })
+            .collect();
 
-    let missing: Vec<&str> = items.iter().filter(|i| !i.ok).map(|i| i.name).collect();
-    let total = items.len();
-    let ok_count = total - missing.len();
+        let missing: Vec<&str> = items.iter().filter(|i| !i.ok).map(|i| i.name).collect();
+        let total = items.len();
+        let ok_count = total - missing.len();
 
-    // 第二重判定：拿 DirectX Repair 自带 Data 清单比对系统目录
-    let (m32, m64) = dx_missing_by_data();
-    let dx_data_missing = m32.len() + m64.len();
-    let dx_data_ready = dx_data_dirs().is_some();
+        // 第二重判定：拿 DirectX Repair 自带 Data 清单比对系统目录
+        let (m32, m64) = dx_missing_by_data();
+        let dx_data_missing = m32.len() + m64.len();
+        let dx_data_ready = dx_data_dirs().is_some();
 
-    let need_vc = items
-        .iter()
-        .any(|i| !i.ok && i.key != "dx9" && i.key != "xinput" && i.key != "d3dcompiler");
-    let need_dx = items
-        .iter()
-        .any(|i| !i.ok && matches!(i.key, "dx9" | "xinput" | "d3dcompiler"))
-        || dx_data_missing > 0;
+        let need_vc = items
+            .iter()
+            .any(|i| !i.ok && i.key != "dx9" && i.key != "xinput" && i.key != "d3dcompiler");
+        let need_dx = items
+            .iter()
+            .any(|i| !i.ok && matches!(i.key, "dx9" | "xinput" | "d3dcompiler"))
+            || dx_data_missing > 0;
 
-    let complete = missing.is_empty() && dx_data_missing == 0;
+        let complete = missing.is_empty() && dx_data_missing == 0;
 
-    ok(
-        buf,
-        len,
-        if complete { "运行库完整" } else { "发现缺失的运行库" },
-        serde_json::json!({
-            "items": items,
-            "total": total,
-            "ok_count": ok_count,
-            "missing": missing,
-            "need_vc": need_vc,
-            "need_dx": need_dx,
-            // 自研 DLL 检测 + DirectX Repair 自带清单，两重结果都给前端
-            "dx_data_ready": dx_data_ready,
-            "dx_data_missing": dx_data_missing,
-            "dx_data_32": m32,
-            "dx_data_64": m64,
-            "vc_tool": find_tool(&[VCREDIST]).map(|p| p.to_string_lossy().to_string()),
-            "dx_tool": find_dx().map(|(p, _)| p.to_string_lossy().to_string()),
-        }),
-    )
+        ok(
+            buf,
+            len,
+            if complete {
+                "运行库完整"
+            } else {
+                "发现缺失的运行库"
+            },
+            serde_json::json!({
+                "items": items,
+                "total": total,
+                "ok_count": ok_count,
+                "missing": missing,
+                "need_vc": need_vc,
+                "need_dx": need_dx,
+                // 自研 DLL 检测 + DirectX Repair 自带清单，两重结果都给前端
+                "dx_data_ready": dx_data_ready,
+                "dx_data_missing": dx_data_missing,
+                "dx_data_32": m32,
+                "dx_data_64": m64,
+                "vc_tool": find_tool(&[VCREDIST]).map(|p| p.to_string_lossy().to_string()),
+                "dx_tool": find_dx().map(|(p, _)| p.to_string_lossy().to_string()),
+            }),
+        )
+    })
 }
 
 // ============ 工具本体校验 ============
 
 /// tools.json 格式：{"VisualCppRedist_AIO_x86_x64.exe":"<sha256>", "DirectX Repair.exe":"<sha256>"}
-fn sha256_file(path: &Path) -> Option<String> {
-    use sha2::{Digest, Sha256};
-    use std::io::Read as _;
-    // 分块读，不再把 32MB 的 AIO 整个读进内存
-    let mut f = fs::File::open(path).ok()?;
-    let mut buf = [0u8; 64 * 1024];
-    let mut h = Sha256::new();
-    loop {
-        let n = f.read(&mut buf).ok()?;
-        if n == 0 {
-            break;
-        }
-        h.update(&buf[..n]);
-    }
-    Some(format!("{:x}", h.finalize()))
-}
 
-/// 返回 (可用, 说明)。没 manifests 时放行但在说明里写清楚"未校验"
+/// 返回 (可用, 说明)。校验清单缺失/格式错/文件没登记一律拒绝：
+/// 运行库补全要提权执行下载来的 exe，宁可装不上，也不能在"没校验"的状态下跑。
 fn verify_tool(path: &Path) -> (bool, String) {
     let Some(dir) = path.parent() else {
         return (false, "路径异常".into());
     };
     let manifest = dir.join("tools.json");
     let Ok(text) = fs::read_to_string(&manifest) else {
-        return (true, "未提供校验清单，跳过哈希比对".into());
+        return (
+            false,
+            "缺少 tools.json 校验清单，已拒绝执行未校验工具".into(),
+        );
     };
     let Ok(map) = serde_json::from_str::<serde_json::Value>(&text) else {
-        return (true, "校验清单格式不对，跳过哈希比对".into());
+        return (false, "校验清单格式损坏，已拒绝执行".into());
     };
     let Some(name) = path.file_name().and_then(|s| s.to_str()) else {
         return (false, "文件名异常".into());
     };
     let Some(want) = map.get(name).and_then(|v| v.as_str()) else {
-        return (true, "清单里没登记这个文件，跳过哈希比对".into());
+        return (false, "文件未在 tools.json 登记，已拒绝执行".into());
     };
-    let Some(got) = sha256_file(path) else {
+    let Some(got) = crate::engines::sha256_file(path).ok() else {
         return (false, "读取文件失败".into());
     };
     if got.eq_ignore_ascii_case(want) {
         (true, "哈希校验通过".into())
     } else {
-        (false, "文件哈希与清单不一致，可能被替换过，已拒绝执行".into())
+        (
+            false,
+            "文件哈希与清单不一致，可能被替换过，已拒绝执行".into(),
+        )
     }
 }
 
 #[no_mangle]
 pub extern "C" fn runtime_tools(buf: *mut u8, len: usize) -> i32 {
-    let vc = find_tool(&[VCREDIST]);
-    let dx = find_dx().map(|(p, _)| p);
+    crate::ffi_guard!(buf, len, {
+        let vc = find_tool(&[VCREDIST]);
+        let dx = find_dx().map(|(p, _)| p);
 
-    let vc_info = vc.as_ref().map(|p| {
-        let (good, msg) = verify_tool(p);
-        let mb = fs::metadata(p).map(|m| round1(m.len() as f32 / 1048576.0)).unwrap_or(0.0);
-        serde_json::json!({
-            "name": p.file_name().map(|s| s.to_string_lossy().to_string()).unwrap_or_default(),
-            "path": p.to_string_lossy(),
-            "size_mb": mb,
-            "verified": good,
-            "note": msg,
-        })
-    });
+        let vc_info = vc.as_ref().map(|p| {
+            let (good, msg) = verify_tool(p);
+            let mb = fs::metadata(p)
+                .map(|m| round1(m.len() as f32 / 1048576.0))
+                .unwrap_or(0.0);
+            serde_json::json!({
+                "name": p.file_name().map(|s| s.to_string_lossy().to_string()).unwrap_or_default(),
+                "path": p.to_string_lossy(),
+                "size_mb": mb,
+                "verified": good,
+                "note": msg,
+            })
+        });
 
-    let dx_info = dx.as_ref().map(|p| {
-        let (good, msg) = verify_tool(p);
-        let mb = fs::metadata(p).map(|m| round1(m.len() as f32 / 1048576.0)).unwrap_or(0.0);
-        serde_json::json!({
-            "name": p.file_name().map(|s| s.to_string_lossy().to_string()).unwrap_or_default(),
-            "path": p.to_string_lossy(),
-            "size_mb": mb,
-            "verified": good,
-            "note": msg,
-        })
-    });
+        let dx_info = dx.as_ref().map(|p| {
+            let (good, msg) = verify_tool(p);
+            let mb = fs::metadata(p)
+                .map(|m| round1(m.len() as f32 / 1048576.0))
+                .unwrap_or(0.0);
+            serde_json::json!({
+                "name": p.file_name().map(|s| s.to_string_lossy().to_string()).unwrap_or_default(),
+                "path": p.to_string_lossy(),
+                "size_mb": mb,
+                "verified": good,
+                "note": msg,
+            })
+        });
 
-    let all_ok = vc_info.is_some() && dx_info.is_some();
-    ok(
-        buf,
-        len,
-        if all_ok { "两个修复工具就位" } else { "修复工具不全" },
-        serde_json::json!({
-            "vcredist": vc_info,
-            "dxrepair": dx_info,
-            "all_ok": all_ok,
-            "dir": tool_dirs().first().map(|p| p.to_string_lossy().to_string()),
-        }),
-    )
+        let all_ok = vc_info.is_some() && dx_info.is_some();
+        ok(
+            buf,
+            len,
+            if all_ok {
+                "两个修复工具就位"
+            } else {
+                "修复工具不全"
+            },
+            serde_json::json!({
+                "vcredist": vc_info,
+                "dxrepair": dx_info,
+                "all_ok": all_ok,
+                "dir": tool_dirs().first().map(|p| p.to_string_lossy().to_string()),
+            }),
+        )
+    })
 }
 
 // ============ 执行修复 ============
@@ -387,7 +394,12 @@ fn run_tool(exe: &Path, args: &[&str], log_name: &str, timeout: Duration) -> Res
         .append(true)
         .open(&lp)
         .map_err(|e| format!("日志打不开: {e}"))?;
-    let _ = writeln!(log, "\n=== {log_name} | {} | args={:?}", exe.display(), args);
+    let _ = writeln!(
+        log,
+        "\n=== {log_name} | {} | args={:?}",
+        exe.display(),
+        args
+    );
 
     let mut cmd = crate::proc::cmd(exe);
     cmd.args(args)
@@ -450,9 +462,9 @@ fn run_tool(exe: &Path, args: &[&str], log_name: &str, timeout: Duration) -> Res
 
 /// 后台跑：先 VC++ 再 DirectX，串行，避免两个安装器抢注册表
 fn run_all(mode: String) {
-    *LAST_MODE.lock().unwrap() = Some(mode.clone());
-    *EXIT_CODE.lock().unwrap() = None;
-    *LAST_TOOL.lock().unwrap() = None;
+    *LAST_MODE.lock().unwrap_or_else(|e| e.into_inner()) = Some(mode.clone());
+    *EXIT_CODE.lock().unwrap_or_else(|e| e.into_inner()) = None;
+    *LAST_TOOL.lock().unwrap_or_else(|e| e.into_inner()) = None;
     FIXING.store(true, Ordering::SeqCst);
 
     let steps: &[&str] = match mode.as_str() {
@@ -463,27 +475,39 @@ fn run_all(mode: String) {
 
     for step in steps {
         let (exe, args, label) = if *step == "vc" {
-            let Some(p) = find_tool(&[VCREDIST]) else { continue };
+            let Some(p) = find_tool(&[VCREDIST]) else {
+                continue;
+            };
             if !verify_tool(&p).0 {
-                *EXIT_CODE.lock().unwrap() = Some(-2);
+                *EXIT_CODE.lock().unwrap_or_else(|e| e.into_inner()) = Some(-2);
                 continue;
             }
             // /ai = 静默装全部；AIO 自己会先清掉不合规的旧版
             (p, vec!["/ai"], "VisualCppRedist AIO")
         } else {
-            let Some((p, is_web)) = find_dx() else { continue };
+            let Some((p, is_web)) = find_dx() else {
+                continue;
+            };
             if !verify_tool(&p).0 {
-                *EXIT_CODE.lock().unwrap() = Some(-2);
+                *EXIT_CODE.lock().unwrap_or_else(|e| e.into_inner()) = Some(-2);
                 continue;
             }
             // DirectX Repair 走 /silent /nosound：不弹它自己的窗口、不响提示音
             // 微软官方 dxwebsetup 走 /q
-            let label = if is_web { "DirectX 官方安装器" } else { "DirectX Repair" };
-            let args = if is_web { vec!["/q"] } else { vec!["/silent", "/nosound"] };
+            let label = if is_web {
+                "DirectX 官方安装器"
+            } else {
+                "DirectX Repair"
+            };
+            let args = if is_web {
+                vec!["/q"]
+            } else {
+                vec!["/silent", "/nosound"]
+            };
             (p, args, label)
         };
 
-        *LAST_TOOL.lock().unwrap() = Some(label.to_string());
+        *LAST_TOOL.lock().unwrap_or_else(|e| e.into_inner()) = Some(label.to_string());
         // VC++ 全量装慢，给 20 分钟；DirectX 15 分钟，超时就当失败
         let timeout = if *step == "vc" {
             Duration::from_secs(20 * 60)
@@ -491,7 +515,7 @@ fn run_all(mode: String) {
             Duration::from_secs(15 * 60)
         };
         let code = run_tool(&exe, &args, label, timeout).unwrap_or(-1);
-        *EXIT_CODE.lock().unwrap() = Some(code);
+        *EXIT_CODE.lock().unwrap_or_else(|e| e.into_inner()) = Some(code);
     }
 
     FIXING.store(false, Ordering::SeqCst);
@@ -500,78 +524,89 @@ fn run_all(mode: String) {
 
 #[no_mangle]
 pub extern "C" fn runtime_fix(mode: *const c_char, buf: *mut u8, len: usize) -> i32 {
-    let Some(mode) = cstr(mode) else { return fail(buf, len, -1, "参数为空") };
-    let m = match mode.as_str() {
-        "vc" | "dx" | "all" => mode,
-        _ => return fail(buf, len, -1, "mode 只能是 vc / dx / all"),
-    };
-    if FIXING.load(Ordering::SeqCst) {
-        return fail(buf, len, -3, "已经在修了，等这一轮跑完");
-    }
-
-    // 开工前先把工具检查一遍，缺了直接报，不要装作能修
-    if m == "vc" || m == "all" {
-        if find_tool(&[VCREDIST]).is_none() {
-            return fail(buf, len, -3, "没找到 VisualCppRedist AIO，请确认安装完整");
+    crate::ffi_guard!(buf, len, {
+        if let Err(e) = crate::security::require_admin("运行库补全") {
+            return fail(buf, len, -5, &e);
         }
-    }
-    if m == "dx" || m == "all" {
-        if find_dx().is_none() {
-            return fail(buf, len, -3, "没找到 DirectX 修复工具，请确认安装完整");
+        let Some(mode) = cstr(mode) else {
+            return fail(buf, len, -1, "参数为空");
+        };
+        let m = match mode.as_str() {
+            "vc" | "dx" | "all" => mode,
+            _ => return fail(buf, len, -1, "mode 只能是 vc / dx / all"),
+        };
+        if FIXING.load(Ordering::SeqCst) {
+            return fail(buf, len, -3, "已经在修了，等这一轮跑完");
         }
-    }
 
-    let mode2 = m.clone();
-    std::thread::spawn(move || run_all(mode2));
+        // 开工前先把工具检查一遍，缺了直接报，不要装作能修
+        if m == "vc" || m == "all" {
+            if find_tool(&[VCREDIST]).is_none() {
+                return fail(buf, len, -3, "没找到 VisualCppRedist AIO，请确认安装完整");
+            }
+        }
+        if m == "dx" || m == "all" {
+            if find_dx().is_none() {
+                return fail(buf, len, -3, "没找到 DirectX 修复工具，请确认安装完整");
+            }
+        }
 
-    ok(
-        buf,
-        len,
-        "已开始修复，进度走后台",
-        serde_json::json!({ "mode": m, "log": log_path().to_string_lossy() }),
-    )
+        let mode2 = m.clone();
+        std::thread::spawn(move || run_all(mode2));
+
+        ok(
+            buf,
+            len,
+            "已开始修复，进度走后台",
+            serde_json::json!({ "mode": m, "log": log_path().to_string_lossy() }),
+        )
+    })
 }
 
 #[no_mangle]
 pub extern "C" fn runtime_status(buf: *mut u8, len: usize) -> i32 {
-    let running = FIXING.load(Ordering::SeqCst);
-    let code = *EXIT_CODE.lock().unwrap();
-    let mode = LAST_MODE.lock().unwrap().clone();
-    let tool = LAST_TOOL.lock().unwrap().clone();
+    crate::ffi_guard!(buf, len, {
+        let running = FIXING.load(Ordering::SeqCst);
+        let code = *EXIT_CODE.lock().unwrap_or_else(|e| e.into_inner());
+        let mode = LAST_MODE.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        let tool = LAST_TOOL.lock().unwrap_or_else(|e| e.into_inner()).clone();
 
-    // 日志尾巴，给界面滚动区显示
-    let tail = fs::read_to_string(log_path())
-        .map(|s| {
-            let lines: Vec<&str> = s.lines().rev().take(12).collect();
-            lines.into_iter().rev().collect::<Vec<_>>().join("\n")
-        })
-        .unwrap_or_default();
+        // 日志尾巴，给界面滚动区显示
+        let tail = fs::read_to_string(log_path())
+            .map(|s| {
+                let lines: Vec<&str> = s.lines().rev().take(12).collect();
+                lines.into_iter().rev().collect::<Vec<_>>().join("\n")
+            })
+            .unwrap_or_default();
 
-    ok(
-        buf,
-        len,
-        "状态读取完成",
-        serde_json::json!({
-            "running": running,
-            "mode": mode,
-            "tool": tool,
-            "exit_code": code,
-            "finished": !running && mode.is_some(),
-            "success": code == Some(0),
-            "log_tail": tail,
-        }),
-    )
+        ok(
+            buf,
+            len,
+            "状态读取完成",
+            serde_json::json!({
+                "running": running,
+                "mode": mode,
+                "tool": tool,
+                "exit_code": code,
+                "finished": !running && mode.is_some(),
+                "success": code == Some(0),
+                "log_tail": tail,
+            }),
+        )
+    })
 }
 
 /// 界面启动一个轮询用的轻量等待：给秒数，阻塞最多这么久看是否结束
 #[no_mangle]
 pub extern "C" fn runtime_wait(secs: i32) -> i32 {
-    let deadline = Instant::now() + Duration::from_secs(secs.clamp(0, 30) as u64);
-    while Instant::now() < deadline {
-        if !FIXING.load(Ordering::SeqCst) {
-            return 1;
+    crate::ffi_guard_none!({
+        let deadline = Instant::now() + Duration::from_secs(secs.clamp(0, 30) as u64);
+        while Instant::now() < deadline {
+            if !FIXING.load(Ordering::SeqCst) {
+                return 1;
+            }
+            std::thread::sleep(Duration::from_millis(300));
         }
-        std::thread::sleep(Duration::from_millis(300));
-    }
-    0
+        0
+    })
 }

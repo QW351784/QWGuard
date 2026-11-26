@@ -26,6 +26,10 @@ yara-x = { version = "1", default-features = false, features = [
 ] }
 
 zip = { version = "2", default-features = false, features = ["deflate"] }
+pbkdf2 = { version = "0.12", default-features = false }
+aes-gcm = "0.10"
+getrandom = "0.2"
+hmac = "0.12"
 
 [target.'cfg(not(windows))'.dependencies]
 ureq = "2.10"
@@ -35,10 +39,11 @@ windows = { version = "0.58", features = ["Win32_Foundation", "Win32_UI_WindowsA
 
 # 性能优先：opt-level 3 而不是体积优先的 z
 # fat LTO + codegen-units = 4 让 LLVM 跨模块优化
-# panic=abort 去掉展开逻辑，strip 砍掉符号表
+# 保留 unwind：FFI 入口的 catch_unwind 才能真正兜住 Rust panic；
+# panic=abort 会让一次越界直接把整个管家进程带走。
 [profile.release]
 opt-level = 3
-lto = "thin"
-codegen-units = 4
-panic = "abort"
+lto = "fat"
+codegen-units = 1
+panic = "unwind"
 strip = "symbols"

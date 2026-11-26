@@ -4,6 +4,49 @@ import 'package:flutter/material.dart';
 
 import 'state.dart';
 
+/// 扫描页实时数据。放在 ValueNotifier 里，进度刷新只重建 ScanFx，
+/// 不用 setState 把整页（列表、按钮、输入框）全重建一遍。
+class ScanFxData {
+  final String stage;
+  final String detail;
+  final List<String> recent;
+  final double? progress;
+  final int hits;
+  final int scanned;
+
+  const ScanFxData({
+    required this.stage,
+    this.detail = '',
+    this.recent = const [],
+    this.progress,
+    this.hits = 0,
+    this.scanned = 0,
+  });
+}
+
+/// 监听 ScanFxData 的薄壳，只重建扫描动效本身。
+class ScanFxLive extends StatelessWidget {
+  final ValueListenable<ScanFxData> data;
+  final double size;
+  const ScanFxLive({super.key, required this.data, this.size = 180});
+
+  @override
+  Widget build(BuildContext context) {
+    return ValueListenableBuilder<ScanFxData>(
+      valueListenable: data,
+      builder: (_, d, __) => ScanFx(
+        stage: d.stage,
+        detail: d.detail,
+        recent: d.recent,
+        progress: d.progress,
+        hits: d.hits,
+        scanned: d.scanned,
+        size: size,
+      ),
+    );
+  }
+}
+
 /// 扫描动效 —— 360 安全卫士 / 火绒那一路风格，但做成澎湃 OS 4 的克制版：
 /// 双层反向旋转弧 + 绕圈扫掠光束 + 刻度脉冲 + 呼吸光晕 + 中心盾牌 + 进度环。
 ///

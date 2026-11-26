@@ -125,8 +125,14 @@ class _SquircleShadow extends CustomPainter {
 
 /// iOS 27 液态玻璃 + 澎湃 OS 4 布局 + Win11 云母 / Win7 Aero 混搭
 class AppTheme {
-  static ThemeData light() => _base(Brightness.light, const Color(0xFF2F7BFF));
-  static ThemeData dark() => _base(Brightness.dark, const Color(0xFF4C9BFF));
+  /// 动态取色的种子：启动时从系统强调色读，读不到就用品牌蓝。
+  static Color seed = const Color(0xFF2F7BFF);
+  static const Color fallbackSeed = Color(0xFF2F7BFF);
+
+  static void setSeed(Color c) => seed = c;
+
+  static ThemeData light() => _base(Brightness.light, seed);
+  static ThemeData dark() => _base(Brightness.dark, seed);
 
   static ThemeData _base(Brightness b, Color seed) {
     final isDark = b == Brightness.dark;
@@ -158,7 +164,7 @@ class AppTheme {
             displayColor: isDark ? Colors.white : const Color(0xFF14171C),
             // 全局兜底：任何继承下来的下划线（含双线）统统清掉。
             decoration: TextDecoration.none,
-          )),
+          ), isDark),
     );
   }
 
@@ -166,11 +172,19 @@ class AppTheme {
   /// 只靠 .apply(decoration: none) 有一层隐患：Material 的 Typography 在合并时
   /// 可能把 decorationStyle / decorationColor 带回来，于是「双黄线」又出现。
   /// 这里逐个 copyWith，把三件套一起压成 none / transparent / solid。
-  static TextTheme _cleanTextTheme(TextTheme t) {
+  static TextTheme _cleanTextTheme(TextTheme t, bool isDark) {
     TextStyle? f(TextStyle? s) => s?.copyWith(
           decoration: TextDecoration.none,
           decorationColor: Colors.transparent,
           decorationStyle: TextDecorationStyle.solid,
+          // 柔边：极轻的同色阴影把字形外缘化开一点，不是投影。
+          shadows: [
+            Shadow(
+              color: Colors.black.withOpacity(isDark ? 0.45 : 0.10),
+              blurRadius: 3.0,
+              offset: const Offset(0, 1),
+            ),
+          ],
         );
     return TextTheme(
       displayLarge: f(t.displayLarge),
@@ -261,12 +275,12 @@ class AppTheme {
   }
 
   static Color blobTop(Brightness b) => b == Brightness.dark
-      ? const Color(0xFF3D7BD1).withOpacity(0.20)
-      : const Color(0xFF8CC0FF).withOpacity(0.40);
+      ? Color.lerp(seed, Colors.black, 0.35)!.withOpacity(0.22)
+      : Color.lerp(seed, Colors.white, 0.55)!.withOpacity(0.42);
 
   static Color blobBottom(Brightness b) => b == Brightness.dark
-      ? const Color(0xFF3568AE).withOpacity(0.16)
-      : const Color(0xFFBFDFFF).withOpacity(0.45);
+      ? Color.lerp(seed, Colors.black, 0.55)!.withOpacity(0.18)
+      : Color.lerp(seed, Colors.white, 0.75)!.withOpacity(0.48);
 }
 
 /// 液态玻璃容器：关闭液态玻璃时退化为纯色卡片，不做模糊/折射
@@ -510,6 +524,7 @@ class _LiquidButtonState extends State<LiquidButton> {
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final enabled = widget.onTap != null;
+    final primary = Theme.of(context).colorScheme.primary;
 
     return GestureDetector(
       onTapDown: (enabled && Ui.isOn('buttonPress')) ? (_) => setState(() => _scale = 0.94) : null,
@@ -525,43 +540,90 @@ class _LiquidButtonState extends State<LiquidButton> {
         duration: Ui.dur('buttonPress', 180),
         curve: Ui.curve('buttonPress'),
         // 按钮不再是"假玻璃"：走 LiquidGlass，跟着材质档位实时模糊 + 折射 + 光追；
-        // 主按钮把品牌蓝渐变覆盖上去，玻璃质感还在
-        child: LiquidGlass(
-          radius: 999,
-          padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 13),
-          forceGlass: true,
-          gradient: widget.primary
-              ? LinearGradient(
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                  colors: enabled
-                      ? const [Color(0xFF4B96FF), Color(0xFF2F7BFF), Color(0xFF1C63E0)]
-                      : const [Color(0xFF7FAEF5), Color(0xFF6597E0), Color(0xFF4E7CC0)],
-                )
-              : null,
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              if (widget.icon != null) ...[
-                Icon(widget.icon, size: 18, color: widget.primary ? Colors.white : (isDark ? Colors.white : Colors.black87)),
-                const SizedBox(width: 8),
-              ],
-              Text(
-                widget.text,
-                style: TextStyle(
-                  fontSize: 14.5,
-                  fontWeight: FontWeight.w600,
-                  color: widget.primary
-                      ? Colors.white.withOpacity(enabled ? 1 : 0.6)
-                      : (isDark ? Colors.white.withOpacity(enabled ? 1 : 0.5) : Colors.black87.withOpacity(enabled ? 1 : 0.4)),
-                ),
+        // 主按钮把动态取色后的主色渐变覆盖上去，玻璃质感还在
+        child: Stack(
+          clipBehavior: Clip.none,
+          children: [
+            Positioned.fill(
+              child: IgnorePointer(
+                child: CustomPaint(painter: _ButtonGlowPainter(color: primary)),
               ),
-            ],
-          ),
+            ),
+            LiquidGlass(
+              radius: 999,
+              padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 13),
+              forceGlass: true,
+              gradient: widget.primary
+                  ? LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: enabled
+                          ? [
+                              Color.lerp(primary, Colors.white, 0.28)!,
+                              primary,
+                              Color.lerp(primary, Colors.black, 0.24)!,
+                            ]
+                          : [
+                              Color.lerp(primary, Colors.white, 0.48)!,
+                              primary.withOpacity(0.72),
+                              Color.lerp(primary, Colors.black, 0.10)!,
+                            ],
+                    )
+                  : null,
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (widget.icon != null) ...[
+                    Icon(widget.icon, size: 18, color: widget.primary ? Colors.white : (isDark ? Colors.white : Colors.black87)),
+                    const SizedBox(width: 8),
+                  ],
+                  Text(
+                    widget.text,
+                    style: TextStyle(
+                      fontSize: 14.5,
+                      fontWeight: FontWeight.w600,
+                      color: widget.primary
+                          ? Colors.white.withOpacity(enabled ? 1 : 0.6)
+                          : (isDark ? Colors.white.withOpacity(enabled ? 1 : 0.5) : Colors.black87.withOpacity(enabled ? 1 : 0.4)),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
         ),
       ),
     );
   }
+}
+
+/// 按钮背后的呼吸辉光：只重绘，不重建按钮。
+class _ButtonGlowPainter extends CustomPainter {
+  _ButtonGlowPainter({required this.color})
+      : super(repaint: Listenable.merge([Ui.tick, Ui.on('glow')]));
+  final Color color;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (!Ui.isOn('glow')) return;
+    final t = Ui.tick.value;
+    final pulse = 0.58 + 0.42 * math.sin(t * 2.05);
+    final rrect = RRect.fromRectAndRadius(
+      Offset.zero & size,
+      Radius.circular(size.height / 2),
+    );
+    for (var i = 0; i < 2; i++) {
+      canvas.drawRRect(
+        rrect.inflate(1.5 + i * 2.0),
+        Paint()
+          ..color = color.withOpacity((0.26 - i * 0.09) * pulse)
+          ..maskFilter = MaskFilter.blur(BlurStyle.normal, 10.0 + i * 6.0),
+      );
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _ButtonGlowPainter old) => old.color != color;
 }
 
 /// 弥散光斑
@@ -1268,6 +1330,64 @@ class _FloatingBlobState extends State<FloatingBlob> {
       child: LiquidBlob(color: widget.color, size: widget.size),
     );
   }
+}
+
+/// 背景动态流光：三条缓慢漂移的彩色光带，跟随动态取色的 seed。
+/// 只挂 Ui.tick 重绘，不重建任何 widget；关掉 aurora 开关后整层不挂载。
+class AuroraFlow extends StatelessWidget {
+  const AuroraFlow({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    return RepaintBoundary(
+      child: CustomPaint(painter: _AuroraPainter(dark: dark)),
+    );
+  }
+}
+
+class _AuroraPainter extends CustomPainter {
+  _AuroraPainter({required this.dark}) : super(repaint: Ui.tick);
+  final bool dark;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final t = Ui.tick.value;
+    final base = AppTheme.seed;
+    final colors = [
+      base,
+      Color.lerp(base, const Color(0xFFFF4FD8), 0.55)!,
+      Color.lerp(base, const Color(0xFF53FFD0), 0.50)!,
+    ];
+    for (var i = 0; i < 3; i++) {
+      final phase = t * (0.10 + i * 0.035) + i * 2.3;
+      final y = size.height * (0.12 + i * 0.26) + math.sin(phase) * size.height * 0.12;
+      final rect = Rect.fromLTWH(-size.width * 0.25, y, size.width * 1.5, size.height * 0.30);
+      final shader = LinearGradient(
+        begin: Alignment.centerLeft,
+        end: Alignment.centerRight,
+        colors: [
+          Colors.transparent,
+          colors[i].withOpacity(dark ? 0.11 : 0.065),
+          Colors.transparent,
+        ],
+        stops: const [0.0, 0.52, 1.0],
+      ).createShader(rect);
+      final paint = Paint()
+        ..shader = shader
+        ..blendMode = BlendMode.plus;
+      canvas.save();
+      canvas.translate(math.sin(phase * 0.7) * size.width * 0.07, 0);
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(rect, Radius.circular(size.height * 0.18)),
+        paint,
+      );
+      canvas.restore();
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _AuroraPainter old) => old.dark != dark;
 }
 
 /// 统一风格的确认 / 提示弹窗

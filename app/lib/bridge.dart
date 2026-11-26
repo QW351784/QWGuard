@@ -76,6 +76,12 @@ class Native {
 
   static Map<String, dynamic> hardware() => _callBuf('get_hardware_info', cap: 65536) ?? <String, dynamic>{};
 
+  /// 监控窗口专用轻量硬件指标：静态信息 Rust 进程内缓存，不枚举磁盘；温度按 5 秒缓存。
+  static Map<String, dynamic> hardwareMetrics() =>
+      _callBuf('get_hardware_metrics', cap: 65536) ?? <String, dynamic>{};
+  static Future<Map<String, dynamic>> hardwareMetricsAsync() =>
+      Isolate.run(() => hardwareMetrics());
+
   /// 硬件信息（后台版）
   /// get_hardware_info 内部要起 PowerShell 跑 Get-CimInstance，实测量级是秒。
   /// 直接在 UI isolate 上同步调用，窗口会先白屏再「未响应」——用户看到的就是

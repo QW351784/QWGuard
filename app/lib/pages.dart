@@ -1,9 +1,11 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:isolate';
 import 'dart:io';
 
 import 'package:desktop_drop/desktop_drop.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_acrylic/flutter_acrylic.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -20,6 +22,74 @@ String _size(num bytes) {
   if (bytes < 1024 * 1024) return '${(bytes / 1024).toStringAsFixed(1)} KB';
   if (bytes < 1024 * 1024 * 1024) return '${(bytes / 1024 / 1024).toStringAsFixed(1)} MB';
   return '${(bytes / 1024 / 1024 / 1024).toStringAsFixed(2)} GB';
+}
+
+/// 全局密码验证框：设置页、隔离库、查杀页共用一个，避免每页各写一套。
+Future<bool> askPasswordFor(BuildContext context, String action) async {
+  final ctrl = TextEditingController();
+  var err = '';
+  final ok = await showDialog<bool>(
+    context: context,
+    builder: (ctx) => StatefulBuilder(
+      builder: (ctx, setS) => QDialog(
+        icon: Icons.lock_rounded,
+        title: '需要验证身份',
+        body: '执行「$action」需要密码。${err.isEmpty ? '' : '\n$err'}',
+        okText: '验证',
+        cancelText: '取消',
+        child: TextField(
+            controller: ctrl,
+            obscureText: true,
+            autofocus: true,
+            decoration: const InputDecoration(hintText: '输入密码（至少 8 位）', isDense: true)),
+        onOk: () {
+          final r = Api.passwordVerify(ctrl.text);
+          if (r['success'] == true) {
+            Navigator.of(ctx).pop(true);
+          } else {
+            setS(() => err = r['message']?.toString() ?? '密码错误');
+          }
+        },
+      ),
+    ),
+  );
+  ctrl.dispose();
+  return ok == true;
+}
+
+/// 严格模式：密码保护开着且严格模式打开时，每个敏感动作单独验一次密码。
+/// 没开密码保护时直接放行（此时严格模式开关本身是灰的）。
+Future<bool> strictAuth(BuildContext context, String action) async {
+  if (!context.mounted) return false;
+  final r = Api.securitySettings();
+  final d = (r['success'] == true && r['data'] is Map)
+      ? (r['data'] as Map).cast<String, dynamic>()
+      : null;
+  if (d == null) {
+    // 配置读不到时不能直接放行，否则删掉/写坏 config.json 就能绕过严格模式。
+    // 退一步只信 pwd.json：只要密码凭据还在，就按最严格处理。
+    final ps = Api.passwordState();
+    final hasPwd = ps['success'] == true &&
+        ps['data'] is Map &&
+        (ps['data'] as Map)['has_password'] == true;
+    if (!hasPwd) {
+      // 连密码状态都读不到，说明原生层已经异常；这时同样不放行。
+      final psOk = ps['success'] == true && ps['data'] is Map;
+      if (!psOk) {
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('安全状态读取失败，已拒绝本次操作，请重启管家后重试')),
+          );
+        }
+        return false;
+      }
+      return true;
+    }
+    return askPasswordFor(context, '$action（安全配置异常，已按严格模式处理）');
+  }
+  final active = d['pwd_enabled'] == true && d['strict_mode'] != false;
+  if (!active) return true;
+  return askPasswordFor(context, action);
 }
 
 // ======================= 硬件检测 =======================
@@ -42,8 +112,22 @@ class _HardwarePageState extends State<HardwarePage> {
   }
 
   Future<void> _load() async {
+    // 首屏先吃上次缓存的硬件信息：新机器第一次仍然要等，之后打开就是立即有内容。
+    SharedPreferences? sp;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      sp = prefs;
+      final cached = prefs.getString('hw_cache');
+      if (cached != null && _data == null) {
+        final m = jsonDecode(cached);
+        if (m is Map && mounted) {
+          setState(() => _data = m.cast<String, dynamic>());
+        }
+      }
+    } catch (_) {}
+    if (!mounted) return;
     setState(() {
-      _loading = true;
+      _loading = _data == null;
       _error = null;
     });
     // 之前这里没有任何兜底：Native.hardwareAsync() 抛异常或 isolate 卡死，
@@ -54,23 +138,35 @@ class _HardwarePageState extends State<HardwarePage> {
       res = await Native.hardwareAsync().timeout(const Duration(seconds: 25));
     } catch (e) {
       if (!mounted) return;
+      // 已有缓存就别用一片错误把数据盖掉，保留上一帧
       setState(() {
         _loading = false;
-        _error = '读取硬件信息失败：$e';
+        if (_data == null) _error = '读取硬件信息失败：$e';
       });
       return;
     }
     if (!mounted) return;
+    String? cacheJson;
     setState(() {
       _loading = false;
       if (res['success'] == true && res['data'] is Map) {
         _data = (res['data'] as Map).cast<String, dynamic>();
-        if (_data!.isEmpty) _error = '没有读到硬件信息，稍后点「刷新」再试。';
+        if (_data!.isEmpty) {
+          _error = '没有读到硬件信息，稍后点「刷新」再试。';
+        } else {
+          cacheJson = jsonEncode(_data);
+        }
       } else {
         final msg = res['message']?.toString().trim() ?? '';
-        _error = msg.isEmpty ? '读取硬件信息失败（错误码 ${res['code'] ?? '-'}），点「刷新」重试。' : msg;
+        if (_data == null) {
+          _error = msg.isEmpty ? '读取硬件信息失败（错误码 ${res['code'] ?? '-'}），点「刷新」重试。' : msg;
+        }
       }
     });
+    final cj = cacheJson;
+    if (cj != null && sp != null) {
+      await sp.setString('hw_cache', cj);
+    }
   }
 
   void _showAbout() {
@@ -99,7 +195,7 @@ class _HardwarePageState extends State<HardwarePage> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  const Text('版本 1.0 · Flutter + Impeller + Rust', style: TextStyle(fontSize: 12)),
+                  const Text('版本 1.1 · Flutter + Impeller + Rust', style: TextStyle(fontSize: 12)),
                   const SizedBox(height: 16),
                   const Text('借鉴与致谢', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700)),
                   const SizedBox(height: 10),
@@ -329,54 +425,54 @@ class _CleanPageState extends State<CleanPage> {
   bool _scanning = false;
   bool _busy = false;
   String? _note;
-  double? _progress;
   String _stage = '正在扫描可清理项';
-  String _detail = '';
-  int _hits = 0;
-  final List<String> _recent = [];
   final TextEditingController _cleanPath = TextEditingController();
+  final ValueNotifier<ScanFxData> _fx =
+      ValueNotifier(const ScanFxData(stage: '正在扫描可清理项'));
+
+  @override
+  void dispose() {
+    _fx.dispose();
+    _cleanPath.dispose();
+    super.dispose();
+  }
 
   Future<void> _scan() => _cleanScan(mode: 'quick');
 
   /// 清理扫描统一执行器：三模式 + 后台 isolate + 文件名滚动
   Future<void> _cleanScan({String mode = 'quick', String path = ''}) async {
     if (_scanning) return;
+    if (!await strictAuth(context, '开始清理扫描')) return;
     setState(() {
       _scanning = true;
       _note = null;
-      _progress = null;
-      _hits = 0;
-      _recent.clear();
       _stage = mode == 'full'
           ? '全盘清理扫描'
           : mode == 'custom'
               ? '指定位置清理扫描'
               : '快速清理扫描';
-      _detail = '';
     });
+    _fx.value = ScanFxData(stage: _stage);
 
     final future = Isolate.run(() => Api.cleanupScanMode(mode, path));
-    var last = '';
     final ticker = Timer.periodic(const Duration(milliseconds: 150), (_) {
       if (!mounted) return;
       final d = (Api.cleanupProgress()['data'] as Map?)?.cast<String, dynamic>();
       if (d == null) return;
-      final cur = d['current']?.toString() ?? '';
-      setState(() {
-        final files = (d['files'] as num?)?.toInt() ?? 0;
-        final bytes = (d['bytes'] as num?)?.toInt() ?? 0;
-        _hits = files;
-        // 每发现一类垃圾就先报出来，别让用户盯着「0」等整轮结束
-        final cats = ((d['items'] as List?) ?? const []).length;
-        _detail = cats > 0
-            ? '已发现 $cats 类可清理项 · 已扫 $files 个文件 · ${_size(bytes)}'
-            : '已扫 $files 个文件 · ${_size(bytes)}';
-        if (cur.isNotEmpty && cur != last) {
-          last = cur;
-          _recent.add(cur);
-          if (_recent.length > 7) _recent.removeAt(0);
-        }
-      });
+      final files = (d['files'] as num?)?.toInt() ?? 0;
+      final bytes = (d['bytes'] as num?)?.toInt() ?? 0;
+      // 每发现一类垃圾就先报出来，别让用户盯着「0」等整轮结束
+      final cats = ((d['items'] as List?) ?? const []).length;
+      final detail = cats > 0
+          ? '已发现 $cats 类可清理项 · 已扫 $files 个文件 · ${_size(bytes)}'
+          : '已扫 $files 个文件 · ${_size(bytes)}';
+      // 只更新小部件，不 setState 重建整页
+      _fx.value = ScanFxData(
+        stage: _stage,
+        detail: detail,
+        progress: null,
+        hits: files,
+      );
     });
 
     Map<String, dynamic> res;
@@ -418,6 +514,9 @@ class _CleanPageState extends State<CleanPage> {
         ),
       );
       if (ok != true) return;
+      // 密码框要放在最终确认之后：先验密、再让用户犹豫一分钟，
+      // 原生层的一次性授权窗口只有 5 秒，删除会被拒绝。
+      if (!await strictAuth(context, '清理选中文件')) return;
     }
 
     setState(() => _busy = true);
@@ -481,13 +580,7 @@ class _CleanPageState extends State<CleanPage> {
           Expanded(
             child: _scanning
                 ? Center(
-                    child: ScanFx(
-                      stage: _stage,
-                      detail: _detail,
-                      progress: _progress,
-                      hits: _hits,
-                      size: 180,
-                    ),
+                    child: ScanFxLive(data: _fx, size: 180),
                   )
                 : _items.isEmpty
                     ? Center(child: Text(I18n.t('empty'), style: TextStyle(color: isDark ? Colors.white54 : Colors.black45)))
@@ -545,16 +638,6 @@ class _CleanPageState extends State<CleanPage> {
   }
 }
 
-/// 子引擎中文名：界面上统一挂在「QW 引擎」名下
-const engineZh = {
-  'signature': '特征库',
-  'heuristic': '启发式',
-  'defender': '系统 Defender',
-  'yara': 'YARA',
-  'huorong': '火绒',
-  'pyas': 'PYAS',
-};
-
 // ======================= 病毒查杀 =======================
 
 class ScanPage extends StatefulWidget {
@@ -571,12 +654,9 @@ class _ScanPageState extends State<ScanPage> {
   int _wlCount = 0;
   Map<String, dynamic> _rules = {};
   // 扫描动效的实时数据（每次轮询刷新）
-  double? _progress;
   String _stage = '正在启动查杀引擎';
-  String _detail = '';
-  int _hits = 0;
-  int _scanned = 0;
-  final List<String> _recent = [];
+  final ValueNotifier<ScanFxData> _fx =
+      ValueNotifier(const ScanFxData(stage: '正在启动查杀引擎'));
 
   @override
   void initState() {
@@ -601,9 +681,10 @@ class _ScanPageState extends State<ScanPage> {
     if (mounted) setState(() {});
   }
 
-  void _wl(bool add) {
+  Future<void> _wl(bool add) async {
     final p = _pathCtrl.text.trim();
     if (p.isEmpty) return;
+    if (!await strictAuth(context, add ? '添加信任文件' : '移除信任文件')) return;
     final r = add ? Api.whitelistAdd(p) : Api.whitelistRemove(p);
     if (!mounted) return;
     setState(() {
@@ -614,40 +695,9 @@ class _ScanPageState extends State<ScanPage> {
 
   @override
   void dispose() {
+    _fx.dispose();
     _pathCtrl.dispose();
     super.dispose();
-  }
-
-  /// 统一扫描执行器：任务丢后台 isolate，主线程 150ms 轮询进度 + 文件名滚动
-  /// 外部引擎：把扫描路径里的目标交给火绒 / PYAS，立刻回话，不冻结界面
-  Future<void> _runExternal(String engine) async {
-    final path = _pathCtrl.text.trim();
-    if (path.isEmpty) {
-      _alert(context, '还没填路径', '先在上面的「扫描路径」里填文件或文件夹，再点 $engine。');
-      return;
-    }
-    if (_busy) return;
-    setState(() {
-      _busy = true;
-      _stage = engine == 'huorong' ? '正在调用本机火绒' : '正在调用本机 PYAS';
-      _detail = path;
-      _progress = null;
-    });
-    Map<String, dynamic> r;
-    try {
-      r = engine == 'huorong' ? Native.scanHuorong(path) : Native.scanPyas(path);
-    } catch (e) {
-      r = {'success': false, 'message': e.toString()};
-    }
-    if (!mounted) return;
-    setState(() => _busy = false);
-    final okd = r['success'] == true;
-    final note = (r['data'] is Map ? (r['data'] as Map)['note'] : null)?.toString() ?? '';
-    _alert(
-      context,
-      okd ? (engine == 'huorong' ? '已交给火绒' : 'PYAS 已返回') : '${engineZh[engine] ?? engine} 没有响应',
-      okd ? (note.isNotEmpty ? note : '已把目标交给外部引擎，结论以对方界面为准。') : (r['message']?.toString() ?? '未知错误'),
-    );
   }
 
   Future<void> _runScan(
@@ -655,18 +705,17 @@ class _ScanPageState extends State<ScanPage> {
     String stage,
   ) async {
     if (_busy) return;
+    if (!await strictAuth(context, '开始查杀')) return;
     setState(() {
       _busy = true;
       _results.clear();
-      _progress = 0;
-      _hits = 0;
-      _recent.clear();
       _stage = stage;
-      _detail = '';
     });
+    _fx.value = ScanFxData(stage: stage, progress: 0);
 
     final future = task();
     var last = '';
+    final recent = <String>[];
     final ticker = Timer.periodic(const Duration(milliseconds: 150), (_) {
       if (!mounted) return;
       final d = (Native.scanProgress()['data'] as Map?)?.cast<String, dynamic>();
@@ -674,32 +723,36 @@ class _ScanPageState extends State<ScanPage> {
       final cur = d['current']?.toString() ?? '';
       final total = (d['total'] as num?)?.toInt() ?? 0;
       final done = (d['done'] as num?)?.toInt() ?? 0;
-      setState(() {
-        // 流式扫描没有总数，就别假造百分比
-        _progress = total > 0 ? done / total : null;
-        _scanned = done;
-        _hits = (d['hits'] as num?)?.toInt() ?? 0;
-        final scope = d['scope']?.toString() ?? '';
-        if (scope.isNotEmpty) _stage = '$scope中';
-        final found = (d['found'] as List?) ?? const [];
-        if (found.isNotEmpty) {
-          _stage = '$scope中 · 已发现 ${found.length} 项';
-          final files = found
+      // 流式扫描没有总数，就别假造百分比
+      final progress = total > 0 ? done / total : null;
+      final hits = (d['hits'] as num?)?.toInt() ?? 0;
+      final scope = d['scope']?.toString() ?? '';
+      var stageText = scope.isNotEmpty ? '$scope中' : _stage;
+      final found = (d['found'] as List?) ?? const [];
+      if (found.isNotEmpty) {
+        stageText = '$scope中 · 已发现 ${found.length} 项';
+        recent
+          ..clear()
+          ..addAll(found
               .map((e) => ((e as Map)['file'] ?? '').toString())
               .where((e) => e.isNotEmpty)
-              .toList();
-          if (files.isNotEmpty) {
-            _recent
-              ..clear()
-              ..addAll(files.reversed.take(7));
-          }
-        }
-        if (cur.isNotEmpty && cur != last) {
-          last = cur;
-          _recent.add(cur);
-          if (_recent.length > 7) _recent.removeAt(0);
-        }
-      });
+              .toList()
+              .reversed
+              .take(7));
+      }
+      if (cur.isNotEmpty && cur != last) {
+        last = cur;
+        recent.add(cur);
+        if (recent.length > 7) recent.removeAt(0);
+      }
+      // 只让 ScanFx 重建，整页列表/按钮不动
+      _fx.value = ScanFxData(
+        stage: stageText,
+        recent: recent,
+        progress: progress,
+        hits: hits,
+        scanned: done,
+      );
     });
 
     Map<String, dynamic> r;
@@ -775,9 +828,12 @@ class _ScanPageState extends State<ScanPage> {
     await _runScan(() => Isolate.run(() => Api.scanByMode('custom', t)), '指定位置扫描');
   }
 
-  void _cancelScan() {
+  Future<void> _cancelScan() async {
+    if (!await strictAuth(context, '停止查杀')) return;
     Api.scanCancel();
-    if (mounted) setState(() => _stage = '正在停止…');
+    if (mounted) {
+      _fx.value = ScanFxData(stage: '正在停止…');
+    }
   }
 
   Widget _rulesCard() {
@@ -820,6 +876,7 @@ class _ScanPageState extends State<ScanPage> {
   }
 
   Future<void> _importHashes() async {
+    if (!await strictAuth(context, '导入病毒哈希库')) return;
     final ctrl = TextEditingController();
     final path = await showDialog<String>(
       context: context,
@@ -892,6 +949,10 @@ class _ScanPageState extends State<ScanPage> {
       return;
     }
     if (action == 'auto') {
+      if (!await strictAuth(context, '将威胁移入隔离库')) {
+        _toastScan('严格模式：已取消自动隔离');
+        return;
+      }
       final r = Api.quarantineAdd(target, 'multi', '查杀命中，自动隔离');
       _toastScan(r['success'] == true
           ? '已自动移入隔离库，原目录里看不到它了'
@@ -983,6 +1044,7 @@ class _ScanPageState extends State<ScanPage> {
     if (!mounted) return;
     switch (act) {
       case 'handle':
+        if (!await strictAuth(context, '将威胁移入隔离库')) break;
         final r = Api.quarantineAdd(target, 'multi', '用户选择立即处理');
         _toastScan(r['success'] == true
             ? '已移入隔离库，原目录里看不到它了，要还原去隔离库点恢复'
@@ -992,6 +1054,7 @@ class _ScanPageState extends State<ScanPage> {
         _toastScan('已放行这一次');
         break;
       case 'trust':
+        if (!await strictAuth(context, '加入信任区')) break;
         Api.whitelistAdd(target);
         _toastScan('已加入信任区，以后不再扫它');
         break;
@@ -1060,9 +1123,13 @@ class _ScanPageState extends State<ScanPage> {
                 Row(children: [
                   Text('${I18n.t('whitelist')} ($_wlCount)', style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
                   const SizedBox(width: 10),
-                  LiquidButton(text: I18n.t('add'), icon: Icons.playlist_add_rounded, primary: false, onTap: () => _wl(true)),
+                  LiquidButton(text: I18n.t('add'), icon: Icons.playlist_add_rounded, primary: false, onTap: () {
+                    _wl(true);
+                  }),
                   const SizedBox(width: 8),
-                  LiquidButton(text: I18n.t('remove'), icon: Icons.playlist_remove_rounded, primary: false, onTap: () => _wl(false)),
+                  LiquidButton(text: I18n.t('remove'), icon: Icons.playlist_remove_rounded, primary: false, onTap: () {
+                    _wl(false);
+                  }),
                   const Spacer(),
                   Text(I18n.t('external'), style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
                 ]),
@@ -1082,7 +1149,9 @@ class _ScanPageState extends State<ScanPage> {
                   const Spacer(),
                   if (_busy)
                     LiquidButton(text: '停止', icon: Icons.stop_circle_rounded, primary: false,
-                        onTap: _cancelScan),
+                        onTap: () {
+                          _cancelScan();
+                        }),
                 ]),
                 const SizedBox(height: 10),
                 // 这里原来有两个按钮：调用火绒、调用 PYAS。
@@ -1100,14 +1169,7 @@ class _ScanPageState extends State<ScanPage> {
                     // scaleDown 让它按可用高度等比缩小，永远完整显示。
                     child: FittedBox(
                       fit: BoxFit.scaleDown,
-                      child: ScanFx(
-                        stage: _stage,
-                        detail: _detail,
-                        recent: _recent,
-                        progress: _progress,
-                        hits: _hits,
-                        scanned: _scanned,
-                      ),
+                      child: ScanFxLive(data: _fx),
                     ),
                   )
                 : _results.isEmpty
@@ -1212,7 +1274,9 @@ class _ToolsPageState extends State<ToolsPage> {
             ],
           ),
         );
-        if (on == null) return;
+        if (on == null || !context.mounted) return;
+        // 密码框放在选择之后、真正写入之前，避免用户犹豫超过授权窗口
+        if (!await strictAuth(context, '使用去除快捷方式小箭头')) return;
         final r = Api.shortcutArrow(on);
         _toast(context, r['message']?.toString() ?? '');
         break;
@@ -1228,7 +1292,8 @@ class _ToolsPageState extends State<ToolsPage> {
             ],
           ),
         );
-        if (show == null) return;
+        if (show == null || !context.mounted) return;
+        if (!await strictAuth(context, '使用显示文件后缀')) return;
         final r = Api.fileExtShow(show);
         _toast(context, r['message']?.toString() ?? '');
         break;
@@ -1316,6 +1381,7 @@ class _ToolsPageState extends State<ToolsPage> {
       ),
     );
     if (sure != true || !context.mounted) return;
+    if (!await strictAuth(context, '使用文件粉碎机')) return;
 
     final r = Api.shredderRun(paths);
     _toast(
@@ -1398,6 +1464,7 @@ class _ToolsPageState extends State<ToolsPage> {
       ),
     );
     if (go != true || !context.mounted) return;
+    if (!await strictAuth(context, '使用运行库补全')) return;
 
     const dxKeys = ['dx9', 'xinput', 'd3dcompiler'];
     final needDx = items.any((i) => i['ok'] != true && dxKeys.contains(i['key']));
@@ -1668,6 +1735,7 @@ class _QuarantinePageState extends State<QuarantinePage> {
   }
 
   Future<void> _restore(String id) async {
+    if (!await strictAuth(context, '从隔离库恢复文件')) return;
     final r = Api.quarantineRestore(id);
     await _load();
     if (mounted) {
@@ -1678,6 +1746,7 @@ class _QuarantinePageState extends State<QuarantinePage> {
   }
 
   Future<void> _delete(String id) async {
+    if (!await strictAuth(context, '彻底删除隔离文件')) return;
     final r = Api.quarantineDelete(id);
     await _load();
     if (mounted) _toast(r['success'] == true ? '已彻底删除' : (r['message']?.toString() ?? '删除失败'));
@@ -1697,6 +1766,7 @@ class _QuarantinePageState extends State<QuarantinePage> {
       ),
     );
     if (ok != true) return;
+    if (!await strictAuth(context, '清空隔离库')) return;
     final r = Api.quarantineClear();
     await _load();
     if (mounted) _toast(r['success'] == true ? '隔离库已清空' : '清空失败');
@@ -1785,6 +1855,7 @@ class _QuarantinePageState extends State<QuarantinePage> {
               onPressed: _sel.isEmpty
                   ? null
                   : () async {
+                      if (!await strictAuth(context, '删除选中的隔离文件')) return;
                       for (final id in _sel.toList()) {
                         Api.quarantineDelete(id);
                       }
@@ -2139,7 +2210,7 @@ class _SettingsPageState extends State<SettingsPage> {
   String _gpuMode = 'auto';
   bool _autoStart = false;
   String _repo = '';
-  String _current = '1.0';
+  String _current = '1.1';
   String _updateMsg = '';
   List<String> _wl = [];
   String _runtimeMsg = '';
@@ -2153,7 +2224,9 @@ class _SettingsPageState extends State<SettingsPage> {
   int _cleanInterval = 60;
   int _scanInterval = 60;
   bool _idleOnly = true;
+  bool _scanFullSpeed = true;
   bool _pwdEnabled = false;
+  bool _strictMode = true;
   bool _silentUpdate = true;
 
   @override
@@ -2171,7 +2244,7 @@ class _SettingsPageState extends State<SettingsPage> {
     setState(() {
       _autoStart = sp.getBool('autostart') ?? false;
       _repo = sp.getString('github_repo') ?? '';
-      _current = sp.getString('app_version') ?? '1.0';
+      _current = sp.getString('app_version') ?? '1.1';
       _desktopFloat = sp.getBool('ui_desktop_float') ?? false;
       final g = Api.gpu();
       if (g['success'] == true && g['data'] is Map) {
@@ -2195,7 +2268,9 @@ class _SettingsPageState extends State<SettingsPage> {
         _cleanInterval = (d['clean_interval_min'] as num?)?.toInt() ?? 60;
         _scanInterval = (d['scan_interval_min'] as num?)?.toInt() ?? 60;
         _idleOnly = d['idle_only'] == true;
+        _scanFullSpeed = d['scan_full_speed'] != false;
         _pwdEnabled = d['pwd_enabled'] == true;
+        _strictMode = d['strict_mode'] != false;
         _silentUpdate = d['silent_update'] != false;
       }
     });
@@ -2287,6 +2362,7 @@ class _SettingsPageState extends State<SettingsPage> {
                   setState(() => _wl = ((r['data']['items'] as List?) ?? const []).map((e) => e.toString()).toList());
                 }
                 if (context.mounted) _showList(context, I18n.t('whitelist'), _wl, (p) async {
+                  if (!await strictAuth(context, '移除信任文件')) return;
                   Api.whitelistRemove(p);
                   final rr = Api.whitelist();
                   setState(() => _wl = ((rr['data']['items'] as List?) ?? const []).map((e) => e.toString()).toList());
@@ -2319,14 +2395,18 @@ class _SettingsPageState extends State<SettingsPage> {
               _actionRow(Icons.cleaning_services_rounded, '垃圾清理频率', _intervalText(_cleanInterval), () async {
                 await _pickInterval('垃圾清理频率', _cleanInterval, 'clean_interval_min',
                     (v) => setState(() => _cleanInterval = v));
-              }),
+              }, guard: false),
               _actionRow(Icons.shield_rounded, '病毒查杀频率', _intervalText(_scanInterval), () async {
                 await _pickInterval('病毒查杀频率', _scanInterval, 'scan_interval_min',
                     (v) => setState(() => _scanInterval = v));
-              }),
+              }, guard: false),
               _switchRow(Icons.hourglass_bottom_rounded, '只在系统空闲时运行', _idleOnly, (v) async {
                 setState(() => _idleOnly = v);
                 Api.securitySet('idle_only', v);
+              }),
+              _switchRow(Icons.speed_rounded, '查杀性能模式', _scanFullSpeed, (v) async {
+                setState(() => _scanFullSpeed = v);
+                Api.securitySet('scan_full_speed', v);
               }),
               _actionRow(Icons.play_circle_rounded, '立即执行一轮', '不等时间，马上扫一遍', () async {
                 final r = Api.bgRunOnce();
@@ -2350,9 +2430,10 @@ class _SettingsPageState extends State<SettingsPage> {
                   );
                   if (ok != true) return;
                 }
+                if (!await strictAuth(context, '修改静默更新')) return;
                 setState(() => _silentUpdate = v);
                 Api.securitySet('silent_update', v);
-              }),
+              }, guard: false),
               _switchRow(Icons.lock_rounded, '密码保护', _pwdEnabled, (v) async {
                 if (v) {
                   final pwd = await _askNewPassword();
@@ -2375,10 +2456,38 @@ class _SettingsPageState extends State<SettingsPage> {
                     ),
                   );
                   if (ok != true) return;
-                  Api.passwordClear();
+                  final pass = await _askPasswordFor('关闭密码保护');
+                  if (!pass) return;
+                  final r = Api.passwordClear();
+                  if (r['success'] != true) {
+                    if (context.mounted) _alert(context, '关闭失败', '${r['message']}');
+                    return;
+                  }
                   setState(() => _pwdEnabled = false);
                 }
-              }),
+              }, guard: false),
+              _switchRow(
+                Icons.verified_user_rounded,
+                '严格模式',
+                _pwdEnabled && _strictMode,
+                (v) async {
+                  if (!_pwdEnabled) return;
+                  if (!await askPasswordFor(context, '修改严格模式')) return;
+                  final r = Api.securitySet('strict_mode', v);
+                  if (!mounted) return;
+                  if (r['success'] != true) {
+                    _alert(context, '修改失败', '${r['message']}');
+                    return;
+                  }
+                  setState(() => _strictMode = v);
+                },
+                enabled: _pwdEnabled,
+                guard: false,
+              ),
+              _section('AI 代理'),
+              _actionRow(Icons.smart_toy_rounded, 'AI 代理 · MCP 助手',
+                  '只读接入 Claude / Cursor 等 AI 客户端', _showMcpInfo,
+                  guard: false),
               _section(I18n.t('autostart')),
               SwitchListTile(
                 contentPadding: EdgeInsets.zero,
@@ -2403,10 +2512,11 @@ class _SettingsPageState extends State<SettingsPage> {
                       ),
                     );
                     if (ok != true) return;
-                    if (_pwdEnabled) {
-                      final pass = await _askPasswordFor('关闭自启动');
-                      if (!pass) return;
-                    }
+                  }
+                  if (!await strictAuth(context, '修改开机自启动')) return;
+                  if (_pwdEnabled && !_strictMode) {
+                    final pass = await _askPasswordFor('关闭自启动');
+                    if (!pass) return;
                   }
                   if (v) {
                     // 老版本登记的是英文名 QWGuard。先删掉它，否则同一个程序
@@ -2475,9 +2585,10 @@ class _SettingsPageState extends State<SettingsPage> {
         ),
       );
       if (r == null) return;
+      if (!await strictAuth(context, '修改发现病毒时的处理方式')) return;
       setState(() => _virusAction = r);
       Api.securitySet('virus_action', r);
-    });
+    }, guard: false);
   }
 
   /// 选频率：1/2/4/6/8/12 小时，1~5 天，关闭（关闭要二级确认）
@@ -2532,6 +2643,7 @@ class _SettingsPageState extends State<SettingsPage> {
         if (mounted) _alert(context, '间隔太短', '最少 5 分钟，太频繁会一直占着磁盘。');
         return;
       }
+      if (!await strictAuth(context, title)) return;
       setState(() => done(v));
       Api.securitySet(key, v);
       return;
@@ -2548,13 +2660,79 @@ class _SettingsPageState extends State<SettingsPage> {
         ),
       );
       if (ok != true) return;
-      if (_pwdEnabled) {
-        final pass = await _askPasswordFor('关闭后台任务');
-        if (!pass) return;
-      }
+    }
+    if (_pwdEnabled && !_strictMode) {
+      final pass = await _askPasswordFor('修改后台任务频率');
+      if (!pass) return;
+    } else if (!await strictAuth(context, '修改后台任务频率')) {
+      return;
     }
     setState(() => done(r));
     Api.securitySet(key, r);
+  }
+
+  /// AI 代理（MCP）：只读服务端接入说明。
+  /// 不把删除/隔离/改设置开放给 AI，避免提示注入或误操作动用户文件。
+  Future<void> _showMcpInfo() async {
+    final dir = File(Platform.resolvedExecutable).parent.path;
+    final sep = Platform.isWindows ? '\\' : '/';
+    final mcp = '$dir${sep}qw_mcp${Platform.isWindows ? '.exe' : ''}';
+    final has = File(mcp).exists();
+    final config = JsonEncoder.withIndent('  ').convert({
+      'mcpServers': {
+        'qwguard': {'command': mcp},
+      },
+    });
+    var copied = false;
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => QDialog(
+        icon: Icons.smart_toy_rounded,
+        title: 'AI 代理 · MCP 助手',
+        body: has
+            ? '把下面的配置加到 Claude Desktop / Cursor 的 MCP 配置里，重启客户端即可连接。\n\n'
+                '只开放 6 个只读工具：安全状态、硬件指标、清理预览、隔离库列表、白名单、单文件扫描。'
+                'AI 不能删除文件、不能改设置、不能动隔离区，严格模式不会被它绕过。'
+            : '没有找到 qw_mcp 服务端。请用 build_windows.ps1 重新构建安装包，'
+                '或确认 qw_mcp.exe 与 QWGuard.exe 在同一目录。',
+        okText: has ? '复制配置' : '知道了',
+        cancelText: has ? '关闭' : null,
+        child: has
+            ? ConstrainedBox(
+                constraints: const BoxConstraints(maxHeight: 330),
+                child: SingleChildScrollView(
+                  child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    SelectableText('服务端：$mcp',
+                        style: const TextStyle(fontSize: 11, height: 1.5)),
+                    const SizedBox(height: 10),
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Colors.black.withOpacity(0.18),
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                      child: SelectableText(config,
+                          style: const TextStyle(fontSize: 11, height: 1.5, fontFamily: 'monospace')),
+                    ),
+                  ]),
+                ),
+              )
+            : null,
+        onOk: has
+            ? () {
+                Clipboard.setData(ClipboardData(text: config));
+                copied = true;
+                Navigator.of(ctx).pop();
+              }
+            : () => Navigator.of(ctx).pop(),
+      ),
+    );
+    if (copied && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('MCP 配置已复制，粘贴到 AI 客户端的 mcpServers 里即可')),
+      );
+    }
   }
 
   Future<String?> _askNewPassword() async {
@@ -2574,7 +2752,7 @@ class _SettingsPageState extends State<SettingsPage> {
             TextField(
                 controller: a,
                 obscureText: true,
-                decoration: const InputDecoration(hintText: '输入密码', isDense: true)),
+                decoration: const InputDecoration(hintText: '输入密码（至少 8 位）', isDense: true)),
             const SizedBox(height: 8),
             TextField(
                 controller: b,
@@ -2582,8 +2760,8 @@ class _SettingsPageState extends State<SettingsPage> {
                 decoration: const InputDecoration(hintText: '再输一次', isDense: true)),
           ]),
           onOk: () {
-            if (a.text.length < 4) {
-              setS(() => err = '至少 4 位');
+            if (a.text.length < 8) {
+              setS(() => err = '至少 8 位');
               return;
             }
             if (a.text != b.text) {
@@ -2600,37 +2778,8 @@ class _SettingsPageState extends State<SettingsPage> {
     return res;
   }
 
-  Future<bool> _askPasswordFor(String action) async {
-    final ctrl = TextEditingController();
-    var err = '';
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setS) => QDialog(
-          icon: Icons.lock_rounded,
-          title: '需要验证身份',
-          body: '执行「$action」需要密码。${err.isEmpty ? '' : '\n$err'}',
-          okText: '验证',
-          cancelText: '取消',
-          child: TextField(
-              controller: ctrl,
-              obscureText: true,
-              autofocus: true,
-              decoration: const InputDecoration(hintText: '输入密码', isDense: true)),
-          onOk: () {
-            final r = Api.passwordVerify(ctrl.text);
-            if (r['success'] == true) {
-              Navigator.of(ctx).pop(true);
-            } else {
-              setS(() => err = r['message']?.toString() ?? '密码错误');
-            }
-          },
-        ),
-      ),
-    );
-    ctrl.dispose();
-    return ok == true;
-  }
+  Future<bool> _askPasswordFor(String action) =>
+      askPasswordFor(context, action);
 
   /// 作者信息：二维码 + GitHub 大字 + 仓库链接（点开走系统浏览器）+ 酷安
   Widget _authorRow() {
@@ -2757,7 +2906,10 @@ class _SettingsPageState extends State<SettingsPage> {
           LiquidGlass(
             radius: 26,
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-            onTap: _pickTheme,
+            onTap: () async {
+              if (!await strictAuth(context, '修改界面主题')) return;
+              await _pickTheme();
+            },
             child: Row(
               children: [
                 const Icon(Icons.brightness_6_rounded, size: 20),
@@ -2842,7 +2994,10 @@ class _SettingsPageState extends State<SettingsPage> {
       child: LiquidGlass(
         radius: 26,
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-        onTap: _pickMaterial,
+        onTap: () async {
+          if (!await strictAuth(context, '修改界面材质')) return;
+          await _pickMaterial();
+        },
         child: Row(
           children: [
             const Icon(Icons.palette_rounded, size: 20),
@@ -2917,27 +3072,46 @@ class _SettingsPageState extends State<SettingsPage> {
     });
   }
 
-  Widget _switchRow(IconData icon, String title, bool value, ValueChanged<bool> onChanged) {
+  Widget _switchRow(
+    IconData icon,
+    String title,
+    bool value,
+    ValueChanged<bool> onChanged, {
+    bool enabled = true,
+    bool guard = true,
+  }) {
     return LiquidGlass(
       radius: 26,
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
       child: SwitchListTile(
         contentPadding: EdgeInsets.zero,
-        secondary: Icon(icon, size: 20),
-        title: Text(title, style: const TextStyle(fontSize: 14)),
+        secondary: Icon(icon, size: 20, color: enabled ? null : Colors.grey),
+        title: Text(title,
+            style: TextStyle(fontSize: 14, color: enabled ? null : Colors.grey)),
         value: value,
-        onChanged: onChanged,
+        onChanged: !enabled
+            ? null
+            : (v) async {
+                if (guard && !await strictAuth(context, title)) return;
+                onChanged(v);
+              },
       ),
     );
   }
 
-  Widget _actionRow(IconData icon, String title, String subtitle, VoidCallback onTap) {
+  Widget _actionRow(IconData icon, String title, String subtitle, VoidCallback onTap,
+      {bool guard = true}) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 10),
       child: LiquidGlass(
         radius: 26,
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-        onTap: onTap,
+        onTap: guard
+            ? () async {
+                if (!await strictAuth(context, title)) return;
+                onTap();
+              }
+            : onTap,
         child: Row(children: [
           Icon(icon, size: 20, color: const Color(0xFF2F7BFF)),
           const SizedBox(width: 12),
@@ -3018,7 +3192,10 @@ class _SettingsPageState extends State<SettingsPage> {
           ChoiceChip(
             label: Text(labels[m]!),
             selected: _gpuMode == m,
-            onSelected: (_) => _applyGpu(m),
+            onSelected: (_) async {
+              if (!await strictAuth(context, '修改显卡模式')) return;
+              _applyGpu(m);
+            },
           ),
           const SizedBox(width: 8),
         ],
@@ -3044,6 +3221,7 @@ class _SettingsPageState extends State<SettingsPage> {
                 label: Text(e.value),
                 selected: Ui.floatMetrics.value.contains(e.key),
                 onSelected: (v) async {
+                  if (!await strictAuth(context, '修改监控指标')) return;
                   final set = {...Ui.floatMetrics.value};
                   v ? set.add(e.key) : set.remove(e.key);
                   Ui.floatMetrics.value = set;
@@ -3071,6 +3249,7 @@ class _SettingsPageState extends State<SettingsPage> {
             label: Text({'zh': '简体中文', 'hant': '繁體中文', 'en': 'English'}[l]!),
             selected: I18n.lang == l,
             onSelected: (_) async {
+              if (!await strictAuth(context, '切换语言')) return;
               setState(() => I18n.lang = l);
               await AppSettings.saveLang(l);
             },
@@ -3095,6 +3274,7 @@ class _SettingsPageState extends State<SettingsPage> {
             decoration: const InputDecoration(hintText: 'owner/repo', isDense: true),
             onChanged: (v) => _repo = v.trim(),
             onSubmitted: (v) async {
+              if (!await strictAuth(context, '修改更新仓库')) return;
               final sp = await SharedPreferences.getInstance();
               await sp.setString('github_repo', v.trim());
             },

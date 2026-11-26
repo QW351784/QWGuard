@@ -7,11 +7,12 @@ use serde_json::json;
 use std::ffi::c_char;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, OnceLock};
 
 use crate::ext::cfg_dir;
 use crate::{cstr, fail, ok};
+use rayon::prelude::*;
 
 const APP_NAME: &str = "QW 安全电脑管家";
 // 必须跟 CI 改名后的实际文件名一致：flutter 项目名是 system_toolbox，
@@ -21,7 +22,11 @@ const EXE_NAME: &str = "QWGuard.exe";
 // 卸载走独立的卸载器 exe（同一份二进制按文件名分流进卸载向导）
 const UNINST_EXE: &str = "QWGuard-Uninstall.exe";
 
-fn copy_tree(src: &Path, dst: &Path, copied: &mut u64, bytes: &mut u64) -> Result<(), String> {
+fn collect_copy_files(
+    src: &Path,
+    dst: &Path,
+    out: &mut Vec<(PathBuf, PathBuf, u64)>,
+) -> Result<(), String> {
     fs::create_dir_all(dst).map_err(|e| format!("创建目录失败 {}: {e}", dst.display()))?;
     let rd = fs::read_dir(src).map_err(|e| format!("读取失败 {}: {e}", src.display()))?;
     for e in rd.flatten() {
@@ -29,7 +34,6 @@ fn copy_tree(src: &Path, dst: &Path, copied: &mut u64, bytes: &mut u64) -> Resul
         let Some(name) = p.file_name().map(|n| n.to_owned()) else {
             continue;
         };
-        // 别把自己拷进自己
         if p == dst {
             continue;
         }
@@ -41,15 +45,34 @@ fn copy_tree(src: &Path, dst: &Path, copied: &mut u64, bytes: &mut u64) -> Resul
             continue;
         }
         if meta.is_dir() {
-            copy_tree(&p, &target, copied, bytes)?;
+            collect_copy_files(&p, &target, out)?;
         } else if meta.is_file() {
-            fs::copy(&p, &target).map_err(|e| format!("复制失败 {}: {e}", p.display()))?;
-            *copied += 1;
-            *bytes += meta.len();
-            let total = progress_cell().lock().map(|g| g.1).unwrap_or(0);
-            set_progress(*copied, total, "正在写入文件", &name.to_string_lossy());
+            out.push((p, target, meta.len()));
         }
     }
+    Ok(())
+}
+
+/// 先把目录树收集成文件清单，再并行复制大文件；目录本身串行建，数量很少。
+fn copy_tree(src: &Path, dst: &Path, copied: &mut u64, bytes: &mut u64) -> Result<(), String> {
+    let mut files = Vec::new();
+    collect_copy_files(src, dst, &mut files)?;
+    let done = AtomicU64::new(0);
+    let written = AtomicU64::new(0);
+    let total = progress_cell().lock().map(|g| g.1).unwrap_or(0);
+    files.par_iter().try_for_each(|(p, target, size)| {
+        fs::copy(p, target).map_err(|e| format!("复制失败 {}: {e}", p.display()))?;
+        written.fetch_add(*size, Ordering::Relaxed);
+        let n = done.fetch_add(1, Ordering::Relaxed) + 1;
+        let name = p
+            .file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_default();
+        set_progress(n, total, "正在写入文件", &name);
+        Ok::<(), String>(())
+    })?;
+    *copied += done.load(Ordering::Relaxed);
+    *bytes += written.load(Ordering::Relaxed);
     Ok(())
 }
 
@@ -63,7 +86,10 @@ fn remove_tree(path: &Path, removed: &mut u64) {
         let Ok(meta) = fs::symlink_metadata(&p) else {
             continue;
         };
-        if meta.is_dir() {
+        if crate::util::is_reparse(&meta) {
+            // junction 只删链接本身，绝不进去删目标
+            let _ = fs::remove_dir(&p);
+        } else if meta.is_dir() {
             remove_tree(&p, removed);
         } else {
             // 删不掉的常见原因：只读/隐藏属性、被杀软或索引服务瞬时占用。
@@ -153,12 +179,10 @@ fn make_shortcut(lnk: &Path, target: &Path, workdir: &Path, desc: &str) -> Resul
 /// 旧版（Inno 外壳）写的卸载键：AppId + `_is1`
 /// 跟新版自己写的 `Uninstall\QWGuard` 是两个完全不同的键，
 /// 所以不主动清就会出现「控制面板两条同名卸载项」。
-const LEGACY_KEY: &str =
-    r"HKCU\Software\Microsoft\Windows\CurrentVersion\Uninstall\{8E2C1A44-9F3B-4C71-8A55-2E6D7B4C1F90}_is1";
+const LEGACY_KEY: &str = r"HKCU\Software\Microsoft\Windows\CurrentVersion\Uninstall\{8E2C1A44-9F3B-4C71-8A55-2E6D7B4C1F90}_is1";
 
 /// 同一份旧卸载键落在 HKLM 下的版本（管理员身份安装时写的是这里）
-const LEGACY_KEY_HKLM: &str =
-    r"HKLM\Software\Microsoft\Windows\CurrentVersion\Uninstall\{8E2C1A44-9F3B-4C71-8A55-2E6D7B4C1F90}_is1";
+const LEGACY_KEY_HKLM: &str = r"HKLM\Software\Microsoft\Windows\CurrentVersion\Uninstall\{8E2C1A44-9F3B-4C71-8A55-2E6D7B4C1F90}_is1";
 
 /// 删一个注册表键；`value` 有值时只删这个值，没有时整键连子键一起删
 fn reg_del(key: &str, value: Option<&str>) {
@@ -241,6 +265,38 @@ fn cleanup_legacy() -> Option<String> {
     let dir = dir?;
     let old = PathBuf::from(&dir);
 
+    // 注册表是普通用户可写的：不校验就删，等于把「任意目录删除」交给一个 HKCU 值。
+    // 只接受「确实是旧安装目录」的路径：必须在盘内、不是系统目录，且里面能找到主程序或卸载器。
+    let normals: Vec<String> = old
+        .components()
+        .filter_map(|c| {
+            if let std::path::Component::Normal(s) = c {
+                Some(s.to_string_lossy().to_uppercase())
+            } else {
+                None
+            }
+        })
+        .collect();
+    let first = normals.first().cloned().unwrap_or_default();
+    let looks_like_install = old.join(EXE_NAME).exists() || old.join("unins000.exe").exists();
+    if first.is_empty()
+        || matches!(
+            first.as_str(),
+            "WINDOWS"
+                | "PROGRAMDATA"
+                | "$RECYCLE.BIN"
+                | "SYSTEM VOLUME INFORMATION"
+                | "BOOT"
+                | "EFI"
+                | "RECOVERY"
+        )
+        || !looks_like_install
+    {
+        return Some(format!(
+            "跳过旧目录清理：{dir} 不像本程序安装目录（可能是注册表残留）"
+        ));
+    }
+
     // 旧安装目录里的进程要先停，否则文件被占用删不掉
     let _ = crate::proc::cmd("taskkill")
         .args(["/F", "/IM", EXE_NAME])
@@ -258,7 +314,8 @@ fn cleanup_legacy() -> Option<String> {
     Some(format!("已替换旧版安装目录：{dir}（用户数据保留）"))
 }
 
-/// SHA-256 十六进制小写
+/// SHA-256 十六进制小写（仅测试构造清单用）
+#[cfg(test)]
 fn hex_sha256(data: &[u8]) -> String {
     use sha2::{Digest, Sha256};
     let mut h = Sha256::new();
@@ -266,10 +323,46 @@ fn hex_sha256(data: &[u8]) -> String {
     h.finalize().iter().map(|b| format!("{b:02x}")).collect()
 }
 
-/// 校验待安装目录的完整性：每个文件都必须和 `manifest.json` 里的 SHA-256 对上
-///
-/// 目的不是防外贼，是防「传输或解压过程把文件弄坏了还照样装进去」——
-/// 装完一个坏 dll，程序一起就崩，用户根本不知道该怪谁。
+/// 递归收集目录下所有文件的相对路径（统一用 `/`）
+fn collect_files(root: &Path, dir: &Path, out: &mut Vec<String>) -> Result<(), String> {
+    let rd = fs::read_dir(dir).map_err(|e| format!("读取目录失败：{e}"))?;
+    for ent in rd {
+        let ent = ent.map_err(|e| format!("读取目录项失败：{e}"))?;
+        let path = ent.path();
+        let ft = fs::symlink_metadata(&path)
+            .map_err(|e| format!("读取类型失败：{e}"))?
+            .file_type();
+        if ft.is_symlink() {
+            return Err(format!(
+                "安装包内发现符号链接/联接点，已拒绝：{}",
+                path.display()
+            ));
+        }
+        if crate::util::is_reparse(
+            &fs::symlink_metadata(&path).map_err(|e| format!("读取类型失败：{e}"))?,
+        ) {
+            return Err(format!(
+                "安装包内发现符号链接/联接点，已拒绝：{}",
+                path.display()
+            ));
+        }
+        if ft.is_dir() {
+            collect_files(root, &path, out)?;
+        } else if ft.is_file() {
+            let rel = path
+                .strip_prefix(root)
+                .map_err(|_| "路径不在安装目录内".to_string())?
+                .to_string_lossy()
+                .replace('\\', "/");
+            out.push(rel);
+        }
+    }
+    Ok(())
+}
+
+/// 校验待安装目录的完整性：清单里每个文件哈希必须对上，且目录里不能有清单外文件。
+/// 后者是关键：只校验清单内文件的话，攻击者往 payload 里塞一个未登记的 dll，
+/// 安装器照样会把它复制到安装目录。
 fn verify_manifest(dir: &Path) -> Result<usize, String> {
     let mf = dir.join("manifest.json");
     let text = fs::read_to_string(&mf)
@@ -284,29 +377,58 @@ fn verify_manifest(dir: &Path) -> Result<usize, String> {
         return Err("校验清单是空的".to_string());
     }
 
-    let mut checked = 0usize;
-    for item in files {
-        let Some(p) = item.get("path").and_then(|x| x.as_str()) else {
-            continue;
-        };
-        let Some(want) = item.get("sha256").and_then(|x| x.as_str()) else {
-            continue;
-        };
-        let full = dir.join(p);
-        if !full.exists() {
-            return Err(format!("安装文件缺失：{p}"));
-        }
-        let data = fs::read(&full).map_err(|e| format!("读取 {p} 失败：{e}"))?;
-        let got = hex_sha256(&data);
-        if !got.eq_ignore_ascii_case(want) {
-            return Err(format!("文件校验不通过：{p}\n期望 {want}\n实际 {got}"));
-        }
-        checked += 1;
-    }
-    if checked == 0 {
+    // 并行 + 流式哈希：以前每个文件 fs::read 整个读进内存，大包会顶峰值内存，
+    // 而且一个一个算。安装包就几十万个文件时，这一步是安装耗时的大头。
+    let checked: Vec<Result<String, String>> = files
+        .par_iter()
+        .map(|item| {
+            let p = item
+                .get("path")
+                .and_then(|x| x.as_str())
+                .ok_or_else(|| "校验清单里有缺少 path 的记录".to_string())?;
+            let want = item
+                .get("sha256")
+                .and_then(|x| x.as_str())
+                .ok_or_else(|| format!("校验清单里 {p} 缺少 sha256"))?;
+            let norm = p.replace('\\', "/");
+            if norm.starts_with('/')
+                || norm.contains(':')
+                || norm.split('/').any(|seg| seg == ".." || seg.is_empty())
+            {
+                return Err(format!("校验清单里的路径不合法：{p}"));
+            }
+            let full = dir.join(&norm);
+            if !full.is_file() {
+                return Err(format!("安装文件缺失：{p}"));
+            }
+            let got =
+                crate::engines::sha256_file(&full).map_err(|e| format!("读取 {p} 失败：{e}"))?;
+            if !got.eq_ignore_ascii_case(want) {
+                return Err(format!("文件校验不通过：{p}\n期望 {want}\n实际 {got}"));
+            }
+            Ok(norm)
+        })
+        .collect();
+    if checked.is_empty() {
         return Err("校验清单里没有一条可用记录".to_string());
     }
-    Ok(checked)
+    let mut listed = std::collections::HashSet::new();
+    for item in checked {
+        listed.insert(item?);
+    }
+    let count = listed.len();
+
+    let mut actual = Vec::new();
+    collect_files(dir, dir, &mut actual)?;
+    for rel in actual {
+        if rel == "manifest.json" {
+            continue;
+        }
+        if !listed.contains(&rel) {
+            return Err(format!("安装包里有未登记文件，已拒绝安装：{rel}"));
+        }
+    }
+    Ok(count)
 }
 
 /// Authenticode 签名状态
@@ -346,7 +468,9 @@ fn count_files(dir: &Path) -> u64 {
     if let Ok(rd) = fs::read_dir(dir) {
         for e in rd.flatten() {
             let p = e.path();
-            let Ok(meta) = fs::symlink_metadata(&p) else { continue };
+            let Ok(meta) = fs::symlink_metadata(&p) else {
+                continue;
+            };
             if meta.file_type().is_symlink() {
                 continue;
             }
@@ -363,12 +487,17 @@ fn count_files(dir: &Path) -> u64 {
 /// 给 Dart 轮询：{copied,total,phase}
 #[no_mangle]
 pub extern "C" fn install_progress(buf: *mut u8, len: usize) -> i32 {
-    let (c, t, ph, f) = progress_cell()
-        .lock()
-        .map(|g| g.clone())
-        .unwrap_or((0, 0, String::new(), String::new()));
-    let v = json!({ "success": true, "data": { "copied": c, "total": t, "phase": ph, "file": f } });
-    ok(buf, len, "", v)
+    crate::ffi_guard!(buf, len, {
+        let (c, t, ph, f) = progress_cell().lock().map(|g| g.clone()).unwrap_or((
+            0,
+            0,
+            String::new(),
+            String::new(),
+        ));
+        let v =
+            json!({ "success": true, "data": { "copied": c, "total": t, "phase": ph, "file": f } });
+        ok(buf, len, "", v)
+    })
 }
 
 #[cfg(not(windows))]
@@ -386,181 +515,246 @@ pub extern "C" fn install_run(
     buf: *mut u8,
     len: usize,
 ) -> i32 {
-    let (Some(src), Some(dst)) = (cstr(src), cstr(dst)) else {
-        return fail(buf, len, -1, "参数为空");
-    };
-    let from = PathBuf::from(&src);
-    let to = PathBuf::from(&dst);
-    if !from.is_dir() {
-        return fail(buf, len, -3, "安装源目录不存在");
-    }
-    if !cfg!(windows) {
-        return fail(buf, len, -3, "安装流程仅支持 Windows");
-    }
-
-    let total_files = count_files(&from);
-    set_progress(0, total_files, "正在校验安装文件", "");
-
-    // ① 完整性校验：manifest.json 里每个文件的 SHA-256 必须对上
-    let verified = match verify_manifest(&from) {
-        Ok(n) => n,
-        Err(e) => return fail(buf, len, -4, &format!("安装文件完整性校验失败：{e}")),
-    };
-
-    let mut warnings: Vec<String> = Vec::new();
-
-    // ② 签名校验：有签名就必须有效；没签名（自编译包）放行但记一条警告
-    match signature_status(&from.join(EXE_NAME)) {
-        Ok(s) if s.eq_ignore_ascii_case("Valid") => {}
-        Ok(s) if s.eq_ignore_ascii_case("NotSigned") || s.eq_ignore_ascii_case("Unknown") => {
-            warnings.push("本安装程序未做数字签名（自编译版本），已跳过签名验证".into());
+    crate::ffi_guard!(buf, len, {
+        let (Some(src), Some(dst)) = (cstr(src), cstr(dst)) else {
+            return fail(buf, len, -1, "参数为空");
+        };
+        let from = PathBuf::from(&src);
+        let to = PathBuf::from(&dst);
+        if !from.is_dir() {
+            return fail(buf, len, -3, "安装源目录不存在");
         }
-        Ok(s) => {
-            return fail(
-                buf,
-                len,
-                -4,
-                &format!("数字签名校验失败（状态 {s}）：安装文件可能被篡改"),
-            );
+        if !cfg!(windows) {
+            return fail(buf, len, -3, "安装流程仅支持 Windows");
         }
-        Err(e) => warnings.push(format!("签名检测未执行：{e}")),
-    }
-
-    // ③ 覆盖安装：目标目录已经有旧版本时，先停掉正在跑的进程再原地覆盖。
-    //    配置目录在 %APPDATA%\QWGuard，不在安装目录里，所以换文件不会丢数据。
-    if to.join(EXE_NAME).exists() {
-        let _ = crate::proc::cmd("taskkill")
-            .args(["/F", "/IM", EXE_NAME])
-            .output();
-        std::thread::sleep(std::time::Duration::from_millis(600));
-        warnings.push("检测到已有安装，执行覆盖升级（用户数据保留）".into());
-    }
-
-    // 复制之前先清旧版安装目录：旧版目录名和新版不同，不清就是两套并存
-    let legacy = cleanup_legacy();
-
-    let mut copied = 0u64;
-    let mut bytes = 0u64;
-    set_progress(0, total_files, "正在写入文件", "");
-    if let Err(e) = copy_tree(&from, &to, &mut copied, &mut bytes) {
-        return fail(buf, len, -3, &e);
-    }
-
-    set_progress(total_files, total_files, "正在创建快捷方式", "");
-    let exe = to.join(EXE_NAME);
-    if let Some(l) = legacy {
-        warnings.push(l);
-    }
-
-    // 开始菜单
-    if let Ok(appdata) = std::env::var("APPDATA") {
-        let start = Path::new(&appdata)
-            .join("Microsoft\\Windows\\Start Menu\\Programs")
-            .join(APP_NAME);
-        let _ = fs::create_dir_all(&start);
-        let lnk = start.join(format!("{APP_NAME}.lnk"));
-        if let Err(e) = make_shortcut(&lnk, &exe, &to, APP_NAME) {
-            warnings.push(format!("开始菜单快捷方式失败: {e}"));
+        // 安装目标必须是绝对路径，且不能是盘根 / 系统目录。
+        // 同时拒绝 `..` 和「父目录是联接点」的写法：`C:\Users\Public\..\Windows`
+        // 或 `C:\Users\Public\link`（link 指向 C:\Windows）都能绕过只看首段的白名单。
+        if !to.is_absolute() {
+            return fail(buf, len, -1, "安装路径必须是绝对路径");
         }
-    }
-
-    // 桌面
-    if desktop_icon != 0 {
-        let mut okd = false;
-        let mut last_err = String::new();
-        for dir in desktop_dirs() {
-            if !dir.exists() {
-                continue;
+        if to.exists() && !to.is_dir() {
+            return fail(buf, len, -1, "安装目标已存在但不是目录");
+        }
+        if to
+            .components()
+            .any(|c| matches!(c, std::path::Component::ParentDir))
+        {
+            return fail(buf, len, -1, "安装路径不能包含 ..");
+        }
+        let first_normal = |p: &Path| -> String {
+            p.components()
+                .find_map(|c| {
+                    if let std::path::Component::Normal(s) = c {
+                        Some(s.to_string_lossy().to_uppercase())
+                    } else {
+                        None
+                    }
+                })
+                .unwrap_or_default()
+        };
+        let first = first_normal(&to);
+        if first.is_empty() {
+            return fail(buf, len, -1, "不能装到盘符根目录");
+        }
+        let blocked = |name: &str| {
+            matches!(
+                name,
+                "WINDOWS"
+                    | "PROGRAMDATA"
+                    | "$RECYCLE.BIN"
+                    | "SYSTEM VOLUME INFORMATION"
+                    | "BOOT"
+                    | "EFI"
+                    | "RECOVERY"
+            )
+        };
+        if blocked(&first) {
+            return fail(buf, len, -1, "不能安装到系统目录");
+        }
+        // 已存在的目标 / 父目录做一次规范化，挡住短文件名、联接点和符号链接别名
+        let resolved = if to.exists() {
+            to.canonicalize().ok()
+        } else {
+            to.parent()
+                .and_then(|p| p.canonicalize().ok())
+                .map(|p| p.join(to.file_name().unwrap_or_default()))
+        };
+        if let Some(real) = resolved {
+            let rf = first_normal(&real);
+            if rf.is_empty() || blocked(&rf) {
+                return fail(buf, len, -1, "安装路径解析后落在系统目录，已拒绝");
             }
-            let lnk = dir.join(format!("{APP_NAME}.lnk"));
-            match make_shortcut(&lnk, &exe, &to, APP_NAME) {
-                Ok(_) => {
-                    okd = true;
-                    break;
+        }
+        let total_files = count_files(&from);
+        set_progress(0, total_files, "正在校验安装文件", "");
+
+        // ① 完整性校验：manifest.json 里每个文件的 SHA-256 必须对上
+        let verified = match verify_manifest(&from) {
+            Ok(n) => n,
+            Err(e) => return fail(buf, len, -4, &format!("安装文件完整性校验失败：{e}")),
+        };
+
+        let mut warnings: Vec<String> = Vec::new();
+
+        // ② 签名校验：有签名就必须有效；没签名（自编译包）放行但记一条警告
+        match signature_status(&from.join(EXE_NAME)) {
+            Ok(s) if s.eq_ignore_ascii_case("Valid") => {}
+            Ok(s) if s.eq_ignore_ascii_case("NotSigned") || s.eq_ignore_ascii_case("Unknown") => {
+                warnings.push("本安装程序未做数字签名（自编译版本），已跳过签名验证".into());
+            }
+            Ok(s) => {
+                return fail(
+                    buf,
+                    len,
+                    -4,
+                    &format!("数字签名校验失败（状态 {s}）：安装文件可能被篡改"),
+                );
+            }
+            Err(e) => warnings.push(format!("签名检测未执行：{e}")),
+        }
+
+        // ③ 覆盖安装：目标目录已经有旧版本时，先停掉正在跑的进程再原地覆盖。
+        //    配置目录在 %APPDATA%\QWGuard，不在安装目录里，所以换文件不会丢数据。
+        if to.join(EXE_NAME).exists() {
+            let _ = crate::proc::cmd("taskkill")
+                .args(["/F", "/IM", EXE_NAME])
+                .output();
+            std::thread::sleep(std::time::Duration::from_millis(600));
+            warnings.push("检测到已有安装，执行覆盖升级（用户数据保留）".into());
+        }
+
+        // 复制之前先清旧版安装目录：旧版目录名和新版不同，不清就是两套并存
+        let legacy = cleanup_legacy();
+
+        let mut copied = 0u64;
+        let mut bytes = 0u64;
+        set_progress(0, total_files, "正在写入文件", "");
+        if let Err(e) = copy_tree(&from, &to, &mut copied, &mut bytes) {
+            return fail(buf, len, -3, &e);
+        }
+
+        set_progress(total_files, total_files, "正在创建快捷方式", "");
+        let exe = to.join(EXE_NAME);
+        if let Some(l) = legacy {
+            warnings.push(l);
+        }
+
+        // 开始菜单
+        if let Ok(appdata) = std::env::var("APPDATA") {
+            let start = Path::new(&appdata)
+                .join("Microsoft\\Windows\\Start Menu\\Programs")
+                .join(APP_NAME);
+            let _ = fs::create_dir_all(&start);
+            let lnk = start.join(format!("{APP_NAME}.lnk"));
+            if let Err(e) = make_shortcut(&lnk, &exe, &to, APP_NAME) {
+                warnings.push(format!("开始菜单快捷方式失败: {e}"));
+            }
+        }
+
+        // 桌面
+        if desktop_icon != 0 {
+            let mut okd = false;
+            let mut last_err = String::new();
+            for dir in desktop_dirs() {
+                if !dir.exists() {
+                    continue;
                 }
-                Err(e) => last_err = e,
+                let lnk = dir.join(format!("{APP_NAME}.lnk"));
+                match make_shortcut(&lnk, &exe, &to, APP_NAME) {
+                    Ok(_) => {
+                        okd = true;
+                        break;
+                    }
+                    Err(e) => last_err = e,
+                }
+            }
+            if !okd {
+                warnings.push(format!(
+                    "桌面快捷方式没建成（{}）",
+                    if last_err.is_empty() {
+                        "没有可写的桌面目录".to_string()
+                    } else {
+                        last_err
+                    }
+                ));
             }
         }
-        if !okd {
-            warnings.push(format!(
-                "桌面快捷方式没建成（{}）",
-                if last_err.is_empty() { "没有可写的桌面目录".to_string() } else { last_err }
-            ));
-        }
-    }
 
-    // 自启动
-    if autostart != 0 {
-        let run = r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run";
-        // 先删掉老版本登记的英文项，避免注册表里同时挂两条
-        let _ = crate::proc::cmd("reg")
-            .args(["delete", run, "/v", "QWGuard", "/f"])
-            .output();
+        // 自启动
+        if autostart != 0 {
+            let run = r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run";
+            // 先删掉老版本登记的英文项，避免注册表里同时挂两条
+            let _ = crate::proc::cmd("reg")
+                .args(["delete", run, "/v", "QWGuard", "/f"])
+                .output();
+            let _ = crate::proc::cmd("reg")
+                .args([
+                    "add",
+                    run,
+                    "/v",
+                    "QW安全电脑管家",
+                    "/t",
+                    "REG_SZ",
+                    "/d",
+                    &exe.to_string_lossy(),
+                    "/f",
+                ])
+                .output();
+        }
+
+        // 控制面板的卸载入口：优先指向独立卸载器，退回主程序 --uninstall
+        let uninst_key = r"HKCU\Software\Microsoft\Windows\CurrentVersion\Uninstall\QWGuard";
+        let uninst_exe = to.join(UNINST_EXE);
+        let uninst_cmd = if uninst_exe.exists() {
+            format!("\"{}\"", uninst_exe.to_string_lossy())
+        } else {
+            format!("\"{}\" --uninstall", exe.to_string_lossy())
+        };
+        for (name, value) in [
+            ("DisplayName", APP_NAME.to_string()),
+            ("DisplayVersion", "1.0".to_string()),
+            ("DisplayIcon", exe.to_string_lossy().to_string()),
+            ("InstallLocation", to.to_string_lossy().to_string()),
+            ("UninstallString", uninst_cmd),
+            ("Publisher", "QW".to_string()),
+        ] {
+            let _ = crate::proc::cmd("reg")
+                .args([
+                    "add", uninst_key, "/v", name, "/t", "REG_SZ", "/d", &value, "/f",
+                ])
+                .output();
+        }
         let _ = crate::proc::cmd("reg")
             .args([
                 "add",
-                run,
+                uninst_key,
                 "/v",
-                "QW安全电脑管家",
+                "NoModify",
                 "/t",
-                "REG_SZ",
+                "REG_DWORD",
                 "/d",
-                &exe.to_string_lossy(),
+                "1",
                 "/f",
             ])
             .output();
-    }
 
-    // 控制面板的卸载入口：优先指向独立卸载器，退回主程序 --uninstall
-    let uninst_key = r"HKCU\Software\Microsoft\Windows\CurrentVersion\Uninstall\QWGuard";
-    let uninst_exe = to.join(UNINST_EXE);
-    let uninst_cmd = if uninst_exe.exists() {
-        format!("\"{}\"", uninst_exe.to_string_lossy())
-    } else {
-        format!("\"{}\" --uninstall", exe.to_string_lossy())
-    };
-    for (name, value) in [
-        ("DisplayName", APP_NAME.to_string()),
-        ("DisplayVersion", "1.0".to_string()),
-        ("DisplayIcon", exe.to_string_lossy().to_string()),
-        ("InstallLocation", to.to_string_lossy().to_string()),
-        ("UninstallString", uninst_cmd),
-        ("Publisher", "QW".to_string()),
-    ] {
-        let _ = crate::proc::cmd("reg")
-            .args(["add", uninst_key, "/v", name, "/t", "REG_SZ", "/d", &value, "/f"])
-            .output();
-    }
-    let _ = crate::proc::cmd("reg")
-        .args([
-            "add",
-            uninst_key,
-            "/v",
-            "NoModify",
-            "/t",
-            "REG_DWORD",
-            "/d",
-            "1",
-            "/f",
-        ])
-        .output();
-
-    ok(
-        buf,
-        len,
-        "安装完成",
-        json!({
-            "path": to.to_string_lossy(),
-            "copied": copied,
-            "bytes": bytes,
-            "verified": verified,
-            "warnings": warnings
-        }),
-    )
+        ok(
+            buf,
+            len,
+            "安装完成",
+            json!({
+                "path": to.to_string_lossy(),
+                "copied": copied,
+                "bytes": bytes,
+                "verified": verified,
+                "warnings": warnings
+            }),
+        )
+    })
 }
 
 /// 卸载：先杀进程，再删目录、配置、快捷方式、注册表
-#[no_mangle]
 /// 当前进程是不是管理员（高完整性级别）。
 /// 不用 OpenProcessToken：whoami /groups 里高完整性会带 S-1-16-12288，
 /// 系统级是 S-1-16-16384，这两个 SID 不随系统语言变化。
@@ -580,28 +774,44 @@ fn is_elevated() -> bool {
 /// 所以只在「卸载」这条路上做运行时提权：先普通权限起来，需要时再拉高。
 #[no_mangle]
 pub extern "C" fn ensure_elevated(buf: *mut u8, len: usize) -> i32 {
-    if is_elevated() {
-        return ok(buf, len, "已是管理员权限", json!({"elevated": true, "relaunching": false}));
-    }
-    if !cfg!(windows) {
-        return ok(buf, len, "非 Windows，无需提权", json!({"elevated": true, "relaunching": false}));
-    }
-    let exe = std::env::current_exe().unwrap_or_default();
-    let script = format!(
-        "Start-Process -FilePath '{}' -ArgumentList '--uninstall','--elevated' -Verb RunAs",
-        exe.display()
-    );
-    let launched = crate::proc::cmd("powershell")
-        .args(["-NoProfile", "-WindowStyle", "Hidden", "-Command", &script])
-        .output()
-        .map(|o| o.status.success())
-        .unwrap_or(false);
-    ok(
-        buf,
-        len,
-        if launched { "正在请求管理员权限" } else { "用户取消了管理员授权" },
-        json!({"elevated": false, "relaunching": launched}),
-    )
+    crate::ffi_guard!(buf, len, {
+        if is_elevated() {
+            return ok(
+                buf,
+                len,
+                "已是管理员权限",
+                json!({"elevated": true, "relaunching": false}),
+            );
+        }
+        if !cfg!(windows) {
+            return ok(
+                buf,
+                len,
+                "非 Windows，无需提权",
+                json!({"elevated": true, "relaunching": false}),
+            );
+        }
+        let exe = std::env::current_exe().unwrap_or_default();
+        let script = format!(
+            "Start-Process -FilePath '{}' -ArgumentList '--uninstall','--elevated' -Verb RunAs",
+            exe.display()
+        );
+        let launched = crate::proc::cmd("powershell")
+            .args(["-NoProfile", "-WindowStyle", "Hidden", "-Command", &script])
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false);
+        ok(
+            buf,
+            len,
+            if launched {
+                "正在请求管理员权限"
+            } else {
+                "用户取消了管理员授权"
+            },
+            json!({"elevated": false, "relaunching": launched}),
+        )
+    })
 }
 
 /// 解锁：先把自家进程全结束，再找出「加载了安装目录里 exe/dll 的其它进程」并结束。
@@ -619,7 +829,9 @@ fn kill_holders(dir: &Path) {
         if img.eq_ignore_ascii_case(&self_name) {
             continue;
         }
-        let _ = crate::proc::cmd("taskkill").args(["/F", "/IM", img]).output();
+        let _ = crate::proc::cmd("taskkill")
+            .args(["/F", "/IM", img])
+            .output();
     }
 
     // Restart Manager 的替代实现：枚举各进程已加载模块，
@@ -646,6 +858,7 @@ fn kill_holders(dir: &Path) {
     }
 }
 
+#[no_mangle]
 pub extern "C" fn uninstall_run(
     app_dir: *const c_char,
     keep_config: i32,
@@ -653,138 +866,234 @@ pub extern "C" fn uninstall_run(
     buf: *mut u8,
     len: usize,
 ) -> i32 {
-    let Some(dir) = cstr(app_dir) else {
-        return fail(buf, len, -1, "参数为空");
-    };
-    if !cfg!(windows) {
-        return fail(buf, len, -3, "卸载流程仅支持 Windows");
-    }
-    // 密码保护一旦开启，控制面板 / 命令行 / 第三方卸载器调进来都要过这道闸。
-    let pass = cstr(pwd).unwrap_or_default();
-    if let Err(msg) = crate::security::check_uninstall_pwd(&pass) {
-        return fail(buf, len, -5, msg);
-    }
-    let app = PathBuf::from(&dir);
-
-    // 先解锁：结束自家所有实例，再清掉加载了安装目录 dll/exe 的其它进程。
-    // 只 taskkill 一个镜像名不够——托盘、悬浮窗、多实例、崩溃上报都会各自占句柄。
-    kill_holders(&app);
-    std::thread::sleep(std::time::Duration::from_millis(900));
-
-    let mut removed = 0u64;
-    // 反复三次：刚 taskkill 完，Explorer / Defender / 索引服务可能还捏着句柄
-    for _ in 0..3 {
-        if !app.exists() {
-            break;
+    crate::ffi_guard!(buf, len, {
+        let Some(dir) = cstr(app_dir) else {
+            return fail(buf, len, -1, "参数为空");
+        };
+        if !cfg!(windows) {
+            return fail(buf, len, -3, "卸载流程仅支持 Windows");
         }
-        remove_tree(&app, &mut removed);
+        // 密码保护一旦开启，控制面板 / 命令行 / 第三方卸载器调进来都要过这道闸。
+        let pass = cstr(pwd).unwrap_or_default();
+        if let Err(msg) = crate::security::check_uninstall_pwd(&pass) {
+            return fail(buf, len, -5, msg);
+        }
+        // 不信任调用方传进来的目录：以「当前正在运行的 exe」所在目录为准。
+        // 否则任何本地进程都能拿这个接口递归删掉任意目录（Documents、D:\ 都行）。
+        let requested = PathBuf::from(&dir);
+        let app = std::env::current_exe()
+            .ok()
+            .and_then(|p| p.parent().map(|d| d.to_path_buf()))
+            .filter(|d| d.join(EXE_NAME).exists())
+            .unwrap_or(requested);
+        if app.parent().is_none() || !app.join(EXE_NAME).exists() {
+            return fail(buf, len, -3, "目标不是本程序的安装目录，已拒绝卸载");
+        }
+        let app = app.canonicalize().unwrap_or(app);
+
+        // 先解锁：结束自家所有实例，再清掉加载了安装目录 dll/exe 的其它进程。
+        // 只 taskkill 一个镜像名不够——托盘、悬浮窗、多实例、崩溃上报都会各自占句柄。
+        kill_holders(&app);
+        std::thread::sleep(std::time::Duration::from_millis(900));
+
+        let mut removed = 0u64;
+        // 反复三次：刚 taskkill 完，Explorer / Defender / 索引服务可能还捏着句柄
+        for _ in 0..3 {
+            if !app.exists() {
+                break;
+            }
+            remove_tree(&app, &mut removed);
+            if app.exists() {
+                std::thread::sleep(std::time::Duration::from_millis(350));
+            }
+        }
+
+        // 配置目录
+        if keep_config == 0 {
+            let cfg = cfg_dir();
+            if cfg.exists() {
+                remove_tree(&cfg, &mut removed);
+            }
+        }
+
+        // 快捷方式
+        if let Ok(appdata) = std::env::var("APPDATA") {
+            let start = Path::new(&appdata)
+                .join("Microsoft\\Windows\\Start Menu\\Programs")
+                .join(APP_NAME);
+            let _ = fs::remove_dir_all(&start);
+        }
+        for dir in desktop_dirs() {
+            let _ = fs::remove_file(dir.join(format!("{APP_NAME}.lnk")));
+        }
+
+        // 注册表：一次清干净。之前只删两处，Inno 时期的 AppId 键、
+        // HKLM 那份、StartupApproved 记录全都留在了系统里。
+        purge_registry();
+
+        // 收尾：卸载器自己正在运行，exe 和目录会被文件锁占住删不掉，
+        // 于是「卸载完成」之后安装目录还会剩下一个 Uninstall.exe + 空壳目录。
+        // 交给系统在进程退出后再补一刀：等 2 秒 → 删自己 → 删目录。
+        // 不带这步，用户回控制面板看是干净的，去 D:\ 一看目录还在。
+        // 三次还删不掉的（被杀软占着、或目录 ACL 只有管理员能改），
+        // 登记到下次登录时再清，别留一个空壳目录让用户以为没卸干净。
         if app.exists() {
-            std::thread::sleep(std::time::Duration::from_millis(350));
+            let pstr = app.to_string_lossy().to_string();
+            // RunOnce 的值最终交给 cmd 执行：路径里出现 " 或 % 就可能跳出引号 / 变量展开；
+            // ^ & | < > 和控制字符也一并拒绝，少一个解析口子。
+            let cmd_safe = !pstr
+                .chars()
+                .any(|c| matches!(c, '"' | '%' | '^' | '&' | '|' | '<' | '>') || c.is_control());
+            if cmd_safe {
+                let line = format!("cmd /c rmdir /s /q \"{}\"", app.display());
+                let _ = crate::proc::cmd("reg")
+                    .args([
+                        "add",
+                        r"HKCU\Software\Microsoft\Windows\CurrentVersion\RunOnce",
+                        "/v",
+                        "QWGuardCleanup",
+                        "/t",
+                        "REG_SZ",
+                        "/d",
+                        &line,
+                        "/f",
+                    ])
+                    .output();
+            }
         }
-    }
-
-    // 配置目录
-    if keep_config == 0 {
-        let cfg = cfg_dir();
-        if cfg.exists() {
-            remove_tree(&cfg, &mut removed);
+        if app.exists() {
+            let self_exe = std::env::current_exe().unwrap_or_default();
+            let line = format!(
+                r#"ping -n 3 127.0.0.1 >nul & del /f /q "{}" & rmdir /s /q "{}""#,
+                self_exe.display(),
+                app.display()
+            );
+            let _ = crate::proc::cmd("cmd").args(["/c", line.as_str()]).output();
         }
-    }
 
-    // 快捷方式
-    if let Ok(appdata) = std::env::var("APPDATA") {
-        let start = Path::new(&appdata)
-            .join("Microsoft\\Windows\\Start Menu\\Programs")
-            .join(APP_NAME);
-        let _ = fs::remove_dir_all(&start);
-    }
-    for dir in desktop_dirs() {
-        let _ = fs::remove_file(dir.join(format!("{APP_NAME}.lnk")));
-    }
-
-    // 注册表：一次清干净。之前只删两处，Inno 时期的 AppId 键、
-    // HKLM 那份、StartupApproved 记录全都留在了系统里。
-    purge_registry();
-
-    // 收尾：卸载器自己正在运行，exe 和目录会被文件锁占住删不掉，
-    // 于是「卸载完成」之后安装目录还会剩下一个 Uninstall.exe + 空壳目录。
-    // 交给系统在进程退出后再补一刀：等 2 秒 → 删自己 → 删目录。
-    // 不带这步，用户回控制面板看是干净的，去 D:\ 一看目录还在。
-    // 三次还删不掉的（被杀软占着、或目录 ACL 只有管理员能改），
-    // 登记到下次登录时再清，别留一个空壳目录让用户以为没卸干净。
-    if app.exists() {
-        let line = format!("cmd /c rmdir /s /q \"{}\"", app.display());
-        let _ = crate::proc::cmd("reg")
-            .args([
-                "add",
-                r"HKCU\Software\Microsoft\Windows\CurrentVersion\RunOnce",
-                "/v",
-                "QWGuardCleanup",
-                "/t",
-                "REG_SZ",
-                "/d",
-                &line,
-                "/f",
-            ])
-            .output();
-    }
-    if app.exists() {
-        let self_exe = std::env::current_exe().unwrap_or_default();
-        let line = format!(
-            r#"ping -n 3 127.0.0.1 >nul & del /f /q "{}" & rmdir /s /q "{}""#,
-            self_exe.display(),
-            app.display()
-        );
-        let _ = crate::proc::cmd("cmd").args(["/c", line.as_str()]).output();
-    }
-
-    ok(buf, len, "卸载完成", json!({"removed_files": removed, "kept_config": keep_config != 0}))
+        ok(
+            buf,
+            len,
+            "卸载完成",
+            json!({"removed_files": removed, "kept_config": keep_config != 0}),
+        )
+    })
 }
 
 /// 系统深浅色：Windows 读注册表，其它平台默认浅色
 #[no_mangle]
 pub extern "C" fn system_theme(buf: *mut u8, len: usize) -> i32 {
-    let mut dark = false;
-    if cfg!(windows) {
-        if let Ok(o) = crate::proc::cmd("reg")
-            .args([
-                "query",
-                r"HKCU\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize",
-                "/v",
-                "AppsUseLightTheme",
-            ])
-            .output()
-        {
-            let text = String::from_utf8_lossy(&o.stdout);
-            if let Some(pos) = text.find("REG_DWORD") {
-                let tail = text[pos..].trim();
-                if let Some(v) = tail.split_whitespace().nth(1) {
-                    dark = v.trim() == "0x0";
+    crate::ffi_guard!(buf, len, {
+        let mut dark = false;
+        if cfg!(windows) {
+            if let Ok(o) = crate::proc::cmd("reg")
+                .args([
+                    "query",
+                    r"HKCU\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize",
+                    "/v",
+                    "AppsUseLightTheme",
+                ])
+                .output()
+            {
+                let text = String::from_utf8_lossy(&o.stdout);
+                if let Some(pos) = text.find("REG_DWORD") {
+                    let tail = text[pos..].trim();
+                    if let Some(v) = tail.split_whitespace().nth(1) {
+                        dark = v.trim() == "0x0";
+                    }
                 }
             }
         }
-    }
-    ok(buf, len, "系统主题", json!({"dark": dark}))
+        ok(buf, len, "系统主题", json!({"dark": dark}))
+    })
 }
 
 /// 安装器自检：确认 payload 完整（缺 dll 或 data 就报错，不让人装半个软件）
 #[no_mangle]
 pub extern "C" fn install_precheck(src: *const c_char, buf: *mut u8, len: usize) -> i32 {
-    let Some(src) = cstr(src) else {
-        return fail(buf, len, -1, "参数为空");
-    };
-    let root = PathBuf::from(&src);
-    let mut missing: Vec<String> = Vec::new();
-    // manifest.json 是完整性校验的依据，缺了就没法验证，提前在前端就报出来
-    for need in [EXE_NAME, "flutter_windows.dll", "data", "manifest.json"] {
-        if !root.join(need).exists() {
-            missing.push(need.to_string());
+    crate::ffi_guard!(buf, len, {
+        let Some(src) = cstr(src) else {
+            return fail(buf, len, -1, "参数为空");
+        };
+        let root = PathBuf::from(&src);
+        let mut missing: Vec<String> = Vec::new();
+        // manifest.json 是完整性校验的依据，缺了就没法验证，提前在前端就报出来
+        for need in [
+            EXE_NAME,
+            "flutter_windows.dll",
+            "qw_mcp.exe",
+            "data",
+            "manifest.json",
+        ] {
+            if !root.join(need).exists() {
+                missing.push(need.to_string());
+            }
         }
+        ok(
+            buf,
+            len,
+            if missing.is_empty() {
+                "环境完整"
+            } else {
+                "环境不完整"
+            },
+            json!({"ok": missing.is_empty(), "missing": missing, "src": src}),
+        )
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn tmpdir(tag: &str) -> PathBuf {
+        let d = std::env::temp_dir().join(format!("qw-manifest-{}-{tag}", std::process::id()));
+        let _ = fs::remove_dir_all(&d);
+        fs::create_dir_all(&d).unwrap();
+        d
     }
-    ok(
-        buf,
-        len,
-        if missing.is_empty() { "环境完整" } else { "环境不完整" },
-        json!({"ok": missing.is_empty(), "missing": missing, "src": src}),
-    )
+
+    fn write_manifest(dir: &Path, files: &[(&str, &str)]) {
+        let list: Vec<serde_json::Value> = files
+            .iter()
+            .map(|(p, h)| serde_json::json!({"path": p, "sha256": h}))
+            .collect();
+        fs::write(
+            dir.join("manifest.json"),
+            serde_json::json!({"version": 1, "files": list}).to_string(),
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn manifest_rejects_extra_and_tampered_files() {
+        let d = tmpdir("basic");
+        fs::write(d.join("a.dll"), b"aaa").unwrap();
+        fs::create_dir_all(d.join("data")).unwrap();
+        fs::write(d.join("data/b.bin"), b"bbb").unwrap();
+        let ha = hex_sha256(b"aaa");
+        let hb = hex_sha256(b"bbb");
+        write_manifest(&d, &[("a.dll", &ha), ("data/b.bin", &hb)]);
+        assert_eq!(verify_manifest(&d).unwrap(), 2);
+
+        fs::write(d.join("evil.dll"), b"evil").unwrap();
+        let err = verify_manifest(&d).unwrap_err();
+        assert!(err.contains("未登记"), "{err}");
+        fs::remove_file(d.join("evil.dll")).unwrap();
+
+        fs::write(d.join("a.dll"), b"tampered").unwrap();
+        assert!(verify_manifest(&d).is_err());
+
+        let _ = fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn manifest_rejects_parent_paths() {
+        let d = tmpdir("trav");
+        fs::write(d.join("a.dll"), b"aaa").unwrap();
+        let ha = hex_sha256(b"aaa");
+        write_manifest(&d, &[("../a.dll", &ha)]);
+        assert!(verify_manifest(&d).is_err());
+        let _ = fs::remove_dir_all(&d);
+    }
 }

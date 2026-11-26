@@ -7,7 +7,6 @@ Flutter（UI）+ Impeller（渲染）+ Rust（底层 DLL）实现的 Windows 安
 - `native/` Rust 底层（已编译验证，导出 7 个 FFI 函数）
 - `build_windows.ps1` 一键构建脚本
 - `build_installer.ps1` + `installer/setup.iss` 打 EXE 安装包（卸载清残留）
-- `系统工具箱_需求与方案汇总.md` 需求与技术方案
 
 ---
 
@@ -54,7 +53,9 @@ execute_cleanup   -> 0             dry-run 模式正常，只统计不删除
 - 三语言：简体（默认）/ 繁體 / English
 - 查杀引擎：**QW 安全电脑管家 · 查杀引擎** —— 四个子引擎（Defender / 特征库 / 启发式 / YARA）合并为一个整体，全部内置、用户零安装；另有火绒 hrscan / PYAS 外部唤起（可选）
 - 无档位：只有一个「深度查杀」，四子引擎固定全开并发，并发数 = CPU 逻辑核数；显卡不参与查杀判定
-- 动画全部可在设置关闭，默认全开：玻璃、实时模糊、折射、扫光带、粒子、光斑漂浮、Dock 弹簧、页面切换、按钮按压、卡片入场
+- 动画全部可在设置关闭，默认全开：玻璃、实时模糊、折射、扫光带、粒子、光斑漂浮、Dock 弹簧、页面切换、按钮按压、卡片入场、辉光呼吸、背景动态流光
+- 动态取色：启动时读取 Windows DWM 系统强调色作为 Material 3 种子色；字体全局加极轻柔边阴影
+- 严格模式：密码保护开启后默认启用，设置项、清理、查杀、隔离区添加/恢复/删除逐项验密码；后台自动清理/隔离在严格模式下不静默执行
 
 > 本机是 Linux 且无 Flutter SDK，Flutter 部分只做了代码编写，**没有编译验证**。首次在 Windows 上跑如遇 API 差异，改一两行即可。
 
@@ -155,6 +156,24 @@ Unable to determine Flutter version for channel: stable version: any architectur
 3. 加文件/目录选择器（`file_selector`），扫描路径不用手输
 4. 加扫描进度回传（Rust 侧回调 → Dart）
 5. Inno Setup 打 `setup.exe`
+
+## AI 代理（MCP，只读）
+
+安装目录内附带 `qw_mcp.exe`，可通过 stdio 被 Claude Desktop / Cursor 等支持 MCP 的 AI 客户端拉起：
+
+```json
+{
+  "mcpServers": {
+    "qwguard": {
+      "command": "C:\\Program Files\\QWGuard\\qw_mcp.exe"
+    }
+  }
+}
+```
+
+只开放六个只读工具：安全状态、硬件指标、清理预览、隔离库列表、白名单、单文件扫描。不开放删除、隔离、改设置，AI 无法直接动用户文件；严格模式不会被 MCP 绕过。
+
+---
 
 ## 运行库补全（工具箱第十个工具）
 

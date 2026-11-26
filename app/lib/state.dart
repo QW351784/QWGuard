@@ -44,6 +44,8 @@ class Ui {
     AnimDef('cardEntrance', '卡片入场动画', 'Card entrance'),
     // 呼吸型动态光效：软件内默认开启、可以手动关闭；安装/卸载过程中强制开启（那边没有开关）
     AnimDef('breathing', '呼吸型动态光效', 'Breathing glow'),
+    AnimDef('glow', '辉光动画', 'Glow'),
+    AnimDef('aurora', '背景动态流光', 'Aurora flow'),
   ];
 
   static final Map<String, ValueNotifier<bool>> _map = {
@@ -110,6 +112,8 @@ class Ui {
     'particles',
     'blobs',
     'breathing',
+    'glow',
+    'aurora',
   ];
 
   static bool get perFrameActive {

@@ -28,34 +28,36 @@ unsafe extern "system" fn enum_cb(hwnd: HWND, lparam: LPARAM) -> BOOL {
 
 #[no_mangle]
 pub extern "C" fn set_topmost(title: *const c_char, buf: *mut u8, len: usize) -> i32 {
-    let Some(name) = crate::cstr(title) else {
-        return crate::fail(buf, len, -1, "标题为空");
-    };
+    crate::ffi_guard!(buf, len, {
+        let Some(name) = crate::cstr(title) else {
+            return crate::fail(buf, len, -1, "标题为空");
+        };
 
-    let mut ctx = Ctx { name, found: None };
-    unsafe {
-        let _ = EnumWindows(Some(enum_cb), LPARAM(&mut ctx as *mut Ctx as isize));
-    }
-
-    match ctx.found {
-        Some(hwnd) => {
-            let r = unsafe {
-                SetWindowPos(
-                    hwnd,
-                    HWND_TOPMOST,
-                    0,
-                    0,
-                    0,
-                    0,
-                    SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW,
-                )
-            };
-            if r.is_ok() {
-                crate::ok(buf, len, "已置顶", serde_json::json!({"title": ctx.name}))
-            } else {
-                crate::fail(buf, len, -3, "置顶失败")
-            }
+        let mut ctx = Ctx { name, found: None };
+        unsafe {
+            let _ = EnumWindows(Some(enum_cb), LPARAM(&mut ctx as *mut Ctx as isize));
         }
-        None => crate::fail(buf, len, -3, "未找到目标窗口"),
-    }
+
+        match ctx.found {
+            Some(hwnd) => {
+                let r = unsafe {
+                    SetWindowPos(
+                        hwnd,
+                        HWND_TOPMOST,
+                        0,
+                        0,
+                        0,
+                        0,
+                        SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW,
+                    )
+                };
+                if r.is_ok() {
+                    crate::ok(buf, len, "已置顶", serde_json::json!({"title": ctx.name}))
+                } else {
+                    crate::fail(buf, len, -3, "置顶失败")
+                }
+            }
+            None => crate::fail(buf, len, -3, "未找到目标窗口"),
+        }
+    })
 }

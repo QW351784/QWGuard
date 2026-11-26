@@ -69,6 +69,7 @@ jobs:
         run: |
           $rel = 'app\build\windows\arm64\runner\Release'
           Copy-Item native\target\aarch64-pc-windows-msvc\release\toolkit_native.dll $rel -Force
+          Copy-Item native\target\aarch64-pc-windows-msvc\release\qw_mcp.exe $rel -Force
           if (Test-Path 'app\assets') { Copy-Item app\assets -Recurse (Join-Path $rel 'assets') -Force }
           if (Test-Path 'vendor\runtime') { Copy-Item 'vendor\runtime' -Destination (Join-Path $rel 'runtime') -Recurse -Force }
       - name: Upload arm64 build

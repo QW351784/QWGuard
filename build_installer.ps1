@@ -8,7 +8,7 @@ $release = "$root\app\build\windows\x64\runner\Release"
 $dist = "$root\dist"
 $vendor = "$root\vendor"
 
-if (-not (Test-Path "$release\system_toolbox.exe")) {
+if (-not (Test-Path "$release\QWGuard.exe")) {
     throw "未找到 Release 产物，请先运行 build_windows.ps1"
 }
 
@@ -24,6 +24,9 @@ if (-not (Test-Path "$vendor\vc_redist.x64.exe")) {
     Write-Host "提示：vendor\vc_redist.x64.exe 不存在，安装包不会自带运行库。"
     Write-Host "      可从微软官网下载 VC_redist.x64.exe 放入 vendor 目录。"
 }
+
+# 打包前重算清单：Release 里可能刚补进运行库/内层安装器
+& "$root\build_manifest.ps1" -Dir $release
 
 New-Item -ItemType Directory -Path $dist -Force | Out-Null
 

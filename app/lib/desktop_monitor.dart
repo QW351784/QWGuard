@@ -48,6 +48,7 @@ class DesktopMonitorApp extends StatefulWidget {
 class _DesktopMonitorAppState extends State<DesktopMonitorApp> {
   Map<String, dynamic>? _data;
   Timer? _timer;
+  bool _polling = false;
 
   @override
   void initState() {
@@ -56,11 +57,20 @@ class _DesktopMonitorAppState extends State<DesktopMonitorApp> {
     _timer = Timer.periodic(const Duration(milliseconds: 1600), (_) => _poll());
   }
 
-  void _poll() {
-    final r = Native.hardware();
-    if (!mounted) return;
-    if (r['success'] == true && r['data'] is Map) {
-      setState(() => _data = (r['data'] as Map).cast<String, dynamic>());
+  Future<void> _poll() async {
+    if (_polling) return;
+    _polling = true;
+    try {
+      // 丢后台 isolate，别让轻量监控窗口的 UI 线程等 System::new_all
+      final r = await Native.hardwareMetricsAsync();
+      if (!mounted) return;
+      if (r['success'] == true && r['data'] is Map) {
+        setState(() => _data = (r['data'] as Map).cast<String, dynamic>());
+      }
+    } catch (_) {
+      // 采样失败保持上一帧
+    } finally {
+      _polling = false;
     }
   }
 
