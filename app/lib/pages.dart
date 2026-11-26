@@ -2677,7 +2677,7 @@ class _SettingsPageState extends State<SettingsPage> {
     final dir = File(Platform.resolvedExecutable).parent.path;
     final sep = Platform.isWindows ? '\\' : '/';
     final mcp = '$dir${sep}qw_mcp${Platform.isWindows ? '.exe' : ''}';
-    final has = File(mcp).exists();
+    final has = await File(mcp).exists();
     final config = JsonEncoder.withIndent('  ').convert({
       'mcpServers': {
         'qwguard': {'command': mcp},
