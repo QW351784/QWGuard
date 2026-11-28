@@ -66,6 +66,9 @@ class _SetupAppState extends State<SetupApp> {
   bool _autostart = false;
   bool _busy = false;
   double _prog = 0.0;
+  // 校验、写入各一条细进度条，主进度条显示整体；用户之前明确要求第二条。
+  double _verifyProg = 0.0;
+  double _copyProg = 0.0;
   String _phase = '准备中';
   String _file = '';
   String _hint = '';
@@ -258,6 +261,8 @@ class _SetupAppState extends State<SetupApp> {
     // 解压 + 校验 170MB 是纯 CPU/磁盘活，直接在 UI isolate 里调 FFI 会把消息循环堵死，
     // Windows 就给窗口挂上「未响应」。丢到后台 isolate，进度动画继续跑。
     _prog = 0;
+    _verifyProg = 0;
+    _copyProg = 0;
     _phase = '正在校验安装文件';
     // 每 120ms 读一次 Rust 侧的计数器：文件数 + 当前阶段
     final timer = Timer.periodic(const Duration(milliseconds: 120), (_) {
@@ -267,10 +272,15 @@ class _SetupAppState extends State<SetupApp> {
         final d = p['data'] as Map;
         final total = (d['total'] as num?)?.toDouble() ?? 0;
         final copied = (d['copied'] as num?)?.toDouble() ?? 0;
+        final value = total <= 0 ? 0.0 : (copied / total).clamp(0.0, 1.0);
+        final phase = d['phase']?.toString() ?? _phase;
         setState(() {
-          _prog = total <= 0 ? 0 : (copied / total).clamp(0.0, 1.0);
-          _phase = d['phase']?.toString() ?? _phase;
+          _prog = value;
+          _phase = phase;
           _file = d['file']?.toString() ?? '';
+          if (phase.contains('校验')) _verifyProg = value;
+          if (phase.contains('写入')) _copyProg = value;
+          if (phase.contains('快捷方式')) _copyProg = 1.0;
         });
       }
     });
@@ -297,6 +307,10 @@ class _SetupAppState extends State<SetupApp> {
       _step = 3;
       _ok = ok;
       _prog = ok ? 1.0 : _prog;
+      if (ok) {
+        _verifyProg = 1.0;
+        _copyProg = 1.0;
+      }
       _result = ok
           ? '已写入 ${r['data']?['copied'] ?? 0} 个文件'
           : (r['message']?.toString() ?? '安装失败');
@@ -1218,6 +1232,10 @@ class _SetupAppState extends State<SetupApp> {
         ),
         const SizedBox(height: 16),
         _GlowProgress(value: _prog, color: accent),
+        const SizedBox(height: 8),
+        _StageBar(label: '校验', value: _verifyProg, color: accent),
+        const SizedBox(height: 4),
+        _StageBar(label: '写入', value: _copyProg, color: accent),
         const SizedBox(height: 18),
         Text(
           _phase,
@@ -1750,6 +1768,53 @@ class _InstallerBackdropPainter extends CustomPainter {
 }
 
 /// 带光效的进度条：底色玻璃槽 + 已写入部分的渐变 + 一道循环扫过的高光
+/// 第二条/第三条细进度：校验阶段和写入阶段各自独立，主条仍是整体。
+class _StageBar extends StatelessWidget {
+  final String label;
+  final double value;
+  final Color color;
+  const _StageBar(
+      {required this.label, required this.value, required this.color});
+
+  @override
+  Widget build(BuildContext context) {
+    final v = value.clamp(0.0, 1.0).toDouble();
+    return Row(
+      children: [
+        SizedBox(
+          width: 26,
+          child: Text(
+            label,
+            style: const TextStyle(fontSize: 9.5, fontWeight: FontWeight.w600),
+          ),
+        ),
+        const SizedBox(width: 6),
+        Expanded(
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(3),
+            child: LinearProgressIndicator(
+              value: v,
+              minHeight: 3,
+              backgroundColor: Colors.white.withOpacity(0.20),
+              valueColor:
+                  AlwaysStoppedAnimation<Color>(color.withOpacity(0.75)),
+            ),
+          ),
+        ),
+        const SizedBox(width: 6),
+        SizedBox(
+          width: 30,
+          child: Text(
+            '${(v * 100).toStringAsFixed(0)}%',
+            textAlign: TextAlign.right,
+            style: const TextStyle(fontSize: 8.5, fontWeight: FontWeight.w600),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
 class _GlowProgress extends StatefulWidget {
   final double value;
   final Color color;
