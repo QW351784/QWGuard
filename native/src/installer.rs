@@ -816,6 +816,18 @@ pub(crate) fn is_elevated() -> bool {
     false
 }
 
+/// 给 Flutter 主程序判断当前进程是否管理员；主程序启动时据此决定是否 UAC 重开。
+#[no_mangle]
+pub extern "C" fn is_elevated_now() -> i32 {
+    crate::ffi_guard_none!({
+        if is_elevated() {
+            1
+        } else {
+            0
+        }
+    })
+}
+
 /// 让卸载器以管理员身份重开自己。
 /// 清单里写 requireAdministrator 会让主程序每次启动都弹 UAC，
 /// 所以只在「卸载」这条路上做运行时提权：先普通权限起来，需要时再拉高。

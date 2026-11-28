@@ -121,8 +121,53 @@ Future<Color?> _readSystemAccent() async {
   }
 }
 
+/// 整个主程序、安装向导、卸载器都以管理员运行。
+/// 不靠 exe 清单（mt.exe 合并清单在 CI 上会 LNK1327），而是运行时判断后 UAC 重开自己。
+Future<void> _ensureAdminMode(List<String> args) async {
+  if (!Platform.isWindows) return;
+  if (args.contains('--elevated')) {
+    // 已经是被 UAC 拉起来的那一份，仍然不是管理员就只能报错，避免无限重开。
+    if (!Api.isElevatedNow()) {
+      final p =
+          File('${Platform.environment['TEMP'] ?? '.'}\\qwguard-elevate.txt');
+      try {
+        p.writeAsStringSync('UAC 提权失败：新进程仍不是管理员。');
+      } catch (_) {}
+      exit(1);
+    }
+    return;
+  }
+  if (Api.isElevatedNow()) return;
+
+  final exe = Platform.resolvedExecutable;
+  final next = <String>[...args, '--elevated'];
+  String q(String v) => "'${v.replaceAll("'", "''")}'";
+  final argList = next.map(q).join(',');
+  final script =
+      "Start-Process -FilePath ${q(exe)} -ArgumentList @($argList) -Verb RunAs";
+  try {
+    final r = await Process.run(
+      'powershell',
+      ['-NoProfile', '-WindowStyle', 'Hidden', '-Command', script],
+    );
+    if (r.exitCode != 0) {
+      final p =
+          File('${Platform.environment['TEMP'] ?? '.'}\\qwguard-elevate.txt');
+      p.writeAsStringSync('UAC 被取消或启动失败：${r.stderr}');
+    }
+  } catch (e) {
+    final p =
+        File('${Platform.environment['TEMP'] ?? '.'}\\qwguard-elevate.txt');
+    try {
+      p.writeAsStringSync('UAC 启动异常：$e');
+    } catch (_) {}
+  }
+  exit(0);
+}
+
 Future<void> main(List<String> args) async {
   WidgetsFlutterBinding.ensureInitialized();
+  await _ensureAdminMode(args);
   // 安装向导也要走 Mica：必须在任何窗口分支之前初始化 Acrylic 桥。
   // 之前这行放在主程序分支后面，--setup 提前 return，安装窗口永远没有窗口级云母。
   if (Platform.isWindows) {
@@ -259,21 +304,22 @@ Future<void> _autoUpdateCheck() async {
     final url = d['download_url']?.toString() ?? '';
     // 版本更高，或同版本但 Release/资产是重新发布的，都走升级
     if (!await UpdateUtil.shouldUpdate(d) || url.isEmpty) return;
-    final dst =
-        '${Directory.systemTemp.path}${Platform.pathSeparator}'
+    final dst = '${Directory.systemTemp.path}${Platform.pathSeparator}'
         'QWGuard-update-${DateTime.now().millisecondsSinceEpoch}.exe';
     final dl = Api.downloadUpdate(url, dst);
     if (dl['success'] != true) return;
     final installDir = File(Platform.resolvedExecutable).parent.path;
-    final assetTime =
-        d['download_updated_at']?.toString() ??
+    final assetTime = d['download_updated_at']?.toString() ??
         d['published_at']?.toString() ??
         '';
-    await Process.start(dst, [
-      '--silent',
-      '--dir=$installDir',
-      '--asset-time=$assetTime',
-    ], mode: ProcessStartMode.detached);
+    await Process.start(
+        dst,
+        [
+          '--silent',
+          '--dir=$installDir',
+          '--asset-time=$assetTime',
+        ],
+        mode: ProcessStartMode.detached);
     // 给安装器留出解包时间，然后退出主程序，避免它占着要替换的 exe/dll。
     await Future.delayed(const Duration(seconds: 3));
     exit(0);
@@ -308,11 +354,11 @@ class _ToolboxAppState extends State<ToolboxApp> with WidgetsBindingObserver {
   }
 
   ThemeMode get _mode => switch (_theme) {
-    ThemeOption.light => ThemeMode.light,
-    ThemeOption.dark => ThemeMode.dark,
-    ThemeOption.system => ThemeMode.system,
-    ThemeOption.smart => _isDayTime ? ThemeMode.light : ThemeMode.dark,
-  };
+        ThemeOption.light => ThemeMode.light,
+        ThemeOption.dark => ThemeMode.dark,
+        ThemeOption.system => ThemeMode.system,
+        ThemeOption.smart => _isDayTime ? ThemeMode.light : ThemeMode.dark,
+      };
 
   @override
   void initState() {
@@ -656,8 +702,7 @@ class _ShellState extends State<Shell>
     if (yes != true) return;
 
     final st = Api.passwordState();
-    final needPwd =
-        st['success'] == true &&
+    final needPwd = st['success'] == true &&
         st['data'] is Map &&
         st['data']['enabled'] == true;
     if (needPwd) {
@@ -778,8 +823,7 @@ class _ShellState extends State<Shell>
         builder: (_) => QDialog(
           icon: Icons.folder_off_rounded,
           title: '缺少必要文件',
-          body:
-              '程序目录里少了运行所需的文件，无法启动。\n'
+          body: '程序目录里少了运行所需的文件，无法启动。\n'
               '缺的东西：$issues\n\n'
               '请重新解压完整压缩包，或运行安装包重新安装。',
           okText: '确定',
@@ -794,8 +838,7 @@ class _ShellState extends State<Shell>
     final st = Api.passwordState();
     if (st['success'] != true ||
         st['data'] is! Map ||
-        st['data']['enabled'] != true)
-      return;
+        st['data']['enabled'] != true) return;
     await _askPassword('打开软件');
   }
 
@@ -941,7 +984,7 @@ class _ShellState extends State<Shell>
                   decoration: BoxDecoration(
                     color: brightness == Brightness.dark
                         ? const Color(0xFF11151D)
-                              .withOpacity(Ui.glass.value ? 0.34 : 0.92)
+                            .withOpacity(Ui.glass.value ? 0.34 : 0.92)
                         : Colors.white.withOpacity(
                             Ui.glass.value ? 0.42 : 0.94,
                           ),
@@ -1079,13 +1122,13 @@ class _WindowBar extends StatelessWidget {
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     Widget btn(IconData icon, VoidCallback onTap) => InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(8),
-      child: Padding(
-        padding: const EdgeInsets.all(8),
-        child: Icon(icon, size: 14),
-      ),
-    );
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(8),
+          child: Padding(
+            padding: const EdgeInsets.all(8),
+            child: Icon(icon, size: 14),
+          ),
+        );
 
     return SizedBox(
       height: 36,
@@ -1155,8 +1198,8 @@ class _Dock extends StatelessWidget {
       decoration: BoxDecoration(
         color: glass
             ? (isDark
-                  ? const Color(0xFF1A1F29).withOpacity(0.55)
-                  : Colors.white.withOpacity(0.62))
+                ? const Color(0xFF1A1F29).withOpacity(0.55)
+                : Colors.white.withOpacity(0.62))
             : (isDark ? const Color(0xFF1B2029) : Colors.white),
         borderRadius: BorderRadius.circular(999),
         border: Border.all(
@@ -1274,10 +1317,10 @@ class _DockItemState extends State<_DockItem> {
             color: widget.selected
                 ? const Color(0xFF2F7BFF).withOpacity(isDark ? 0.24 : 0.13)
                 : (_hover
-                      ? (isDark
-                            ? Colors.white.withOpacity(0.06)
-                            : Colors.black.withOpacity(0.04))
-                      : Colors.transparent),
+                    ? (isDark
+                        ? Colors.white.withOpacity(0.06)
+                        : Colors.black.withOpacity(0.04))
+                    : Colors.transparent),
           ),
           child: Row(
             children: [
@@ -1288,9 +1331,8 @@ class _DockItemState extends State<_DockItem> {
                   widget.label,
                   style: TextStyle(
                     fontSize: 12.5,
-                    fontWeight: widget.selected
-                        ? FontWeight.w700
-                        : FontWeight.w500,
+                    fontWeight:
+                        widget.selected ? FontWeight.w700 : FontWeight.w500,
                     color: fg,
                   ),
                 ),

@@ -8,10 +8,12 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 typedef _IntFn = ffi.Int32 Function();
 typedef _BufFn = ffi.Int32 Function(ffi.Pointer<ffi.Uint8>, ffi.Size);
-typedef _StrBufFn = ffi.Int32 Function(ffi.Pointer<ffi.Char>, ffi.Pointer<ffi.Uint8>, ffi.Size);
+typedef _StrBufFn = ffi.Int32 Function(
+    ffi.Pointer<ffi.Char>, ffi.Pointer<ffi.Uint8>, ffi.Size);
 typedef _DartIntFn = int Function();
 typedef _DartBufFn = int Function(ffi.Pointer<ffi.Uint8>, int);
-typedef _DartStrBufFn = int Function(ffi.Pointer<ffi.Char>, ffi.Pointer<ffi.Uint8>, int);
+typedef _DartStrBufFn = int Function(
+    ffi.Pointer<ffi.Char>, ffi.Pointer<ffi.Uint8>, int);
 
 /// Rust 底层桥
 class Native {
@@ -26,13 +28,16 @@ class Native {
       final dir = File(Platform.resolvedExecutable).parent.path;
       if (Platform.isWindows) {
         final abs = File('$dir/toolkit_native.dll');
-        _lib = ffi.DynamicLibrary.open(abs.existsSync() ? abs.path : 'toolkit_native.dll');
+        _lib = ffi.DynamicLibrary.open(
+            abs.existsSync() ? abs.path : 'toolkit_native.dll');
       } else if (Platform.isLinux) {
         final abs = File('$dir/libtoolkit_native.so');
-        _lib = ffi.DynamicLibrary.open(abs.existsSync() ? abs.path : 'libtoolkit_native.so');
+        _lib = ffi.DynamicLibrary.open(
+            abs.existsSync() ? abs.path : 'libtoolkit_native.so');
       } else if (Platform.isMacOS) {
         final abs = File('$dir/libtoolkit_native.dylib');
-        _lib = ffi.DynamicLibrary.open(abs.existsSync() ? abs.path : 'libtoolkit_native.dylib');
+        _lib = ffi.DynamicLibrary.open(
+            abs.existsSync() ? abs.path : 'libtoolkit_native.dylib');
       }
     } catch (e) {
       loadError = e.toString();
@@ -42,7 +47,11 @@ class Native {
 
   static Map<String, dynamic>? _callBuf(String fn, {int cap = 16384}) {
     final l = lib;
-    if (l == null) return {'success': false, 'message': loadError ?? 'native library missing'};
+    if (l == null)
+      return {
+        'success': false,
+        'message': loadError ?? 'native library missing'
+      };
     final f = l.lookupFunction<_BufFn, _DartBufFn>(fn);
     final buf = calloc<ffi.Uint8>(cap);
     try {
@@ -50,7 +59,8 @@ class Native {
       final raw = buf.cast<ffi.Char>();
       if (ret < 0 && ret != -1) {
         final text = raw.cast<Utf8>().toDartString();
-        if (text.trim().isNotEmpty) return jsonDecode(text) as Map<String, dynamic>;
+        if (text.trim().isNotEmpty)
+          return jsonDecode(text) as Map<String, dynamic>;
       }
       final text = raw.cast<Utf8>().toDartString();
       if (text.trim().isEmpty) {
@@ -74,7 +84,19 @@ class Native {
     }
   }
 
-  static Map<String, dynamic> hardware() => _callBuf('get_hardware_info', cap: 65536) ?? <String, dynamic>{};
+  /// 当前进程是否管理员。主程序启动时先问它；不是就 UAC 重开。
+  static bool isElevatedNow() {
+    final l = lib;
+    if (l == null) return false;
+    try {
+      return l.lookupFunction<_IntFn, _DartIntFn>('is_elevated_now')() == 1;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  static Map<String, dynamic> hardware() =>
+      _callBuf('get_hardware_info', cap: 65536) ?? <String, dynamic>{};
 
   /// 监控窗口专用轻量硬件指标：静态信息 Rust 进程内缓存，不枚举磁盘；温度按 5 秒缓存。
   static Map<String, dynamic> hardwareMetrics() =>
@@ -86,20 +108,28 @@ class Native {
   /// get_hardware_info 内部要起 PowerShell 跑 Get-CimInstance，实测量级是秒。
   /// 直接在 UI isolate 上同步调用，窗口会先白屏再「未响应」——用户看到的就是
   /// 「一打开就没响应 + 硬件检测空白」。放 isolate 里跑，UI 线程全程不受阻。
-  static Future<Map<String, dynamic>> hardwareAsync() =>
-      Isolate.run(() => _callBuf('get_hardware_info', cap: 65536) ?? <String, dynamic>{});
+  static Future<Map<String, dynamic>> hardwareAsync() => Isolate.run(
+      () => _callBuf('get_hardware_info', cap: 65536) ?? <String, dynamic>{});
 
   /// 规则库状态：哈希条数 / 文件名条数 / 内置 YARA 是否就绪
-  static Map<String, dynamic> rulesStatus() => _callBuf('rules_status', cap: 8192) ?? <String, dynamic>{};
+  static Map<String, dynamic> rulesStatus() =>
+      _callBuf('rules_status', cap: 8192) ?? <String, dynamic>{};
+
   /// 查杀实时进度（前端 200ms 轮一次）
-  static Map<String, dynamic> scanProgress() => _callBuf('scan_progress', cap: 4096) ?? <String, dynamic>{};
+  static Map<String, dynamic> scanProgress() =>
+      _callBuf('scan_progress', cap: 4096) ?? <String, dynamic>{};
 
   /// 从本地 txt 导入 SHA-256 黑名单
-  static Map<String, dynamic> rulesImport(String path) => _str1('rules_import', path);
+  static Map<String, dynamic> rulesImport(String path) =>
+      _str1('rules_import', path);
 
   static Map<String, dynamic> _str1(String fn, String arg) {
     final l = lib;
-    if (l == null) return {'success': false, 'message': loadError ?? 'native library missing'};
+    if (l == null)
+      return {
+        'success': false,
+        'message': loadError ?? 'native library missing'
+      };
     final f = l.lookupFunction<_StrBufFn, _DartStrBufFn>(fn);
     final a = arg.toNativeUtf8();
     final buf = calloc<ffi.Uint8>(8192);
@@ -116,12 +146,22 @@ class Native {
     }
   }
 
-  static Map<String, dynamic> scanCleanup() => _callBuf('scan_cleanup') ?? <String, dynamic>{};
+  static Map<String, dynamic> scanCleanup() =>
+      _callBuf('scan_cleanup') ?? <String, dynamic>{};
 
-  static Map<String, dynamic> executeCleanup(List<String> paths, {bool dryRun = true}) {
+  static Map<String, dynamic> executeCleanup(List<String> paths,
+      {bool dryRun = true}) {
     final l = lib;
-    if (l == null) return {'success': false, 'message': loadError ?? 'native library missing'};
-    final f = l.lookupFunction<ffi.Int32 Function(ffi.Pointer<ffi.Char>, ffi.Pointer<ffi.Uint8>, ffi.Size), int Function(ffi.Pointer<ffi.Char>, ffi.Pointer<ffi.Uint8>, int)>('execute_cleanup');
+    if (l == null)
+      return {
+        'success': false,
+        'message': loadError ?? 'native library missing'
+      };
+    final f = l.lookupFunction<
+        ffi.Int32 Function(
+            ffi.Pointer<ffi.Char>, ffi.Pointer<ffi.Uint8>, ffi.Size),
+        int Function(ffi.Pointer<ffi.Char>, ffi.Pointer<ffi.Uint8>,
+            int)>('execute_cleanup');
     final cstr = jsonEncode({'paths': paths, 'dry_run': dryRun}).toNativeUtf8();
     final buf = calloc<ffi.Uint8>(8192);
     try {
@@ -138,10 +178,16 @@ class Native {
   /// 清理范围扫描：quick / full / custom
   static Map<String, dynamic> cleanupScanMode(String mode, String path) {
     final l = lib;
-    if (l == null) return {'success': false, 'message': loadError ?? 'native library missing'};
+    if (l == null)
+      return {
+        'success': false,
+        'message': loadError ?? 'native library missing'
+      };
     final f = l.lookupFunction<
-        ffi.Int32 Function(ffi.Pointer<ffi.Char>, ffi.Pointer<ffi.Char>, ffi.Pointer<ffi.Uint8>, ffi.Size),
-        int Function(ffi.Pointer<ffi.Char>, ffi.Pointer<ffi.Char>, ffi.Pointer<ffi.Uint8>, int)>('cleanup_scan_mode');
+        ffi.Int32 Function(ffi.Pointer<ffi.Char>, ffi.Pointer<ffi.Char>,
+            ffi.Pointer<ffi.Uint8>, ffi.Size),
+        int Function(ffi.Pointer<ffi.Char>, ffi.Pointer<ffi.Char>,
+            ffi.Pointer<ffi.Uint8>, int)>('cleanup_scan_mode');
     final a = mode.toNativeUtf8();
     final b = path.toNativeUtf8();
     final buf = calloc<ffi.Uint8>(16384);
@@ -163,10 +209,16 @@ class Native {
 
   static Map<String, dynamic> scanFile(String engine, String target) {
     final l = lib;
-    if (l == null) return {'success': false, 'message': loadError ?? 'native library missing'};
+    if (l == null)
+      return {
+        'success': false,
+        'message': loadError ?? 'native library missing'
+      };
     final f = l.lookupFunction<
-        ffi.Int32 Function(ffi.Pointer<ffi.Char>, ffi.Pointer<ffi.Char>, ffi.Pointer<ffi.Uint8>, ffi.Size),
-        int Function(ffi.Pointer<ffi.Char>, ffi.Pointer<ffi.Char>, ffi.Pointer<ffi.Uint8>, int)>('scan_file');
+        ffi.Int32 Function(ffi.Pointer<ffi.Char>, ffi.Pointer<ffi.Char>,
+            ffi.Pointer<ffi.Uint8>, ffi.Size),
+        int Function(ffi.Pointer<ffi.Char>, ffi.Pointer<ffi.Char>,
+            ffi.Pointer<ffi.Uint8>, int)>('scan_file');
     final e = engine.toNativeUtf8();
     final t = target.toNativeUtf8();
     final buf = calloc<ffi.Uint8>(16384);
@@ -185,10 +237,16 @@ class Native {
   /// 火绒 hrscan：把目标路径直接交给火绒扫（非阻塞，火绒是 GUI 进程）
   static Map<String, dynamic> scanHuorong(String target) {
     final l = lib;
-    if (l == null) return {'success': false, 'message': loadError ?? 'native library missing'};
+    if (l == null)
+      return {
+        'success': false,
+        'message': loadError ?? 'native library missing'
+      };
     final f = l.lookupFunction<
-        ffi.Int32 Function(ffi.Pointer<ffi.Char>, ffi.Pointer<ffi.Uint8>, ffi.Size),
-        int Function(ffi.Pointer<ffi.Char>, ffi.Pointer<ffi.Uint8>, int)>('scan_huorong');
+        ffi.Int32 Function(
+            ffi.Pointer<ffi.Char>, ffi.Pointer<ffi.Uint8>, ffi.Size),
+        int Function(ffi.Pointer<ffi.Char>, ffi.Pointer<ffi.Uint8>,
+            int)>('scan_huorong');
     final t = target.toNativeUtf8();
     final buf = calloc<ffi.Uint8>(16384);
     try {
@@ -205,10 +263,16 @@ class Native {
   /// PYAS 扫描（带日志回传）
   static Map<String, dynamic> scanPyas(String target) {
     final l = lib;
-    if (l == null) return {'success': false, 'message': loadError ?? 'native library missing'};
+    if (l == null)
+      return {
+        'success': false,
+        'message': loadError ?? 'native library missing'
+      };
     final f = l.lookupFunction<
-        ffi.Int32 Function(ffi.Pointer<ffi.Char>, ffi.Pointer<ffi.Uint8>, ffi.Size),
-        int Function(ffi.Pointer<ffi.Char>, ffi.Pointer<ffi.Uint8>, int)>('scan_pyas');
+        ffi.Int32 Function(
+            ffi.Pointer<ffi.Char>, ffi.Pointer<ffi.Uint8>, ffi.Size),
+        int Function(
+            ffi.Pointer<ffi.Char>, ffi.Pointer<ffi.Uint8>, int)>('scan_pyas');
     final t = target.toNativeUtf8();
     final buf = calloc<ffi.Uint8>(16384);
     try {
@@ -224,8 +288,16 @@ class Native {
 
   static Map<String, dynamic> launch(String name) {
     final l = lib;
-    if (l == null) return {'success': false, 'message': loadError ?? 'native library missing'};
-    final f = l.lookupFunction<ffi.Int32 Function(ffi.Pointer<ffi.Char>, ffi.Pointer<ffi.Uint8>, ffi.Size), int Function(ffi.Pointer<ffi.Char>, ffi.Pointer<ffi.Uint8>, int)>('launch_external');
+    if (l == null)
+      return {
+        'success': false,
+        'message': loadError ?? 'native library missing'
+      };
+    final f = l.lookupFunction<
+        ffi.Int32 Function(
+            ffi.Pointer<ffi.Char>, ffi.Pointer<ffi.Uint8>, ffi.Size),
+        int Function(ffi.Pointer<ffi.Char>, ffi.Pointer<ffi.Uint8>,
+            int)>('launch_external');
     final n = name.toNativeUtf8();
     final buf = calloc<ffi.Uint8>(4096);
     try {
