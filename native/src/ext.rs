@@ -853,27 +853,48 @@ pub extern "C" fn recommend_install_dir(buf: *mut u8, len: usize) -> i32 {
 
         match best {
             Some(b) => {
-                let reason = format!(
-                    "{}（{} {}，剩余 {:.1} GB{}）",
-                    b.0,
-                    if b.2.is_empty() {
-                        "磁盘"
+                // Windows 上不要推荐盘符根目录或 Program Files：
+                // 普通用户写 C:\ 和 C:\Program Files 会被 ACL 拒绝，安装会卡在“写入文件”。
+                // 统一推荐当前用户的 %LOCALAPPDATA%\Programs\QWGuard，普通权限可写、卸载也不需要全程管理员。
+                #[cfg(windows)]
+                let (install_path, reason) = {
+                    let local = std::env::var("LOCALAPPDATA").unwrap_or_default();
+                    let base = if local.trim().is_empty() {
+                        PathBuf::from(&b.0).join("Users").join("Public")
                     } else {
-                        b.2.as_str()
-                    },
-                    b.3,
-                    b.1,
-                    if b.0.to_uppercase().starts_with("C:") {
-                        "，系统盘"
-                    } else {
-                        ""
-                    }
+                        PathBuf::from(local)
+                    };
+                    let p = base.join("Programs").join("QWGuard");
+                    (
+                        p.to_string_lossy().to_string(),
+                        "当前用户程序目录，普通权限可写，不需要管理员权限".to_string(),
+                    )
+                };
+                #[cfg(not(windows))]
+                let (install_path, reason) = (
+                    b.0.clone(),
+                    format!(
+                        "{}（{} {}，剩余 {:.1} GB{}）",
+                        b.0,
+                        if b.2.is_empty() {
+                            "磁盘"
+                        } else {
+                            b.2.as_str()
+                        },
+                        b.3,
+                        b.1,
+                        if b.0.to_uppercase().starts_with("C:") {
+                            "，系统盘"
+                        } else {
+                            ""
+                        }
+                    ),
                 );
                 ok(
                     buf,
                     len,
                     "推荐安装位置",
-                    json!({"path": b.0, "reason": reason, "candidates": cands.iter().map(|c| json!({"path": c.0, "free_gb": round1(c.1), "media": c.2, "model": c.3})).collect::<Vec<_>>() }),
+                    json!({"path": install_path, "reason": reason, "candidates": cands.iter().map(|c| json!({"path": c.0, "free_gb": round1(c.1), "media": c.2, "model": c.3})).collect::<Vec<_>>() }),
                 )
             }
             None => fail(buf, len, -3, "未找到可用磁盘"),

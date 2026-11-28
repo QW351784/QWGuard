@@ -10,12 +10,12 @@ import 'state.dart';
 enum MatStyle { auto, mica, aero, glass, solid }
 
 MatStyle currentMatStyle() => switch (Ui.material.value) {
-      'mica' => MatStyle.mica,
-      'aero' => MatStyle.aero,
-      'glass' => MatStyle.glass,
-      'solid' => MatStyle.solid,
-      _ => MatStyle.auto,
-    };
+  'mica' => MatStyle.mica,
+  'aero' => MatStyle.aero,
+  'glass' => MatStyle.glass,
+  'solid' => MatStyle.solid,
+  _ => MatStyle.auto,
+};
 
 /// 苹果式连续曲率圆角（squircle）的路径
 ///
@@ -56,31 +56,91 @@ Path squirclePath(Rect r, double radius) {
   final path = Path()..moveTo(rt - pLen, t);
 
   void arc(double ex, double ey) {
-    path.arcToPoint(Offset(ex, ey), radius: Radius.circular(rr), clockwise: true);
+    path.arcToPoint(
+      Offset(ex, ey),
+      radius: Radius.circular(rr),
+      clockwise: true,
+    );
   }
 
   // 右上角
-  path.cubicTo(rt - pLen + aa, t, rt - pLen + aa + bb, t, rt - pLen + aa + bb + cc, t + dd);
+  path.cubicTo(
+    rt - pLen + aa,
+    t,
+    rt - pLen + aa + bb,
+    t,
+    rt - pLen + aa + bb + cc,
+    t + dd,
+  );
   arc(rt - pLen + aa + bb + cc + arcLen, t + dd + arcLen);
-  path.cubicTo(rt, t + dd + arcLen + cc, rt, t + dd + arcLen + bb + cc, rt, t + pLen);
+  path.cubicTo(
+    rt,
+    t + dd + arcLen + cc,
+    rt,
+    t + dd + arcLen + bb + cc,
+    rt,
+    t + pLen,
+  );
 
   // 右下角
   path.lineTo(rt, b - pLen);
-  path.cubicTo(rt, b - pLen + aa, rt, b - pLen + aa + bb, rt - dd, b - pLen + aa + bb + cc);
+  path.cubicTo(
+    rt,
+    b - pLen + aa,
+    rt,
+    b - pLen + aa + bb,
+    rt - dd,
+    b - pLen + aa + bb + cc,
+  );
   arc(rt - dd - arcLen, b - pLen + aa + bb + cc + arcLen);
-  path.cubicTo(rt - dd - arcLen - cc, b, rt - dd - arcLen - bb - cc, b, rt - pLen, b);
+  path.cubicTo(
+    rt - dd - arcLen - cc,
+    b,
+    rt - dd - arcLen - bb - cc,
+    b,
+    rt - pLen,
+    b,
+  );
 
   // 左下角
   path.lineTo(l + pLen, b);
-  path.cubicTo(l + pLen - aa, b, l + pLen - aa - bb, b, l + pLen - aa - bb - cc, b - dd);
+  path.cubicTo(
+    l + pLen - aa,
+    b,
+    l + pLen - aa - bb,
+    b,
+    l + pLen - aa - bb - cc,
+    b - dd,
+  );
   arc(l + pLen - aa - bb - cc - arcLen, b - dd - arcLen);
-  path.cubicTo(l, b - dd - arcLen - cc, l, b - dd - arcLen - bb - cc, l, b - pLen);
+  path.cubicTo(
+    l,
+    b - dd - arcLen - cc,
+    l,
+    b - dd - arcLen - bb - cc,
+    l,
+    b - pLen,
+  );
 
   // 左上角
   path.lineTo(l, t + pLen);
-  path.cubicTo(l, t + pLen - aa, l, t + pLen - aa - bb, l + dd, t + pLen - aa - bb - cc);
+  path.cubicTo(
+    l,
+    t + pLen - aa,
+    l,
+    t + pLen - aa - bb,
+    l + dd,
+    t + pLen - aa - bb - cc,
+  );
   arc(l + dd + arcLen, t + pLen - aa - bb - cc - arcLen);
-  path.cubicTo(l + dd + arcLen + cc, t, l + dd + arcLen + bb + cc, t, l + pLen, t);
+  path.cubicTo(
+    l + dd + arcLen + cc,
+    t,
+    l + dd + arcLen + bb + cc,
+    t,
+    l + pLen,
+    t,
+  );
 
   path.close();
   return path;
@@ -142,7 +202,9 @@ class AppTheme {
       colorSchemeSeed: seed,
       // 不能是 transparent：Scaffold、Dialog 的默认底色都从这里取，
       // 写成透明以后，凡是没自己画底色的页面（OOBE、安装向导）一律透出桌面。
-      scaffoldBackgroundColor: isDark ? const Color(0xFF14171D) : const Color(0xFFF4F7FB),
+      scaffoldBackgroundColor: isDark
+          ? const Color(0xFF14171D)
+          : const Color(0xFFF4F7FB),
       fontFamily: 'NotoSansSC',
       // 只挂一个 NotoSansSC 太单薄：这个子集字体不含 emoji、部分数学符号和生僻标点，
       // 遇到就走 .notdef（豆腐块）或者引擎的缺字形回退 —— 用户看到的就是文字下面
@@ -154,17 +216,16 @@ class AppTheme {
         'Noto Sans CJK SC',
         'Arial',
       ],
-      textTheme: _cleanTextTheme(ThemeData(brightness: b).textTheme.apply(
-            fontFamilyFallback: const [
-              'Microsoft YaHei',
-              'Segoe UI',
-              'Arial',
-            ],
-            bodyColor: isDark ? Colors.white : const Color(0xFF14171C),
-            displayColor: isDark ? Colors.white : const Color(0xFF14171C),
-            // 全局兜底：任何继承下来的下划线（含双线）统统清掉。
-            decoration: TextDecoration.none,
-          ), isDark),
+      textTheme: _cleanTextTheme(
+        ThemeData(brightness: b).textTheme.apply(
+          fontFamilyFallback: const ['Microsoft YaHei', 'Segoe UI', 'Arial'],
+          bodyColor: isDark ? Colors.white : const Color(0xFF14171C),
+          displayColor: isDark ? Colors.white : const Color(0xFF14171C),
+          // 全局兜底：任何继承下来的下划线（含双线）统统清掉。
+          decoration: TextDecoration.none,
+        ),
+        isDark,
+      ),
     );
   }
 
@@ -174,18 +235,18 @@ class AppTheme {
   /// 这里逐个 copyWith，把三件套一起压成 none / transparent / solid。
   static TextTheme _cleanTextTheme(TextTheme t, bool isDark) {
     TextStyle? f(TextStyle? s) => s?.copyWith(
-          decoration: TextDecoration.none,
-          decorationColor: Colors.transparent,
-          decorationStyle: TextDecorationStyle.solid,
-          // 柔边：极轻的同色阴影把字形外缘化开一点，不是投影。
-          shadows: [
-            Shadow(
-              color: Colors.black.withOpacity(isDark ? 0.45 : 0.10),
-              blurRadius: 3.0,
-              offset: const Offset(0, 1),
-            ),
-          ],
-        );
+      decoration: TextDecoration.none,
+      decorationColor: Colors.transparent,
+      decorationStyle: TextDecorationStyle.solid,
+      // 柔边：极轻的同色阴影把字形外缘化开一点，不是投影。
+      shadows: [
+        Shadow(
+          color: Colors.black.withOpacity(isDark ? 0.45 : 0.10),
+          blurRadius: 3.0,
+          offset: const Offset(0, 1),
+        ),
+      ],
+    );
     return TextTheme(
       displayLarge: f(t.displayLarge),
       displayMedium: f(t.displayMedium),
@@ -213,7 +274,9 @@ class AppTheme {
     // 之前这里还按「底下有 Mica」的假设只叠 0.30 透明度，结果窗口底色一透到底，
     // 整窗看起来就是透明的。auto 必须自己画不透明底。
     if (s == MatStyle.auto) {
-      return BoxDecoration(color: isDark ? const Color(0xFF14171D) : const Color(0xFFF4F7FB));
+      return BoxDecoration(
+        color: isDark ? const Color(0xFF14171D) : const Color(0xFFF4F7FB),
+      );
     }
 
     // mica：真的有系统 Mica 在下面，这里只叠一层很淡的色调
@@ -259,7 +322,9 @@ class AppTheme {
     }
 
     if (s == MatStyle.solid) {
-      return BoxDecoration(color: isDark ? const Color(0xFF15181F) : const Color(0xFFF6F8FC));
+      return BoxDecoration(
+        color: isDark ? const Color(0xFF15181F) : const Color(0xFFF6F8FC),
+      );
     }
 
     // 液态玻璃：原来那套不透明渐变，给玻璃控件当折射底
@@ -291,7 +356,12 @@ class LiquidGlass extends StatelessWidget {
   final EdgeInsetsGeometry padding;
   final double radius;
   final bool forceGlass;
+
+  /// 是否让这张卡自己再做一次 BackdropFilter。
+  /// 安装页外层只留一层，内层柔光卡一律 false，避免逐卡全屏采样。
+  final bool blur;
   final VoidCallback? onTap;
+
   /// 覆盖默认填充用的渐变（按钮这类需要品牌色，但又要保留玻璃模糊与折射）
   final Gradient? gradient;
 
@@ -303,6 +373,7 @@ class LiquidGlass extends StatelessWidget {
     this.padding = const EdgeInsets.all(18),
     this.radius = 24,
     this.forceGlass = false,
+    this.blur = true,
     this.onTap,
     this.gradient,
   });
@@ -329,7 +400,11 @@ class LiquidGlass extends StatelessWidget {
     final glass = (glassLike || autoLike) && (forceGlass || Ui.glass.value);
     // auto 的模糊由窗口 Mica/Acrylic 提供，卡片不再各自 BackdropFilter；
     // 但安装/卸载向导是 forceGlass（全局材质可能是 auto），那边必须出玻璃。
-    final blurOn = !solidLike && (!autoLike || forceGlass) && Ui.realtimeBlur.value;
+    final blurOn =
+        blur &&
+        !solidLike &&
+        (!autoLike || forceGlass) &&
+        Ui.realtimeBlur.value;
 
     // iPhone 式 R 角：四角统一走 squirclePath。
     // 不用 ContinuousRectangleBorder —— 它在大半径下角部偏方，
@@ -345,7 +420,11 @@ class LiquidGlass extends StatelessWidget {
     if (solidLike) {
       fill = isDark ? const Color(0xFF1B2029) : Colors.white;
       shadows = [
-        BoxShadow(color: Colors.black.withOpacity(isDark ? 0.30 : 0.08), blurRadius: 18, offset: const Offset(0, 6)),
+        BoxShadow(
+          color: Colors.black.withOpacity(isDark ? 0.30 : 0.08),
+          blurRadius: 18,
+          offset: const Offset(0, 6),
+        ),
       ];
     } else if (autoLike) {
       // 智能搭配：半透明玻璃面（能透出窗口的 Mica/Acrylic），顶部一道冷白高光，
@@ -354,12 +433,22 @@ class LiquidGlass extends StatelessWidget {
         begin: Alignment.topLeft,
         end: Alignment.bottomRight,
         colors: isDark
-            ? [Colors.white.withOpacity(0.10), const Color(0xFF1A2230).withOpacity(0.46)]
-            : [Colors.white.withOpacity(0.72), const Color(0xFFE8F1FF).withOpacity(0.42)],
+            ? [
+                Colors.white.withOpacity(0.10),
+                const Color(0xFF1A2230).withOpacity(0.46),
+              ]
+            : [
+                Colors.white.withOpacity(0.72),
+                const Color(0xFFE8F1FF).withOpacity(0.42),
+              ],
         stops: const [0.0, 1.0],
       );
       shadows = [
-        BoxShadow(color: Colors.black.withOpacity(isDark ? 0.28 : 0.07), blurRadius: 16, offset: const Offset(0, 5)),
+        BoxShadow(
+          color: Colors.black.withOpacity(isDark ? 0.28 : 0.07),
+          blurRadius: 16,
+          offset: const Offset(0, 5),
+        ),
       ];
     } else if (aeroLike) {
       // Win7 Aero：顶部一道强白高光，中段蓝色雾面，底部收暗
@@ -367,13 +456,29 @@ class LiquidGlass extends StatelessWidget {
         begin: Alignment.topCenter,
         end: Alignment.bottomCenter,
         colors: isDark
-            ? [Colors.white.withOpacity(0.16), const Color(0xFF0E2440).withOpacity(0.34), Colors.white.withOpacity(0.05)]
-            : [Colors.white.withOpacity(0.94), const Color(0xFFD6EAFF).withOpacity(0.54), Colors.white.withOpacity(0.66)],
+            ? [
+                Colors.white.withOpacity(0.16),
+                const Color(0xFF0E2440).withOpacity(0.34),
+                Colors.white.withOpacity(0.05),
+              ]
+            : [
+                Colors.white.withOpacity(0.94),
+                const Color(0xFFD6EAFF).withOpacity(0.54),
+                Colors.white.withOpacity(0.66),
+              ],
         stops: const [0.0, 0.52, 1.0],
       );
       shadows = [
-        BoxShadow(color: Colors.black.withOpacity(isDark ? 0.34 : 0.10), blurRadius: 26, offset: const Offset(0, 10)),
-        BoxShadow(color: Colors.white.withOpacity(isDark ? 0.10 : 0.85), blurRadius: 10, offset: const Offset(0, -4)),
+        BoxShadow(
+          color: Colors.black.withOpacity(isDark ? 0.34 : 0.10),
+          blurRadius: 26,
+          offset: const Offset(0, 10),
+        ),
+        BoxShadow(
+          color: Colors.white.withOpacity(isDark ? 0.10 : 0.85),
+          blurRadius: 10,
+          offset: const Offset(0, -4),
+        ),
       ];
     } else if (micaLike) {
       // 云母：中性偏冷的半透明面，不折射、不抢背景
@@ -381,14 +486,26 @@ class LiquidGlass extends StatelessWidget {
         begin: Alignment.topLeft,
         end: Alignment.bottomRight,
         colors: isDark
-            ? [const Color(0xFF232933).withOpacity(0.74), const Color(0xFF1A1F28).withOpacity(0.66)]
-            : [Colors.white.withOpacity(0.80), const Color(0xFFF1F5FB).withOpacity(0.66)],
+            ? [
+                const Color(0xFF232933).withOpacity(0.74),
+                const Color(0xFF1A1F28).withOpacity(0.66),
+              ]
+            : [
+                Colors.white.withOpacity(0.80),
+                const Color(0xFFF1F5FB).withOpacity(0.66),
+              ],
       );
       shadows = [
-        BoxShadow(color: Colors.black.withOpacity(isDark ? 0.22 : 0.06), blurRadius: 16, offset: const Offset(0, 5)),
+        BoxShadow(
+          color: Colors.black.withOpacity(isDark ? 0.22 : 0.06),
+          blurRadius: 16,
+          offset: const Offset(0, 5),
+        ),
       ];
     } else {
-      fill = glass ? null : (isDark ? const Color(0xFF1B2029) : Colors.white.withOpacity(0.92));
+      fill = glass
+          ? null
+          : (isDark ? const Color(0xFF1B2029) : Colors.white.withOpacity(0.92));
       // 玻璃档的填充必须够透，否则 BackdropFilter 模糊了背景也透不出来 —
       // 之前是 0.92 / 0.55 / 0.60 三层白，叠完等于一张白纸，所以才「质感差」。
       // 现在压到 0.62 / 0.24 / 0.30，背景的彩色光斑能透上来，
@@ -401,8 +518,16 @@ class LiquidGlass extends StatelessWidget {
               // 面填得越白越像塑料。0.34/0.14 让模糊后的背景能透上来，
               // 亮部交给下面 _Refraction 的边缘反射去做。
               colors: isDark
-                  ? [Colors.white.withOpacity(0.34), Colors.white.withOpacity(0.14), const Color(0xFF3A5E96).withOpacity(0.24)]
-                  : [Colors.white.withOpacity(0.62), Colors.white.withOpacity(0.28), const Color(0xFFE8F2FF).withOpacity(0.42)],
+                  ? [
+                      Colors.white.withOpacity(0.34),
+                      Colors.white.withOpacity(0.14),
+                      const Color(0xFF3A5E96).withOpacity(0.24),
+                    ]
+                  : [
+                      Colors.white.withOpacity(0.62),
+                      Colors.white.withOpacity(0.28),
+                      const Color(0xFFE8F2FF).withOpacity(0.42),
+                    ],
               stops: const [0.0, 0.55, 1.0],
             )
           : null;
@@ -413,17 +538,47 @@ class LiquidGlass extends StatelessWidget {
       // 以前是「一层彩色大阴影」，玻璃才会显得像塑料板浮在半空。
       shadows = glass
           ? (isDark
-              ? [
-                  BoxShadow(color: Colors.black.withOpacity(0.20), blurRadius: 3, offset: const Offset(0, 1)),
-                  BoxShadow(color: Colors.black.withOpacity(0.15), blurRadius: 14, offset: const Offset(0, 6)),
-                  BoxShadow(color: Colors.black.withOpacity(0.12), blurRadius: 38, offset: const Offset(0, 16)),
-                ]
-              : [
-                  BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 3, offset: const Offset(0, 1)),
-                  BoxShadow(color: Colors.black.withOpacity(0.06), blurRadius: 14, offset: const Offset(0, 6)),
-                  BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 38, offset: const Offset(0, 16)),
-                ])
-          : [BoxShadow(color: Colors.black.withOpacity(isDark ? 0.30 : 0.08), blurRadius: 18, offset: const Offset(0, 6))];
+                ? [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.20),
+                      blurRadius: 3,
+                      offset: const Offset(0, 1),
+                    ),
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.15),
+                      blurRadius: 14,
+                      offset: const Offset(0, 6),
+                    ),
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.12),
+                      blurRadius: 38,
+                      offset: const Offset(0, 16),
+                    ),
+                  ]
+                : [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.05),
+                      blurRadius: 3,
+                      offset: const Offset(0, 1),
+                    ),
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.06),
+                      blurRadius: 14,
+                      offset: const Offset(0, 6),
+                    ),
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.05),
+                      blurRadius: 38,
+                      offset: const Offset(0, 16),
+                    ),
+                  ])
+          : [
+              BoxShadow(
+                color: Colors.black.withOpacity(isDark ? 0.30 : 0.08),
+                blurRadius: 18,
+                offset: const Offset(0, 6),
+              ),
+            ];
     }
 
     final tint = gradient;
@@ -461,13 +616,13 @@ class LiquidGlass extends StatelessWidget {
       final double sigma = aeroLike
           ? (isDark ? 22 : 28)
           : micaLike
-              ? (isDark ? 10 : 14)
-              : (isDark ? 4 : 5);
+          ? (isDark ? 10 : 14)
+          : (isDark ? 4 : 5);
       box = ClipPath(
         clipper: clipper,
         child: BackdropFilter(
-          filter: shaderFilter ??
-              ImageFilter.blur(sigmaX: sigma, sigmaY: sigma),
+          filter:
+              shaderFilter ?? ImageFilter.blur(sigmaX: sigma, sigmaY: sigma),
           child: box,
         ),
       );
@@ -483,12 +638,18 @@ class LiquidGlass extends StatelessWidget {
           if (wantRefraction)
             Positioned.fill(
               child: IgnorePointer(
-                child: ClipPath(clipper: clipper, child: _Refraction(radius: radius)),
+                child: ClipPath(
+                  clipper: clipper,
+                  child: _Refraction(radius: radius),
+                ),
               ),
             ),
           if (wantRay)
             Positioned.fill(
-              child: ClipPath(clipper: clipper, child: _RayTrace(radius: radius)),
+              child: ClipPath(
+                clipper: clipper,
+                child: _RayTrace(radius: radius),
+              ),
             ),
         ],
       );
@@ -497,7 +658,11 @@ class LiquidGlass extends StatelessWidget {
     if (onTap != null) {
       return Material(
         color: Colors.transparent,
-        child: InkWell(borderRadius: BorderRadius.circular(radius), onTap: onTap, child: box),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(radius),
+          onTap: onTap,
+          child: box,
+        ),
       );
     }
     return box;
@@ -511,7 +676,13 @@ class LiquidButton extends StatefulWidget {
   final VoidCallback? onTap;
   final bool primary;
 
-  const LiquidButton({super.key, required this.text, this.icon, this.onTap, this.primary = true});
+  const LiquidButton({
+    super.key,
+    required this.text,
+    this.icon,
+    this.onTap,
+    this.primary = true,
+  });
 
   @override
   State<LiquidButton> createState() => _LiquidButtonState();
@@ -527,7 +698,9 @@ class _LiquidButtonState extends State<LiquidButton> {
     final primary = Theme.of(context).colorScheme.primary;
 
     return GestureDetector(
-      onTapDown: (enabled && Ui.isOn('buttonPress')) ? (_) => setState(() => _scale = 0.94) : null,
+      onTapDown: (enabled && Ui.isOn('buttonPress'))
+          ? (_) => setState(() => _scale = 0.94)
+          : null,
       onTapUp: enabled
           ? (_) {
               setState(() => _scale = 1.0);
@@ -574,7 +747,13 @@ class _LiquidButtonState extends State<LiquidButton> {
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   if (widget.icon != null) ...[
-                    Icon(widget.icon, size: 18, color: widget.primary ? Colors.white : (isDark ? Colors.white : Colors.black87)),
+                    Icon(
+                      widget.icon,
+                      size: 18,
+                      color: widget.primary
+                          ? Colors.white
+                          : (isDark ? Colors.white : Colors.black87),
+                    ),
                     const SizedBox(width: 8),
                   ],
                   Text(
@@ -584,7 +763,11 @@ class _LiquidButtonState extends State<LiquidButton> {
                       fontWeight: FontWeight.w600,
                       color: widget.primary
                           ? Colors.white.withOpacity(enabled ? 1 : 0.6)
-                          : (isDark ? Colors.white.withOpacity(enabled ? 1 : 0.5) : Colors.black87.withOpacity(enabled ? 1 : 0.4)),
+                          : (isDark
+                                ? Colors.white.withOpacity(enabled ? 1 : 0.5)
+                                : Colors.black87.withOpacity(
+                                    enabled ? 1 : 0.4,
+                                  )),
                     ),
                   ),
                 ],
@@ -600,7 +783,7 @@ class _LiquidButtonState extends State<LiquidButton> {
 /// 按钮背后的呼吸辉光：只重绘，不重建按钮。
 class _ButtonGlowPainter extends CustomPainter {
   _ButtonGlowPainter({required this.color})
-      : super(repaint: Listenable.merge([Ui.tick, Ui.on('glow')]));
+    : super(repaint: Listenable.merge([Ui.tick, Ui.on('glow')]));
   final Color color;
 
   @override
@@ -658,7 +841,8 @@ class ParticleLayer extends StatefulWidget {
 
 /// 鸿蒙 7「沉浸光感」粒子：平时屏幕是干净的，点按/拖动才从指尖喷一簇光，
 /// 900ms 内向外飘散、变淡、熄灭。没有粒子时控制器停着，零重绘。
-class _ParticleLayerState extends State<ParticleLayer> with SingleTickerProviderStateMixin {
+class _ParticleLayerState extends State<ParticleLayer>
+    with SingleTickerProviderStateMixin {
   late final AnimationController _c = AnimationController(
     vsync: this,
     duration: const Duration(milliseconds: 900),
@@ -722,8 +906,12 @@ class _BurstPainter extends CustomPainter {
       final p = ((t - delay) / (1 - delay)).clamp(0.0, 1.0);
       if (p <= 0) continue;
       final a = rnd.nextDouble() * math.pi * 2;
-      final dist = (26 + rnd.nextDouble() * 74) * (1 - math.pow(1 - p, 3).toDouble());
-      final drift = Offset(math.cos(a) * dist, math.sin(a) * dist * 0.72 - 26 * p * p);
+      final dist =
+          (26 + rnd.nextDouble() * 74) * (1 - math.pow(1 - p, 3).toDouble());
+      final drift = Offset(
+        math.cos(a) * dist,
+        math.sin(a) * dist * 0.72 - 26 * p * p,
+      );
       final pos = origin + drift;
       final fade = (1 - p) * (1 - p);
       final r = (1.4 + rnd.nextDouble() * 2.2) * (0.6 + 0.4 * (1 - p));
@@ -731,12 +919,19 @@ class _BurstPainter extends CustomPainter {
       final glow = Paint()
         ..blendMode = BlendMode.plus
         ..shader = RadialGradient(
-          colors: [col.withOpacity((dark ? 0.55 : 0.42) * fade), col.withOpacity(0)],
+          colors: [
+            col.withOpacity((dark ? 0.55 : 0.42) * fade),
+            col.withOpacity(0),
+          ],
         ).createShader(Rect.fromCircle(center: pos, radius: r * 3.6));
       canvas.drawCircle(pos, r * 3.6, glow);
-      canvas.drawCircle(pos, r, Paint()
-        ..blendMode = BlendMode.plus
-        ..color = Colors.white.withOpacity(0.65 * fade));
+      canvas.drawCircle(
+        pos,
+        r,
+        Paint()
+          ..blendMode = BlendMode.plus
+          ..color = Colors.white.withOpacity(0.65 * fade),
+      );
     }
   }
 
@@ -751,7 +946,12 @@ class PageTitle extends StatelessWidget {
   final String subtitle;
   final Widget? trailing;
 
-  const PageTitle({super.key, required this.title, required this.subtitle, this.trailing});
+  const PageTitle({
+    super.key,
+    required this.title,
+    required this.subtitle,
+    this.trailing,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -763,9 +963,24 @@ class PageTitle extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(title, style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w700, height: 1.2)),
+              Text(
+                title,
+                style: const TextStyle(
+                  fontSize: 24,
+                  fontWeight: FontWeight.w700,
+                  height: 1.2,
+                ),
+              ),
               const SizedBox(height: 6),
-              Text(subtitle, style: TextStyle(fontSize: 13, color: isDark ? Colors.white.withOpacity(0.55) : Colors.black.withOpacity(0.50))),
+              Text(
+                subtitle,
+                style: TextStyle(
+                  fontSize: 13,
+                  color: isDark
+                      ? Colors.white.withOpacity(0.55)
+                      : Colors.black.withOpacity(0.50),
+                ),
+              ),
             ],
           ),
         ),
@@ -774,7 +989,6 @@ class PageTitle extends StatelessWidget {
     );
   }
 }
-
 
 /// 光影折射：边缘色散 + 沿边扫过的高光带（视觉模拟，非采样背景）
 /// 折射层：色散 + 扫光 + 高光，全部跟着鼠标走（实时动态）
@@ -914,7 +1128,10 @@ class _RefractionPainter extends CustomPainter {
     // 这里原来用 RRect（普通圆弧），跟外层的 squircle 对不上，
     // 四个角会出现「圆弧盖在 squircle 上」的错位毛刺 —— 也换成 squirclePath。
     canvas.drawPath(
-      squirclePath((Offset.zero & size).deflate(0.8), math.max(radius - 0.8, 1.0)),
+      squirclePath(
+        (Offset.zero & size).deflate(0.8),
+        math.max(radius - 0.8, 1.0),
+      ),
       Paint()
         ..style = PaintingStyle.stroke
         ..strokeWidth = 1.2
@@ -943,16 +1160,30 @@ class _RefractionPainter extends CustomPainter {
     // 用 Path 做差集，形状仍然跟外层同一条 squircle，四角不会错位。
     final band = Path.combine(
       PathOperation.difference,
-      squirclePath((Offset.zero & size).deflate(1.0), math.max(radius - 1.0, 1.0)),
-      squirclePath((Offset.zero & size).deflate(11.0), math.max(radius - 11.0, 1.0)),
+      squirclePath(
+        (Offset.zero & size).deflate(1.0),
+        math.max(radius - 1.0, 1.0),
+      ),
+      squirclePath(
+        (Offset.zero & size).deflate(11.0),
+        math.max(radius - 11.0, 1.0),
+      ),
     );
     final bandPaint = Paint()
       ..shader = LinearGradient(
         begin: Alignment.topLeft,
         end: Alignment.bottomRight,
         colors: dark
-            ? [Colors.white.withOpacity(0.13), Colors.white.withOpacity(0.02), Colors.white.withOpacity(0.10)]
-            : [Colors.white.withOpacity(0.30), Colors.white.withOpacity(0.04), Colors.white.withOpacity(0.16)],
+            ? [
+                Colors.white.withOpacity(0.13),
+                Colors.white.withOpacity(0.02),
+                Colors.white.withOpacity(0.10),
+              ]
+            : [
+                Colors.white.withOpacity(0.30),
+                Colors.white.withOpacity(0.04),
+                Colors.white.withOpacity(0.16),
+              ],
         stops: const [0.0, 0.52, 1.0],
       ).createShader(Offset.zero & size);
     canvas.drawPath(band, bandPaint);
@@ -999,7 +1230,8 @@ class _RayTrace extends StatefulWidget {
   State<_RayTrace> createState() => _RayTraceState();
 }
 
-class _RayTraceState extends State<_RayTrace> with SingleTickerProviderStateMixin {
+class _RayTraceState extends State<_RayTrace>
+    with SingleTickerProviderStateMixin {
   // 9 秒一轮：玻璃上的高光移动必须慢，快了就成了「KTV 灯球」。
   late final AnimationController _c = AnimationController(
     vsync: this,
@@ -1019,13 +1251,18 @@ class _RayTraceState extends State<_RayTrace> with SingleTickerProviderStateMixi
     // 几十个 painter 一起跑会拖帧，小块直接不挂
     return LayoutBuilder(
       builder: (ctx, c) {
-        if (c.maxWidth < 420 || c.maxHeight < 200) return const SizedBox.shrink();
+        if (c.maxWidth < 420 || c.maxHeight < 200)
+          return const SizedBox.shrink();
         return IgnorePointer(
           child: RepaintBoundary(
             child: AnimatedBuilder(
               animation: _c,
               builder: (_, __) => CustomPaint(
-                painter: _RayTracePainter(radius: widget.radius, dark: isDark, t: _c.value),
+                painter: _RayTracePainter(
+                  radius: widget.radius,
+                  dark: isDark,
+                  t: _c.value,
+                ),
                 size: Size.infinite,
               ),
             ),
@@ -1084,16 +1321,19 @@ class _RayTracePainter extends CustomPainter {
       ..close();
     final beamPaint = Paint()
       ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 22)
-      ..shader = LinearGradient(
-        begin: Alignment.centerLeft,
-        end: Alignment.centerRight,
-        colors: [
-          Colors.white.withOpacity(0.0),
-          Colors.white.withOpacity(dark ? 0.05 : 0.11),
-          Colors.white.withOpacity(0.0),
-        ],
-        stops: const [0.0, 0.5, 1.0],
-      ).createShader(Rect.fromLTWH(beamX, 0, size.width * 0.13 + skew, size.height));
+      ..shader =
+          LinearGradient(
+            begin: Alignment.centerLeft,
+            end: Alignment.centerRight,
+            colors: [
+              Colors.white.withOpacity(0.0),
+              Colors.white.withOpacity(dark ? 0.05 : 0.11),
+              Colors.white.withOpacity(0.0),
+            ],
+            stops: const [0.0, 0.5, 1.0],
+          ).createShader(
+            Rect.fromLTWH(beamX, 0, size.width * 0.13 + skew, size.height),
+          );
     canvas.drawPath(beam, beamPaint);
 
     // 焦散：底部一道很淡的弧形聚光，位置固定在右下（模拟主光来自左上）
@@ -1188,7 +1428,8 @@ class _RipplePainter extends CustomPainter {
   final List<_Ripple> rs;
   final bool dark;
 
-  _RipplePainter({required this.rs, required this.dark}) : super(repaint: Ui.tick);
+  _RipplePainter({required this.rs, required this.dark})
+    : super(repaint: Ui.tick);
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -1205,7 +1446,8 @@ class _RipplePainter extends CustomPainter {
         final pk = (p - k * 0.14).clamp(0.0, 1.0).toDouble();
         if (pk <= 0) continue;
         final radius = 6 + pk * base * 0.62;
-        final alpha = (1.0 - pk) * (1.0 - pk) * (dark ? 0.34 : 0.62) * r.strength;
+        final alpha =
+            (1.0 - pk) * (1.0 - pk) * (dark ? 0.34 : 0.62) * r.strength;
         if (alpha <= 0.004) continue;
         canvas.drawCircle(
           r.pos,
@@ -1213,7 +1455,8 @@ class _RipplePainter extends CustomPainter {
           Paint()
             ..style = PaintingStyle.stroke
             ..strokeWidth = (1.8 - k * 0.7) * (1.0 - pk * 0.4)
-            ..color = (dark ? const Color(0xFF9BE7FF) : Colors.white).withOpacity(alpha)
+            ..color = (dark ? const Color(0xFF9BE7FF) : Colors.white)
+                .withOpacity(alpha)
             ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 1.3),
         );
       }
@@ -1299,20 +1542,23 @@ class _BreathingGlowState extends State<BreathingGlow> {
   }
 }
 
-
 /// 背景光斑：开启「光斑漂浮」时缓慢正弦漂移，关闭则完全静止
 class FloatingBlob extends StatefulWidget {
   final Color color;
   final double size;
   final double phase;
-  const FloatingBlob({super.key, required this.color, required this.size, this.phase = 0});
+  const FloatingBlob({
+    super.key,
+    required this.color,
+    required this.size,
+    this.phase = 0,
+  });
 
   @override
   State<FloatingBlob> createState() => _FloatingBlobState();
 }
 
 class _FloatingBlobState extends State<FloatingBlob> {
-
   @override
   Widget build(BuildContext context) {
     if (!Ui.isOn('blobs')) {
@@ -1361,8 +1607,15 @@ class _AuroraPainter extends CustomPainter {
     ];
     for (var i = 0; i < 3; i++) {
       final phase = t * (0.10 + i * 0.035) + i * 2.3;
-      final y = size.height * (0.12 + i * 0.26) + math.sin(phase) * size.height * 0.12;
-      final rect = Rect.fromLTWH(-size.width * 0.25, y, size.width * 1.5, size.height * 0.30);
+      final y =
+          size.height * (0.12 + i * 0.26) +
+          math.sin(phase) * size.height * 0.12;
+      final rect = Rect.fromLTWH(
+        -size.width * 0.25,
+        y,
+        size.width * 1.5,
+        size.height * 0.30,
+      );
       final shader = LinearGradient(
         begin: Alignment.centerLeft,
         end: Alignment.centerRight,
@@ -1417,15 +1670,15 @@ class QDialog extends StatelessWidget {
   });
 
   Widget _okButton(BuildContext context) => LiquidButton(
-        text: okText,
-        onTap: () {
-          if (onOk != null) {
-            onOk!();
-          } else {
-            Navigator.of(context).pop(true);
-          }
-        },
-      );
+    text: okText,
+    onTap: () {
+      if (onOk != null) {
+        onOk!();
+      } else {
+        Navigator.of(context).pop(true);
+      }
+    },
+  );
 
   @override
   Widget build(BuildContext context) {
@@ -1440,20 +1693,30 @@ class QDialog extends StatelessWidget {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Row(children: [
-                Icon(icon, size: 22, color: const Color(0xFF2F7BFF)),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Text(title,
-                      style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w700)),
-                ),
-              ]),
+              Row(
+                children: [
+                  Icon(icon, size: 22, color: const Color(0xFF2F7BFF)),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      title,
+                      style: const TextStyle(
+                        fontSize: 17,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
               const SizedBox(height: 12),
-              Text(body,
-                  style: TextStyle(
-                      fontSize: 12.5,
-                      height: 1.65,
-                      color: isDark ? Colors.white70 : Colors.black87)),
+              Text(
+                body,
+                style: TextStyle(
+                  fontSize: 12.5,
+                  height: 1.65,
+                  color: isDark ? Colors.white70 : Colors.black87,
+                ),
+              ),
               if (child != null) child!,
               const SizedBox(height: 20),
               Row(

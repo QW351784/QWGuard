@@ -595,9 +595,9 @@ fn run_all(mode: String) {
 #[no_mangle]
 pub extern "C" fn runtime_fix(mode: *const c_char, buf: *mut u8, len: usize) -> i32 {
     crate::ffi_guard!(buf, len, {
-        if let Err(e) = crate::security::require_admin("运行库补全") {
-            return fail(buf, len, -5, &e);
-        }
+        // 不再在这里先卡 require_admin：普通权限进程也应该能点“开始修复”，
+        // 真正的安装器由 run_tool 在需要时用 UAC 拉起。
+        // 之前这一层直接返回 -5，界面只能看到“启动失败”，用户以为工具坏了。
         let Some(mode) = cstr(mode) else {
             return fail(buf, len, -1, "参数为空");
         };

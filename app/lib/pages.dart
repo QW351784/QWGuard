@@ -21,7 +21,8 @@ import 'update_util.dart';
 String _size(num bytes) {
   if (bytes < 1024) return '${bytes.toInt()} B';
   if (bytes < 1024 * 1024) return '${(bytes / 1024).toStringAsFixed(1)} KB';
-  if (bytes < 1024 * 1024 * 1024) return '${(bytes / 1024 / 1024).toStringAsFixed(1)} MB';
+  if (bytes < 1024 * 1024 * 1024)
+    return '${(bytes / 1024 / 1024).toStringAsFixed(1)} MB';
   return '${(bytes / 1024 / 1024 / 1024).toStringAsFixed(2)} GB';
 }
 
@@ -39,10 +40,14 @@ Future<bool> askPasswordFor(BuildContext context, String action) async {
         okText: '验证',
         cancelText: '取消',
         child: TextField(
-            controller: ctrl,
-            obscureText: true,
-            autofocus: true,
-            decoration: const InputDecoration(hintText: '输入密码（至少 8 位）', isDense: true)),
+          controller: ctrl,
+          obscureText: true,
+          autofocus: true,
+          decoration: const InputDecoration(
+            hintText: '输入密码（至少 8 位）',
+            isDense: true,
+          ),
+        ),
         onOk: () {
           final r = Api.passwordVerify(ctrl.text);
           if (r['success'] == true) {
@@ -160,7 +165,9 @@ class _HardwarePageState extends State<HardwarePage> {
       } else {
         final msg = res['message']?.toString().trim() ?? '';
         if (_data == null) {
-          _error = msg.isEmpty ? '读取硬件信息失败（错误码 ${res['code'] ?? '-'}），点「刷新」重试。' : msg;
+          _error = msg.isEmpty
+              ? '读取硬件信息失败（错误码 ${res['code'] ?? '-'}），点「刷新」重试。'
+              : msg;
         }
       }
     });
@@ -180,10 +187,21 @@ class _HardwarePageState extends State<HardwarePage> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(name, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700)),
+                  Text(
+                    name,
+                    style: const TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
                   const SizedBox(height: 2),
-                  Text('$by · $note',
-                      style: TextStyle(fontSize: 11, color: isDark ? Colors.white54 : Colors.black54)),
+                  Text(
+                    '$by · $note',
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: isDark ? Colors.white54 : Colors.black54,
+                    ),
+                  ),
                 ],
               ),
             );
@@ -196,25 +214,53 @@ class _HardwarePageState extends State<HardwarePage> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  const Text('版本 1.1.0 · Flutter + Impeller + Rust', style: TextStyle(fontSize: 12)),
+                  const Text(
+                    '版本 1.1.0 · Flutter + Impeller + Rust',
+                    style: TextStyle(fontSize: 12),
+                  ),
                   const SizedBox(height: 16),
-                  const Text('借鉴与致谢', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700)),
+                  const Text(
+                    '借鉴与致谢',
+                    style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700),
+                  ),
                   const SizedBox(height: 10),
                   credit('Windows Defender 查杀引擎', 'Microsoft', 'MpCmdRun 命令行'),
-                  credit('YARA 规则引擎（内置）', 'VirusTotal', 'BSD-3-Clause · github.com/VirusTotal/yara'),
+                  credit(
+                    'YARA 规则引擎（内置）',
+                    'VirusTotal',
+                    'BSD-3-Clause · github.com/VirusTotal/yara',
+                  ),
                   credit('火绒安全 hrscan', '火绒安全', 'huorong.cn'),
                   credit('PYAS 引擎', 'PYAS 项目', '外部集成，日志回传'),
-                  credit('VisualCppRedist AIO', 'abbodi1406', 'github.com/abbodi1406/vcredist'),
+                  credit(
+                    'VisualCppRedist AIO',
+                    'abbodi1406',
+                    'github.com/abbodi1406/vcredist',
+                  ),
                   credit('DirectX Repair 增强版', 'zysoftware', 'zysoftware.top'),
-                  credit('界面与底层框架', 'Flutter · Rust', 'flutter.dev / rust-lang.org'),
+                  credit(
+                    '界面与底层框架',
+                    'Flutter · Rust',
+                    'flutter.dev / rust-lang.org',
+                  ),
                   const SizedBox(height: 4),
-                  Text('漏了谁、写错了谁，提 issue，我立刻补上。',
-                      style: TextStyle(fontSize: 11, color: isDark ? Colors.white54 : Colors.black54)),
+                  Text(
+                    '漏了谁、写错了谁，提 issue，我立刻补上。',
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: isDark ? Colors.white54 : Colors.black54,
+                    ),
+                  ),
                   const SizedBox(height: 18),
-                  const Text('支持作者', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700)),
+                  const Text(
+                    '支持作者',
+                    style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700),
+                  ),
                   const SizedBox(height: 8),
-                  const Text('作者制作维护不容易，爱心捐款，一杯奶茶价钱，就是作者继续维护更新的动力。',
-                      style: TextStyle(fontSize: 12, height: 1.5)),
+                  const Text(
+                    '作者制作维护不容易，爱心捐款，一杯奶茶价钱，就是作者继续维护更新的动力。',
+                    style: TextStyle(fontSize: 12, height: 1.5),
+                  ),
                   const SizedBox(height: 12),
                   Center(
                     child: ClipRRect(
@@ -224,15 +270,23 @@ class _HardwarePageState extends State<HardwarePage> {
                   ),
                   const SizedBox(height: 8),
                   Center(
-                    child: Text('酷安作者账号：QW123456780',
-                        style: TextStyle(fontSize: 11, color: isDark ? Colors.white54 : Colors.black54)),
+                    child: Text(
+                      '酷安作者账号：QW123456780',
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: isDark ? Colors.white54 : Colors.black54,
+                      ),
+                    ),
                   ),
                 ],
               ),
             ),
           ),
           actions: [
-            TextButton(onPressed: () => Navigator.of(ctx).pop(), child: const Text('好')),
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(),
+              child: const Text('好'),
+            ),
           ],
         );
       },
@@ -249,18 +303,31 @@ class _HardwarePageState extends State<HardwarePage> {
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
           decoration: BoxDecoration(
-            color: isDark ? Colors.white.withOpacity(0.05) : Colors.black.withOpacity(0.035),
+            color: isDark
+                ? Colors.white.withOpacity(0.05)
+                : Colors.black.withOpacity(0.035),
             borderRadius: BorderRadius.circular(14),
             border: Border.all(color: isDark ? Colors.white10 : Colors.black12),
           ),
           child: Row(
             children: [
-              const Icon(Icons.favorite_rounded, size: 15, color: Color(0xFF2F7BFF)),
+              const Icon(
+                Icons.favorite_rounded,
+                size: 15,
+                color: Color(0xFF2F7BFF),
+              ),
               const SizedBox(width: 9),
               const Expanded(
-                child: Text('关于 · 借鉴与致谢 · 支持作者', style: TextStyle(fontSize: 12)),
+                child: Text(
+                  '关于 · 借鉴与致谢 · 支持作者',
+                  style: TextStyle(fontSize: 12),
+                ),
               ),
-              Icon(Icons.chevron_right_rounded, size: 16, color: isDark ? Colors.white38 : Colors.black38),
+              Icon(
+                Icons.chevron_right_rounded,
+                size: 16,
+                color: isDark ? Colors.white38 : Colors.black38,
+              ),
             ],
           ),
         ),
@@ -273,50 +340,65 @@ class _HardwarePageState extends State<HardwarePage> {
     final d = _data;
     final grid = <Widget>[];
     if (d != null) {
-      grid.add(_MetricCard(
-        icon: Icons.memory_rounded,
-        title: I18n.t('cpu'),
-        name: d['cpu_name']?.toString() ?? '-',
-        metrics: [
-          if ((d['cpu_load'] as num?) != null) (I18n.t('load'), '${d['cpu_load']}%'),
-          if (d['cpu_temp'] != null) (I18n.t('temp'), '${d['cpu_temp']} ℃'),
-          ('Cores', '${d['cpu_cores']}'),
-        ],
-      ));
-      grid.add(_MetricCard(
-        icon: Icons.developer_board_rounded,
-        title: I18n.t('mem'),
-        name: '${d['memory_used_gb']} / ${d['memory_total_gb']} GB',
-        metrics: [
-          (I18n.t('load'), '${((d['memory_used_gb'] as num) / (d['memory_total_gb'] as num) * 100).toStringAsFixed(0)}%'),
-          if (d['gpu_temp'] != null) ('GPU ${I18n.t('temp')}', '${d['gpu_temp']} ℃'),
-        ],
-      ));
+      grid.add(
+        _MetricCard(
+          icon: Icons.memory_rounded,
+          title: I18n.t('cpu'),
+          name: d['cpu_name']?.toString() ?? '-',
+          metrics: [
+            if ((d['cpu_load'] as num?) != null)
+              (I18n.t('load'), '${d['cpu_load']}%'),
+            if (d['cpu_temp'] != null) (I18n.t('temp'), '${d['cpu_temp']} ℃'),
+            ('Cores', '${d['cpu_cores']}'),
+          ],
+        ),
+      );
+      grid.add(
+        _MetricCard(
+          icon: Icons.developer_board_rounded,
+          title: I18n.t('mem'),
+          name: '${d['memory_used_gb']} / ${d['memory_total_gb']} GB',
+          metrics: [
+            (
+              I18n.t('load'),
+              '${((d['memory_used_gb'] as num) / (d['memory_total_gb'] as num) * 100).toStringAsFixed(0)}%',
+            ),
+            if (d['gpu_temp'] != null)
+              ('GPU ${I18n.t('temp')}', '${d['gpu_temp']} ℃'),
+          ],
+        ),
+      );
       for (final gpu in (d['gpus'] as List?) ?? const []) {
         final g = (gpu as Map).cast<String, dynamic>();
-        grid.add(_MetricCard(
-          icon: Icons.videogame_asset_rounded,
-          title: I18n.t('gpu'),
-          name: g['name']?.toString() ?? '-',
-          metrics: [
-            ('Score', '${g['score']}'),
-            if (g['vram_mb'] != null && (g['vram_mb'] as num) > 0) ('VRAM', '${g['vram_mb']} MB'),
-            if (d['gpu_temp'] != null) (I18n.t('temp'), '${d['gpu_temp']} ℃'),
-          ],
-        ));
+        grid.add(
+          _MetricCard(
+            icon: Icons.videogame_asset_rounded,
+            title: I18n.t('gpu'),
+            name: g['name']?.toString() ?? '-',
+            metrics: [
+              ('Score', '${g['score']}'),
+              if (g['vram_mb'] != null && (g['vram_mb'] as num) > 0)
+                ('VRAM', '${g['vram_mb']} MB'),
+              if (d['gpu_temp'] != null) (I18n.t('temp'), '${d['gpu_temp']} ℃'),
+            ],
+          ),
+        );
       }
       for (final disk in (d['disks'] as List?) ?? const []) {
         final m = (disk as Map).cast<String, dynamic>();
-        grid.add(_MetricCard(
-          icon: Icons.storage_rounded,
-          title: I18n.t('disk'),
-          name: m['name']?.toString() ?? '-',
-          metrics: [
-            ('Free', '${m['free_gb']} GB'),
-            ('Total', '${m['total_gb']} GB'),
-            if (d['disk_temp'] != null) (I18n.t('temp'), '${d['disk_temp']} ℃'),
-          ],
-        ));
+        grid.add(
+          _MetricCard(
+            icon: Icons.storage_rounded,
+            title: I18n.t('disk'),
+            name: m['name']?.toString() ?? '-',
+            metrics: [
+              ('Free', '${m['free_gb']} GB'),
+              ('Total', '${m['total_gb']} GB'),
+              if (d['disk_temp'] != null)
+                (I18n.t('temp'), '${d['disk_temp']} ℃'),
+            ],
+          ),
+        );
       }
     }
 
@@ -327,10 +409,19 @@ class _HardwarePageState extends State<HardwarePage> {
         children: [
           PageTitle(
             title: I18n.t('hw'),
-            subtitle: I18n.lang == 'en' ? 'Live CPU, memory and disk status' : '实时读取处理器、内存与磁盘状态',
-            trailing: Row(children: [
-              LiquidButton(text: I18n.t('refresh'), icon: Icons.refresh_rounded, primary: false, onTap: _loading ? null : _load),
-            ]),
+            subtitle: I18n.lang == 'en'
+                ? 'Live CPU, memory and disk status'
+                : '实时读取处理器、内存与磁盘状态',
+            trailing: Row(
+              children: [
+                LiquidButton(
+                  text: I18n.t('refresh'),
+                  icon: Icons.refresh_rounded,
+                  primary: false,
+                  onTap: _loading ? null : _load,
+                ),
+              ],
+            ),
           ),
           const SizedBox(height: 16),
           if (_loading)
@@ -342,7 +433,8 @@ class _HardwarePageState extends State<HardwarePage> {
           else
             Expanded(
               child: GridView.count(
-                crossAxisCount: MediaQuery.of(context).size.width > 1180 ? 3 : 2,
+                crossAxisCount:
+                    MediaQuery.of(context).size.width > 1180 ? 3 : 2,
                 mainAxisSpacing: 14,
                 crossAxisSpacing: 14,
                 childAspectRatio: 1.55,
@@ -365,7 +457,12 @@ class _MetricCard extends StatelessWidget {
   final String name;
   final List<(String, String)> metrics;
 
-  const _MetricCard({required this.icon, required this.title, required this.name, required this.metrics});
+  const _MetricCard({
+    required this.icon,
+    required this.title,
+    required this.name,
+    required this.metrics,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -374,22 +471,39 @@ class _MetricCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(children: [
-            Container(
-              width: 38,
-              height: 38,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: const Color(0xFF2F7BFF).withOpacity(isDark ? 0.22 : 0.14),
+          Row(
+            children: [
+              Container(
+                width: 38,
+                height: 38,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color:
+                      const Color(0xFF2F7BFF).withOpacity(isDark ? 0.22 : 0.14),
+                ),
+                child: Icon(icon, size: 19, color: const Color(0xFF2F7BFF)),
               ),
-              child: Icon(icon, size: 19, color: const Color(0xFF2F7BFF)),
-            ),
-            const Spacer(),
-            Text(title, style: TextStyle(fontSize: 12, color: isDark ? Colors.white54 : Colors.black45)),
-          ]),
+              const Spacer(),
+              Text(
+                title,
+                style: TextStyle(
+                  fontSize: 12,
+                  color: isDark ? Colors.white54 : Colors.black45,
+                ),
+              ),
+            ],
+          ),
           const SizedBox(height: 12),
-          Text(name, maxLines: 2, overflow: TextOverflow.ellipsis,
-              style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700, height: 1.25)),
+          Text(
+            name,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              fontSize: 15,
+              fontWeight: FontWeight.w700,
+              height: 1.25,
+            ),
+          ),
           const Spacer(),
           Wrap(
             spacing: 18,
@@ -399,9 +513,22 @@ class _MetricCard extends StatelessWidget {
                 Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(m.$1, style: TextStyle(fontSize: 11, color: isDark ? Colors.white38 : Colors.black38)),
+                    Text(
+                      m.$1,
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: isDark ? Colors.white38 : Colors.black38,
+                      ),
+                    ),
                     const SizedBox(height: 2),
-                    Text(m.$2, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: Color(0xFF2F7BFF))),
+                    Text(
+                      m.$2,
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w700,
+                        color: Color(0xFF2F7BFF),
+                      ),
+                    ),
                   ],
                 ),
             ],
@@ -428,8 +555,9 @@ class _CleanPageState extends State<CleanPage> {
   String? _note;
   String _stage = '正在扫描可清理项';
   final TextEditingController _cleanPath = TextEditingController();
-  final ValueNotifier<ScanFxData> _fx =
-      ValueNotifier(const ScanFxData(stage: '正在扫描可清理项'));
+  final ValueNotifier<ScanFxData> _fx = ValueNotifier(
+    const ScanFxData(stage: '正在扫描可清理项'),
+  );
 
   @override
   void dispose() {
@@ -458,7 +586,8 @@ class _CleanPageState extends State<CleanPage> {
     final future = Isolate.run(() => Api.cleanupScanMode(mode, path));
     final ticker = Timer.periodic(const Duration(milliseconds: 150), (_) {
       if (!mounted) return;
-      final d = (Api.cleanupProgress()['data'] as Map?)?.cast<String, dynamic>();
+      final d =
+          (Api.cleanupProgress()['data'] as Map?)?.cast<String, dynamic>();
       if (d == null) return;
       final files = (d['files'] as num?)?.toInt() ?? 0;
       final bytes = (d['bytes'] as num?)?.toInt() ?? 0;
@@ -492,7 +621,11 @@ class _CleanPageState extends State<CleanPage> {
             .toList();
         _checked
           ..clear()
-          ..addAll(_items.where((e) => e['default_checked'] == true).map((e) => e['path'].toString()));
+          ..addAll(
+            _items
+                .where((e) => e['default_checked'] == true)
+                .map((e) => e['path'].toString()),
+          );
       } else {
         _note = res['message']?.toString();
       }
@@ -507,10 +640,20 @@ class _CleanPageState extends State<CleanPage> {
         context: context,
         builder: (c) => AlertDialog(
           title: Text(I18n.lang == 'en' ? 'Delete these files?' : '确认删除这些文件？'),
-          content: Text(I18n.lang == 'en' ? '${paths.length} items, cannot be undone.' : '共 ${paths.length} 项，删除后不可恢复。'),
+          content: Text(
+            I18n.lang == 'en'
+                ? '${paths.length} items, cannot be undone.'
+                : '共 ${paths.length} 项，删除后不可恢复。',
+          ),
           actions: [
-            TextButton(onPressed: () => Navigator.pop(c, false), child: Text(I18n.lang == 'en' ? 'Cancel' : '取消')),
-            TextButton(onPressed: () => Navigator.pop(c, true), child: Text(I18n.lang == 'en' ? 'Confirm' : '确认')),
+            TextButton(
+              onPressed: () => Navigator.pop(c, false),
+              child: Text(I18n.lang == 'en' ? 'Cancel' : '取消'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.pop(c, true),
+              child: Text(I18n.lang == 'en' ? 'Confirm' : '确认'),
+            ),
           ],
         ),
       );
@@ -528,7 +671,10 @@ class _CleanPageState extends State<CleanPage> {
     if (data is Map) {
       final freed = data['freed_bytes'] ?? 0;
       final n = data['deleted_files'] ?? 0;
-      setState(() => _note = '${dryRun ? 'Dry run' : 'Done'}: $n files / ${_size(freed as num)}');
+      setState(
+        () => _note =
+            '${dryRun ? 'Dry run' : 'Done'}: $n files / ${_size(freed as num)}',
+      );
       if (!dryRun) _scan();
     } else {
       setState(() => _note = res['message']?.toString());
@@ -538,7 +684,10 @@ class _CleanPageState extends State<CleanPage> {
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final total = _items.fold<num>(0, (s, e) => s + ((e['size_bytes'] as num?) ?? 0));
+    final total = _items.fold<num>(
+      0,
+      (s, e) => s + ((e['size_bytes'] as num?) ?? 0),
+    );
 
     return Padding(
       padding: const EdgeInsets.all(20),
@@ -547,44 +696,70 @@ class _CleanPageState extends State<CleanPage> {
         children: [
           PageTitle(
             title: I18n.t('clean'),
-            subtitle: I18n.lang == 'en' ? 'Scan → select → confirm, three steps before deletion' : '扫描 → 勾选 → 二次确认，三步才删除',
-            trailing: LiquidButton(text: '快速清理', icon: Icons.bolt_rounded, primary: false,
-                onTap: _scanning ? null : () => _cleanScan(mode: 'quick')),
+            subtitle: I18n.lang == 'en'
+                ? 'Scan → select → confirm, three steps before deletion'
+                : '扫描 → 勾选 → 二次确认，三步才删除',
+            trailing: LiquidButton(
+              text: '快速清理',
+              icon: Icons.bolt_rounded,
+              primary: false,
+              onTap: _scanning ? null : () => _cleanScan(mode: 'quick'),
+            ),
           ),
           const SizedBox(height: 12),
-          Row(children: [
-            LiquidButton(text: '全盘清理', icon: Icons.storage_rounded, primary: false,
-                onTap: _scanning ? null : () => _cleanScan(mode: 'full')),
-            const SizedBox(width: 8),
-            Expanded(
-              child: TextField(
-                controller: _cleanPath,
-                style: const TextStyle(fontSize: 13),
-                decoration: InputDecoration(
-                  hintText: '要清理的目录，比如 D:\\Downloads',
-                  isDense: true,
-                  contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+          Row(
+            children: [
+              LiquidButton(
+                text: '全盘清理',
+                icon: Icons.storage_rounded,
+                primary: false,
+                onTap: _scanning ? null : () => _cleanScan(mode: 'full'),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: TextField(
+                  controller: _cleanPath,
+                  style: const TextStyle(fontSize: 13),
+                  decoration: InputDecoration(
+                    hintText: '要清理的目录，比如 D:\\Downloads',
+                    isDense: true,
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 10,
+                    ),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
                 ),
               ),
-            ),
-            const SizedBox(width: 8),
-            LiquidButton(text: '指定位置清理', icon: Icons.folder_open_rounded, primary: false,
+              const SizedBox(width: 8),
+              LiquidButton(
+                text: '指定位置清理',
+                icon: Icons.folder_open_rounded,
+                primary: false,
                 onTap: _scanning
                     ? null
                     : () {
                         final t = _cleanPath.text.trim();
                         if (t.isNotEmpty) _cleanScan(mode: 'custom', path: t);
-                      }),
-          ]),
+                      },
+              ),
+            ],
+          ),
           const SizedBox(height: 16),
           Expanded(
             child: _scanning
-                ? Center(
-                    child: ScanFxLive(data: _fx, size: 180),
-                  )
+                ? Center(child: ScanFxLive(data: _fx, size: 180))
                 : _items.isEmpty
-                    ? Center(child: Text(I18n.t('empty'), style: TextStyle(color: isDark ? Colors.white54 : Colors.black45)))
+                    ? Center(
+                        child: Text(
+                          I18n.t('empty'),
+                          style: TextStyle(
+                            color: isDark ? Colors.white54 : Colors.black45,
+                          ),
+                        ),
+                      )
                     : ListView.separated(
                         itemCount: _items.length,
                         separatorBuilder: (_, __) => const SizedBox(height: 10),
@@ -593,46 +768,115 @@ class _CleanPageState extends State<CleanPage> {
                           final path = it['path'].toString();
                           final on = _checked.contains(path);
                           return LiquidGlass(
-                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 12,
+                              vertical: 8,
+                            ),
                             radius: 26,
-                            onTap: () => setState(() => on ? _checked.remove(path) : _checked.add(path)),
-                            child: Row(children: [
-                              Checkbox(value: on, onChanged: (v) => setState(() => v! ? _checked.add(path) : _checked.remove(path))),
-                              const SizedBox(width: 4),
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Row(children: [
-                                      Text(it['category'].toString(), style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
-                                    ]),
-                                    const SizedBox(height: 3),
-                                    Text(path, maxLines: 1, overflow: TextOverflow.ellipsis,
-                                        style: TextStyle(fontSize: 11, color: isDark ? Colors.white38 : Colors.black38)),
-                                  ],
+                            onTap: () => setState(
+                              () => on
+                                  ? _checked.remove(path)
+                                  : _checked.add(path),
+                            ),
+                            child: Row(
+                              children: [
+                                Checkbox(
+                                  value: on,
+                                  onChanged: (v) => setState(
+                                    () => v!
+                                        ? _checked.add(path)
+                                        : _checked.remove(path),
+                                  ),
                                 ),
-                              ),
-                              const SizedBox(width: 8),
-                              Text(_size((it['size_bytes'] as num?) ?? 0),
-                                  style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: Color(0xFF2F7BFF))),
-                            ]),
+                                const SizedBox(width: 4),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Row(
+                                        children: [
+                                          Text(
+                                            it['category'].toString(),
+                                            style: const TextStyle(
+                                              fontSize: 14,
+                                              fontWeight: FontWeight.w600,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                      const SizedBox(height: 3),
+                                      Text(
+                                        path,
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: TextStyle(
+                                          fontSize: 11,
+                                          color: isDark
+                                              ? Colors.white38
+                                              : Colors.black38,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                Text(
+                                  _size((it['size_bytes'] as num?) ?? 0),
+                                  style: const TextStyle(
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.w700,
+                                    color: Color(0xFF2F7BFF),
+                                  ),
+                                ),
+                              ],
+                            ),
                           );
                         },
                       ),
           ),
           const SizedBox(height: 14),
-          Row(children: [
-            Text('${I18n.t('total')}: ${_size(total)}',
-                style: TextStyle(fontSize: 13, color: isDark ? Colors.white60 : Colors.black54)),
-            const Spacer(),
-            if (_note != null) ...[
-              Flexible(child: Text(_note!, style: const TextStyle(fontSize: 12, color: Color(0xFF2F7BFF)), overflow: TextOverflow.ellipsis)),
-              const SizedBox(width: 12),
+          Row(
+            children: [
+              Text(
+                '${I18n.t('total')}: ${_size(total)}',
+                style: TextStyle(
+                  fontSize: 13,
+                  color: isDark ? Colors.white60 : Colors.black54,
+                ),
+              ),
+              const Spacer(),
+              if (_note != null) ...[
+                Flexible(
+                  child: Text(
+                    _note!,
+                    style: const TextStyle(
+                      fontSize: 12,
+                      color: Color(0xFF2F7BFF),
+                    ),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+                const SizedBox(width: 12),
+              ],
+              LiquidButton(
+                text: I18n.t('preview'),
+                icon: Icons.science_rounded,
+                primary: false,
+                onTap: (_busy || _checked.isEmpty)
+                    ? null
+                    : () => _run(dryRun: true),
+              ),
+              const SizedBox(width: 10),
+              LiquidButton(
+                text: I18n.t('doClean'),
+                icon: Icons.cleaning_services_rounded,
+                onTap: (_busy || _checked.isEmpty)
+                    ? null
+                    : () => _run(dryRun: false),
+              ),
             ],
-            LiquidButton(text: I18n.t('preview'), icon: Icons.science_rounded, primary: false, onTap: (_busy || _checked.isEmpty) ? null : () => _run(dryRun: true)),
-            const SizedBox(width: 10),
-            LiquidButton(text: I18n.t('doClean'), icon: Icons.cleaning_services_rounded, onTap: (_busy || _checked.isEmpty) ? null : () => _run(dryRun: false)),
-          ]),
+          ),
         ],
       ),
     );
@@ -656,8 +900,9 @@ class _ScanPageState extends State<ScanPage> {
   Map<String, dynamic> _rules = {};
   // 扫描动效的实时数据（每次轮询刷新）
   String _stage = '正在启动查杀引擎';
-  final ValueNotifier<ScanFxData> _fx =
-      ValueNotifier(const ScanFxData(stage: '正在启动查杀引擎'));
+  final ValueNotifier<ScanFxData> _fx = ValueNotifier(
+    const ScanFxData(stage: '正在启动查杀引擎'),
+  );
 
   @override
   void initState() {
@@ -689,9 +934,12 @@ class _ScanPageState extends State<ScanPage> {
     final r = add ? Api.whitelistAdd(p) : Api.whitelistRemove(p);
     if (!mounted) return;
     setState(() {
-      _wlCount = ((r['data'] is Map ? r['data']['count'] : _wlCount) as num?)?.toInt() ?? _wlCount;
+      _wlCount = ((r['data'] is Map ? r['data']['count'] : _wlCount) as num?)
+              ?.toInt() ??
+          _wlCount;
     });
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(r['message']?.toString() ?? '')));
+    ScaffoldMessenger.of(context)
+        .showSnackBar(SnackBar(content: Text(r['message']?.toString() ?? '')));
   }
 
   @override
@@ -719,7 +967,8 @@ class _ScanPageState extends State<ScanPage> {
     final recent = <String>[];
     final ticker = Timer.periodic(const Duration(milliseconds: 150), (_) {
       if (!mounted) return;
-      final d = (Native.scanProgress()['data'] as Map?)?.cast<String, dynamic>();
+      final d =
+          (Native.scanProgress()['data'] as Map?)?.cast<String, dynamic>();
       if (d == null) return;
       final cur = d['current']?.toString() ?? '';
       final total = (d['total'] as num?)?.toInt() ?? 0;
@@ -734,12 +983,14 @@ class _ScanPageState extends State<ScanPage> {
         stageText = '$scope中 · 已发现 ${found.length} 项';
         recent
           ..clear()
-          ..addAll(found
-              .map((e) => ((e as Map)['file'] ?? '').toString())
-              .where((e) => e.isNotEmpty)
-              .toList()
-              .reversed
-              .take(7));
+          ..addAll(
+            found
+                .map((e) => ((e as Map)['file'] ?? '').toString())
+                .where((e) => e.isNotEmpty)
+                .toList()
+                .reversed
+                .take(7),
+          );
       }
       if (cur.isNotEmpty && cur != last) {
         last = cur;
@@ -771,7 +1022,9 @@ class _ScanPageState extends State<ScanPage> {
           .toList();
       final files = (d['files'] as num?)?.toInt() ?? 0;
       final scope = d['scope']?.toString() ?? stage;
-      final threats = list.expand((m) => (m['threats'] as List?) ?? const <dynamic>[]).toList();
+      final threats = list
+          .expand((m) => (m['threats'] as List?) ?? const <dynamic>[])
+          .toList();
       final infected = d['infected'] == true;
       final canceled = d['canceled'] == true;
       setState(() {
@@ -826,7 +1079,10 @@ class _ScanPageState extends State<ScanPage> {
   Future<void> _scanCustom() async {
     final t = _pathCtrl.text.trim();
     if (t.isEmpty) return;
-    await _runScan(() => Isolate.run(() => Api.scanByMode('custom', t)), '指定位置扫描');
+    await _runScan(
+      () => Isolate.run(() => Api.scanByMode('custom', t)),
+      '指定位置扫描',
+    );
   }
 
   Future<void> _cancelScan() async {
@@ -848,29 +1104,41 @@ class _ScanPageState extends State<ScanPage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(children: [
-            const Icon(Icons.dataset_rounded, size: 18),
-            const SizedBox(width: 8),
-            const Text('QW 引擎 · 病毒库',
-                style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
-            const Spacer(),
-            TextButton.icon(
-              onPressed: _loadRules,
-              icon: const Icon(Icons.refresh_rounded, size: 16),
-              label: const Text('刷新', style: TextStyle(fontSize: 12)),
+          Row(
+            children: [
+              const Icon(Icons.dataset_rounded, size: 18),
+              const SizedBox(width: 8),
+              const Text(
+                'QW 引擎 · 病毒库',
+                style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+              ),
+              const Spacer(),
+              TextButton.icon(
+                onPressed: _loadRules,
+                icon: const Icon(Icons.refresh_rounded, size: 16),
+                label: const Text('刷新', style: TextStyle(fontSize: 12)),
+              ),
+            ],
+          ),
+          Text(
+            '哈希 $hashes 条 · 文件名规则 $names 条 · 内置 YARA ${yara ? '就绪' : '缺失'}',
+            style: TextStyle(
+              fontSize: 11.5,
+              color: isDark ? Colors.white54 : Colors.black54,
             ),
-          ]),
-          Text('哈希 $hashes 条 · 文件名规则 $names 条 · 内置 YARA ${yara ? '就绪' : '缺失'}',
-              style: TextStyle(
-                  fontSize: 11.5, color: isDark ? Colors.white54 : Colors.black54)),
+          ),
           const SizedBox(height: 8),
-          Wrap(spacing: 8, runSpacing: 8, children: [
-            FilledButton.tonalIcon(
-              onPressed: _importHashes,
-              icon: const Icon(Icons.file_open_rounded, size: 16),
-              label: const Text('导入哈希文件', style: TextStyle(fontSize: 12)),
-            ),
-          ]),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              FilledButton.tonalIcon(
+                onPressed: _importHashes,
+                icon: const Icon(Icons.file_open_rounded, size: 16),
+                label: const Text('导入哈希文件', style: TextStyle(fontSize: 12)),
+              ),
+            ],
+          ),
         ],
       ),
     );
@@ -883,19 +1151,33 @@ class _ScanPageState extends State<ScanPage> {
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('导入哈希文件', style: TextStyle(fontSize: 16)),
-        content: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
-          const Text('选一个 txt，一行一个 SHA-256（64 位十六进制），# 开头是注释',
-              style: TextStyle(fontSize: 12)),
-          const SizedBox(height: 10),
-          TextField(
-            controller: ctrl,
-            decoration: const InputDecoration(
-                hintText: r'C:\Users\me\hashes.txt', isDense: true),
-          ),
-        ]),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              '选一个 txt，一行一个 SHA-256（64 位十六进制），# 开头是注释',
+              style: TextStyle(fontSize: 12),
+            ),
+            const SizedBox(height: 10),
+            TextField(
+              controller: ctrl,
+              decoration: const InputDecoration(
+                hintText: r'C:\Users\me\hashes.txt',
+                isDense: true,
+              ),
+            ),
+          ],
+        ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('取消')),
-          FilledButton(onPressed: () => Navigator.pop(ctx, ctrl.text.trim()), child: const Text('导入')),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, ctrl.text.trim()),
+            child: const Text('导入'),
+          ),
         ],
       ),
     );
@@ -918,7 +1200,10 @@ class _ScanPageState extends State<ScanPage> {
         title: Text(title),
         content: Text(msg),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(_), child: const Text('知道了')),
+          TextButton(
+            onPressed: () => Navigator.pop(_),
+            child: const Text('知道了'),
+          ),
         ],
       ),
     );
@@ -955,9 +1240,11 @@ class _ScanPageState extends State<ScanPage> {
         return;
       }
       final r = Api.quarantineAdd(target, 'multi', '查杀命中，自动隔离');
-      _toastScan(r['success'] == true
-          ? '已自动移入隔离库，原目录里看不到它了'
-          : (r['message']?.toString() ?? '隔离失败'));
+      _toastScan(
+        r['success'] == true
+            ? '已自动移入隔离库，原目录里看不到它了'
+            : (r['message']?.toString() ?? '隔离失败'),
+      );
       return;
     }
     await _virusDialog(target);
@@ -979,61 +1266,103 @@ class _ScanPageState extends State<ScanPage> {
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Row(children: [
-                    const Icon(Icons.gpp_maybe_rounded, color: Colors.redAccent, size: 26),
-                    const SizedBox(width: 10),
-                    const Expanded(
-                      child: Text('发现威胁',
-                          style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800)),
-                    ),
-                  ]),
-                  const SizedBox(height: 12),
-                  Text(target,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(fontSize: 11.5)),
-                  const SizedBox(height: 6),
-                  Wrap(spacing: 6, runSpacing: 4, children: [
-                    for (final r in _results.where((e) => e['infected'] == true))
-                      Chip(
-                        label: Text('${r['engine']}',
-                            style: const TextStyle(fontSize: 10)),
-                        visualDensity: VisualDensity.compact,
+                  Row(
+                    children: [
+                      const Icon(
+                        Icons.gpp_maybe_rounded,
+                        color: Colors.redAccent,
+                        size: 26,
                       ),
-                  ]),
+                      const SizedBox(width: 10),
+                      const Expanded(
+                        child: Text(
+                          '发现威胁',
+                          style: TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  Text(
+                    target,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(fontSize: 11.5),
+                  ),
+                  const SizedBox(height: 6),
+                  Wrap(
+                    spacing: 6,
+                    runSpacing: 4,
+                    children: [
+                      for (final r in _results.where(
+                        (e) => e['infected'] == true,
+                      ))
+                        Chip(
+                          label: Text(
+                            '${r['engine']}',
+                            style: const TextStyle(fontSize: 10),
+                          ),
+                          visualDensity: VisualDensity.compact,
+                        ),
+                    ],
+                  ),
                   const SizedBox(height: 8),
                   InkWell(
                     onTap: () => setS(() => expanded = !expanded),
-                    child: Row(mainAxisSize: MainAxisSize.min, children: [
-                      Text(expanded ? '收起详情' : '展开详情',
-                          style: const TextStyle(fontSize: 11.5)),
-                      Icon(expanded ? Icons.expand_less_rounded : Icons.expand_more_rounded,
-                          size: 16),
-                    ]),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          expanded ? '收起详情' : '展开详情',
+                          style: const TextStyle(fontSize: 11.5),
+                        ),
+                        Icon(
+                          expanded
+                              ? Icons.expand_less_rounded
+                              : Icons.expand_more_rounded,
+                          size: 16,
+                        ),
+                      ],
+                    ),
                   ),
                   if (expanded)
                     Padding(
                       padding: const EdgeInsets.only(top: 10),
-                      child: Column(children: [
-                        _wideBtn('仅允许这一次', Icons.check_rounded,
-                            () => Navigator.of(ctx).pop('once')),
-                        const SizedBox(height: 8),
-                        _wideBtn('把这个文件放进信任区（以后不再扫它）',
-                            Icons.shield_rounded, () => Navigator.of(ctx).pop('trust')),
-                      ]),
+                      child: Column(
+                        children: [
+                          _wideBtn(
+                            '仅允许这一次',
+                            Icons.check_rounded,
+                            () => Navigator.of(ctx).pop('once'),
+                          ),
+                          const SizedBox(height: 8),
+                          _wideBtn(
+                            '把这个文件放进信任区（以后不再扫它）',
+                            Icons.shield_rounded,
+                            () => Navigator.of(ctx).pop('trust'),
+                          ),
+                        ],
+                      ),
                     ),
                   const SizedBox(height: 18),
-                  Row(mainAxisAlignment: MainAxisAlignment.end, children: [
-                    TextButton(
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.end,
+                    children: [
+                      TextButton(
                         onPressed: () => Navigator.of(ctx).pop('later'),
-                        child: const Text('稍后')),
-                    const SizedBox(width: 8),
-                    LiquidButton(
-                      text: '立即处理',
-                      icon: Icons.security_rounded,
-                      onTap: () => Navigator.of(ctx).pop('handle'),
-                    ),
-                  ]),
+                        child: const Text('稍后'),
+                      ),
+                      const SizedBox(width: 8),
+                      LiquidButton(
+                        text: '立即处理',
+                        icon: Icons.security_rounded,
+                        onTap: () => Navigator.of(ctx).pop('handle'),
+                      ),
+                    ],
+                  ),
                 ],
               ),
             ),
@@ -1047,9 +1376,11 @@ class _ScanPageState extends State<ScanPage> {
       case 'handle':
         if (!await strictAuth(context, '将威胁移入隔离库')) break;
         final r = Api.quarantineAdd(target, 'multi', '用户选择立即处理');
-        _toastScan(r['success'] == true
-            ? '已移入隔离库，原目录里看不到它了，要还原去隔离库点恢复'
-            : (r['message']?.toString() ?? '处理失败'));
+        _toastScan(
+          r['success'] == true
+              ? '已移入隔离库，原目录里看不到它了，要还原去隔离库点恢复'
+              : (r['message']?.toString() ?? '处理失败'),
+        );
         break;
       case 'once':
         _toastScan('已放行这一次');
@@ -1075,11 +1406,13 @@ class _ScanPageState extends State<ScanPage> {
           borderRadius: BorderRadius.circular(10),
           border: Border.all(color: Colors.white.withOpacity(0.12)),
         ),
-        child: Row(children: [
-          Icon(icon, size: 16),
-          const SizedBox(width: 8),
-          Expanded(child: Text(text, style: const TextStyle(fontSize: 12))),
-        ]),
+        child: Row(
+          children: [
+            Icon(icon, size: 16),
+            const SizedBox(width: 8),
+            Expanded(child: Text(text, style: const TextStyle(fontSize: 12))),
+          ],
+        ),
       ),
     );
   }
@@ -1094,7 +1427,9 @@ class _ScanPageState extends State<ScanPage> {
         children: [
           PageTitle(
             title: I18n.t('scan'),
-            subtitle: I18n.lang == 'en' ? 'Built-in engines scan, external tools launch in one click' : '内置引擎扫描，外部工具可一键唤起',
+            subtitle: I18n.lang == 'en'
+                ? 'Built-in engines scan, external tools launch in one click'
+                : '内置引擎扫描，外部工具可一键唤起',
           ),
           const SizedBox(height: 16),
           LiquidGlass(
@@ -1102,65 +1437,125 @@ class _ScanPageState extends State<ScanPage> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text('QW 安全电脑管家 · 查杀引擎',
-                    style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700)),
+                const Text(
+                  'QW 安全电脑管家 · 查杀引擎',
+                  style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700),
+                ),
                 const SizedBox(height: 6),
-                Text('四个子引擎合并工作：特征库 · 启发式 · Defender · YARA —— 全部内置，无需另装',
-                    style: TextStyle(fontSize: 11, color: Colors.grey.shade600)),
+                Text(
+                  '四个子引擎合并工作：特征库 · 启发式 · Defender · YARA —— 全部内置，无需另装',
+                  style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
+                ),
                 const SizedBox(height: 10),
                 _rulesCard(),
                 const SizedBox(height: 14),
-                Text(I18n.t('path'), style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
+                Text(
+                  I18n.t('path'),
+                  style: const TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
                 const SizedBox(height: 8),
                 TextField(
                   controller: _pathCtrl,
                   decoration: InputDecoration(
-                    hintText: I18n.lang == 'en' ? 'e.g. C:\\Users\\me\\Downloads' : '例如 C:\\Users\\me\\Downloads',
+                    hintText: I18n.lang == 'en'
+                        ? 'e.g. C:\\Users\\me\\Downloads'
+                        : '例如 C:\\Users\\me\\Downloads',
                     isDense: true,
-                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
                   ),
                 ),
                 const SizedBox(height: 14),
-                Row(children: [
-                  Text('${I18n.t('whitelist')} ($_wlCount)', style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
-                  const SizedBox(width: 10),
-                  LiquidButton(text: I18n.t('add'), icon: Icons.playlist_add_rounded, primary: false, onTap: () {
-                    _wl(true);
-                  }),
-                  const SizedBox(width: 8),
-                  LiquidButton(text: I18n.t('remove'), icon: Icons.playlist_remove_rounded, primary: false, onTap: () {
-                    _wl(false);
-                  }),
-                  const Spacer(),
-                  Text(I18n.t('external'), style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
-                ]),
+                Row(
+                  children: [
+                    Text(
+                      '${I18n.t('whitelist')} ($_wlCount)',
+                      style: const TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    LiquidButton(
+                      text: I18n.t('add'),
+                      icon: Icons.playlist_add_rounded,
+                      primary: false,
+                      onTap: () {
+                        _wl(true);
+                      },
+                    ),
+                    const SizedBox(width: 8),
+                    LiquidButton(
+                      text: I18n.t('remove'),
+                      icon: Icons.playlist_remove_rounded,
+                      primary: false,
+                      onTap: () {
+                        _wl(false);
+                      },
+                    ),
+                    const Spacer(),
+                    Text(
+                      I18n.t('external'),
+                      style: const TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                ),
                 const SizedBox(height: 12),
-                Row(children: [
-                  LiquidButton(text: '快速扫描', icon: Icons.bolt_rounded,
-                      onTap: _busy ? null : _scanQuick),
-                  const SizedBox(width: 8),
-                  LiquidButton(text: '全盘扫描', icon: Icons.storage_rounded, primary: false,
-                      onTap: _busy ? null : _scanFull),
-                  const SizedBox(width: 8),
-                  LiquidButton(text: 'U 盘扫描', icon: Icons.usb_rounded, primary: false,
-                      onTap: _busy ? null : _scanUsb),
-                  const SizedBox(width: 8),
-                  LiquidButton(text: '指定位置扫描', icon: Icons.folder_open_rounded, primary: false,
-                      onTap: _busy ? null : _scanCustom),
-                  const Spacer(),
-                  if (_busy)
-                    LiquidButton(text: '停止', icon: Icons.stop_circle_rounded, primary: false,
+                Row(
+                  children: [
+                    LiquidButton(
+                      text: '快速扫描',
+                      icon: Icons.bolt_rounded,
+                      onTap: _busy ? null : _scanQuick,
+                    ),
+                    const SizedBox(width: 8),
+                    LiquidButton(
+                      text: '全盘扫描',
+                      icon: Icons.storage_rounded,
+                      primary: false,
+                      onTap: _busy ? null : _scanFull,
+                    ),
+                    const SizedBox(width: 8),
+                    LiquidButton(
+                      text: 'U 盘扫描',
+                      icon: Icons.usb_rounded,
+                      primary: false,
+                      onTap: _busy ? null : _scanUsb,
+                    ),
+                    const SizedBox(width: 8),
+                    LiquidButton(
+                      text: '指定位置扫描',
+                      icon: Icons.folder_open_rounded,
+                      primary: false,
+                      onTap: _busy ? null : _scanCustom,
+                    ),
+                    const Spacer(),
+                    if (_busy)
+                      LiquidButton(
+                        text: '停止',
+                        icon: Icons.stop_circle_rounded,
+                        primary: false,
                         onTap: () {
                           _cancelScan();
-                        }),
-                ]),
+                        },
+                      ),
+                  ],
+                ),
                 const SizedBox(height: 10),
+
                 // 这里原来有两个按钮：调用火绒、调用 PYAS。
                 // 火绒的引擎无法脱离它的服务和驱动单独运行，留着按钮只会点出
                 // 「本机没有检测到火绒」；PYAS 的启发式已经并进 QW 引擎里了，
                 // 不需要再外挂一个。两个按钮一起去掉，扫描只用内置的四个子引擎。
-
-              ]),
+              ],
+            ),
           ),
           const SizedBox(height: 14),
           Expanded(
@@ -1174,7 +1569,14 @@ class _ScanPageState extends State<ScanPage> {
                     ),
                   )
                 : _results.isEmpty
-                    ? Center(child: Text(I18n.t('empty'), style: TextStyle(color: isDark ? Colors.white54 : Colors.black45)))
+                    ? Center(
+                        child: Text(
+                          I18n.t('empty'),
+                          style: TextStyle(
+                            color: isDark ? Colors.white54 : Colors.black45,
+                          ),
+                        ),
+                      )
                     : ListView.separated(
                         itemCount: _results.length,
                         separatorBuilder: (_, __) => const SizedBox(height: 10),
@@ -1182,29 +1584,61 @@ class _ScanPageState extends State<ScanPage> {
                           final r = _results[i];
                           final ok = r['ok'] == true;
                           final infected = r['infected'] == true;
-                          final color = !ok ? Colors.orange : (infected ? const Color(0xFFFF453A) : const Color(0xFF34C759));
+                          final color = !ok
+                              ? Colors.orange
+                              : (infected
+                                  ? const Color(0xFFFF453A)
+                                  : const Color(0xFF34C759));
                           return LiquidGlass(
                             padding: const EdgeInsets.all(14),
                             radius: 26,
-                            child: Row(children: [
-                              Icon(infected ? Icons.warning_rounded : (ok ? Icons.verified_rounded : Icons.info_rounded),
-                                  color: color, size: 22),
-                              const SizedBox(width: 12),
-                              Expanded(
-                                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                                  Text(r['engine'].toString(), style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
-                                  const SizedBox(height: 3),
-                                  Text(
-                                    ok
-                                        ? (infected
-                                            ? (I18n.lang == 'en' ? 'Threat found' : '发现威胁')
-                                            : (I18n.lang == 'en' ? 'No threat' : '未发现威胁'))
-                                        : r['message'].toString(),
-                                    style: TextStyle(fontSize: 12, color: isDark ? Colors.white54 : Colors.black54),
+                            child: Row(
+                              children: [
+                                Icon(
+                                  infected
+                                      ? Icons.warning_rounded
+                                      : (ok
+                                          ? Icons.verified_rounded
+                                          : Icons.info_rounded),
+                                  color: color,
+                                  size: 22,
+                                ),
+                                const SizedBox(width: 12),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        r['engine'].toString(),
+                                        style: const TextStyle(
+                                          fontSize: 14,
+                                          fontWeight: FontWeight.w600,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 3),
+                                      Text(
+                                        ok
+                                            ? (infected
+                                                ? (I18n.lang == 'en'
+                                                    ? 'Threat found'
+                                                    : '发现威胁')
+                                                : (I18n.lang == 'en'
+                                                    ? 'No threat'
+                                                    : '未发现威胁'))
+                                            : r['message'].toString(),
+                                        style: TextStyle(
+                                          fontSize: 12,
+                                          color: isDark
+                                              ? Colors.white54
+                                              : Colors.black54,
+                                        ),
+                                      ),
+                                    ],
                                   ),
-                                ]),
-                              ),
-                            ]),
+                                ),
+                              ],
+                            ),
                           );
                         },
                       ),
@@ -1252,7 +1686,10 @@ class _ToolsPageState extends State<ToolsPage> {
     if (_kw.trim().isEmpty) return _tools;
     final k = _kw.trim().toLowerCase();
     return _tools
-        .where((t) => t.$1.toLowerCase().contains(k) || t.$3.toLowerCase().contains(k))
+        .where(
+          (t) =>
+              t.$1.toLowerCase().contains(k) || t.$3.toLowerCase().contains(k),
+        )
         .toList();
   }
 
@@ -1270,8 +1707,14 @@ class _ToolsPageState extends State<ToolsPage> {
             title: const Text('QW 安全电脑管家 · 快捷方式小箭头'),
             content: const Text('去掉桌面快捷方式左下角的小箭头，随时可以恢复系统默认。'),
             actions: [
-              TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('恢复默认')),
-              FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('去掉箭头')),
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, false),
+                child: const Text('恢复默认'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.pop(ctx, true),
+                child: const Text('去掉箭头'),
+              ),
             ],
           ),
         );
@@ -1288,8 +1731,14 @@ class _ToolsPageState extends State<ToolsPage> {
             title: const Text('QW 安全电脑管家 · 文件后缀显示'),
             content: const Text('让资源管理器把所有文件的扩展名都显示出来，随时可以恢复隐藏。'),
             actions: [
-              TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('恢复隐藏')),
-              FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('显示全部')),
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, false),
+                child: const Text('恢复隐藏'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.pop(ctx, true),
+                child: const Text('显示全部'),
+              ),
             ],
           ),
         );
@@ -1319,12 +1768,13 @@ class _ToolsPageState extends State<ToolsPage> {
       case '环境自检':
         final r = Api.envCheck();
         _toast(
-            context,
-            r['success'] == true
-                ? (r['data']['ok'] == true
-                    ? '环境正常'
-                    : '环境异常：${(r['data']['issues'] as List?)?.join('、') ?? ''}')
-                : (r['message']?.toString() ?? '自检失败'));
+          context,
+          r['success'] == true
+              ? (r['data']['ok'] == true
+                  ? '环境正常'
+                  : '环境异常：${(r['data']['issues'] as List?)?.join('、') ?? ''}')
+              : (r['message']?.toString() ?? '自检失败'),
+        );
         break;
       case '运行库补全':
         await _runtime(context);
@@ -1401,10 +1851,27 @@ class _ToolsPageState extends State<ToolsPage> {
 
     final r = Api.shredderRun(paths);
     _toast(
-        context,
-        r['success'] == true
-            ? '已粉碎 ${r['data']['files']} 个文件，释放 ${_size((r['data']['bytes'] as num?) ?? 0)}'
-            : (r['message']?.toString() ?? '粉碎失败'));
+      context,
+      r['success'] == true
+          ? '已粉碎 ${r['data']['files']} 个文件，释放 ${_size((r['data']['bytes'] as num?) ?? 0)}'
+          : (r['message']?.toString() ?? '粉碎失败'),
+    );
+  }
+
+  /// 运行库失败时只说真实退出码和日志，不再写“多半是没给管理员权限”这种猜测。
+  String _runtimeFailText(dynamic code, String logPath) {
+    final c = code is num ? code.toInt() : null;
+    final hint = switch (c) {
+      1223 => 'UAC 被取消，或系统弹窗没有点“是”。再点一次“开始修复”，在弹窗里允许管理员权限。',
+      5 => '系统返回拒绝访问。不是猜的，具体是哪个工具/文件被拦，看日志。',
+      -1 => '工具超时或被外部结束。看日志最后一行是哪个工具卡住。',
+      null => '工具没有回传退出码。看日志最后一行。',
+      _ => '工具自己返回了这个退出码，不是“多半没权限”的猜测；按日志定位。',
+    };
+    final log = logPath.trim().isEmpty
+        ? '日志路径没拿到，可在安装目录 runtime 下找最新日志。'
+        : '日志：$logPath';
+    return '流程跑完了，退出码 ${c ?? '未知'}。\n$hint\n$log';
   }
 
   /// 运行库补全：先扫、再确认、再后台修，进度靠定时轮询
@@ -1434,15 +1901,18 @@ class _ToolsPageState extends State<ToolsPage> {
       _toast(context, scan['message']?.toString() ?? '扫描失败');
       return;
     }
-    final data = (scan['data'] as Map?)?.cast<String, dynamic>() ?? <String, dynamic>{};
+    final data =
+        (scan['data'] as Map?)?.cast<String, dynamic>() ?? <String, dynamic>{};
     final items = ((data['items'] as List?) ?? const [])
         .map((e) => (e as Map).cast<String, dynamic>())
         .toList();
-    final missing =
-        ((data['missing'] as List?) ?? const []).map((e) => e.toString()).toList();
+    final missing = ((data['missing'] as List?) ?? const [])
+        .map((e) => e.toString())
+        .toList();
 
     final tr = await Isolate.run(() => Api.runtimeTools());
-    final tdata = (tr['data'] as Map?)?.cast<String, dynamic>() ?? <String, dynamic>{};
+    final tdata =
+        (tr['data'] as Map?)?.cast<String, dynamic>() ?? <String, dynamic>{};
     final vcInfo = (tdata['vcredist'] as Map?)?.cast<String, dynamic>();
     final dxInfo = (tdata['dxrepair'] as Map?)?.cast<String, dynamic>();
 
@@ -1452,8 +1922,12 @@ class _ToolsPageState extends State<ToolsPage> {
     }
 
     // 第二重：DirectX Repair 自带清单的比对结果
-    final dx32 = ((data['dx_data_32'] as List?) ?? const []).map((e) => e.toString()).toList();
-    final dx64 = ((data['dx_data_64'] as List?) ?? const []).map((e) => e.toString()).toList();
+    final dx32 = ((data['dx_data_32'] as List?) ?? const [])
+        .map((e) => e.toString())
+        .toList();
+    final dx64 = ((data['dx_data_64'] as List?) ?? const [])
+        .map((e) => e.toString())
+        .toList();
     final dxCnt = (data['dx_data_missing'] as num?)?.toInt() ?? 0;
     final dxReady = data['dx_data_ready'] == true;
     final dxLine = !dxReady
@@ -1483,8 +1957,12 @@ class _ToolsPageState extends State<ToolsPage> {
     if (!await strictAuth(context, '使用运行库补全')) return;
 
     const dxKeys = ['dx9', 'xinput', 'd3dcompiler'];
-    final needDx = items.any((i) => i['ok'] != true && dxKeys.contains(i['key']));
-    final needVc = items.any((i) => i['ok'] != true && !dxKeys.contains(i['key']));
+    final needDx = items.any(
+      (i) => i['ok'] != true && dxKeys.contains(i['key']),
+    );
+    final needVc = items.any(
+      (i) => i['ok'] != true && !dxKeys.contains(i['key']),
+    );
     final mode = (needVc && needDx) ? 'all' : (needDx ? 'dx' : 'vc');
 
     final started = Api.runtimeFix(mode);
@@ -1495,6 +1973,9 @@ class _ToolsPageState extends State<ToolsPage> {
       return;
     }
     if (!context.mounted) return;
+    final logPath =
+        ((started['data'] as Map?)?.cast<String, dynamic>()['log'] ?? '')
+            .toString();
 
     await showDialog<void>(
       context: context,
@@ -1505,18 +1986,20 @@ class _ToolsPageState extends State<ToolsPage> {
         var tail = '';
         var done = false;
         var good = false;
+        dynamic code;
 
         return StatefulBuilder(
           builder: (ctx2, setSt) {
             void poll() {
               final s = Api.runtimeStatus();
               if (s['success'] != true) return;
-              final d = (s['data'] as Map?)?.cast<String, dynamic>() ?? <String, dynamic>{};
+              final d = (s['data'] as Map?)?.cast<String, dynamic>() ??
+                  <String, dynamic>{};
               final running = d['running'] == true;
               final finished = d['finished'] == true;
               final okRun = d['success'] == true;
               final tool = d['tool']?.toString() ?? '';
-              final code = d['exit_code'];
+              code = d['exit_code'];
               if (!ctx2.mounted) return;
               setSt(() {
                 if (running) {
@@ -1544,7 +2027,7 @@ class _ToolsPageState extends State<ToolsPage> {
               body: done
                   ? (good
                       ? '补全流程跑完了，建议重启一次让新装上的运行库生效。'
-                      : '流程跑完了但退出码不是 0，多半是没给管理员权限，或者被别的安全软件拦了。')
+                      : _runtimeFailText(code, logPath))
                   : '$stage\n\n这一步交给内置工具自己做，不用管它。',
               child: tail.trim().isEmpty
                   ? const SizedBox.shrink()
@@ -1559,9 +2042,14 @@ class _ToolsPageState extends State<ToolsPage> {
                             : Colors.black.withOpacity(0.04),
                       ),
                       child: SingleChildScrollView(
-                        child: Text(tail,
-                            style: const TextStyle(
-                                fontSize: 10.5, fontFamily: 'Consolas', height: 1.4)),
+                        child: Text(
+                          tail,
+                          style: const TextStyle(
+                            fontSize: 10.5,
+                            fontFamily: 'Consolas',
+                            height: 1.4,
+                          ),
+                        ),
                       ),
                     ),
               okText: done ? '知道了' : '收起',
@@ -1582,18 +2070,23 @@ class _ToolsPageState extends State<ToolsPage> {
     // 先强制 UTF-8，再把原生命令输出当文本回传，UI 线程全程 await。
     final prefix =
         r'[Console]::OutputEncoding=[Text.UTF8Encoding]::new(); $OutputEncoding=[Text.UTF8Encoding]::new(); $ErrorActionPreference="SilentlyContinue"; ';
-    final r = await Process.run(
-      'powershell',
-      ['-NoProfile', '-NonInteractive', '-Command', prefix + script],
-    );
+    final r = await Process.run('powershell', [
+      '-NoProfile',
+      '-NonInteractive',
+      '-Command',
+      prefix + script,
+    ]);
     final out = r.stdout.toString().trim();
     final err = r.stderr.toString().trim();
     if (out.isEmpty) return err.isEmpty ? '没有输出（退出码 ${r.exitCode}）' : err;
     return err.isEmpty ? out : '$out\n\n$err';
   }
 
-  Future<void> _showToolText(BuildContext context,
-      {required String title, required String body}) async {
+  Future<void> _showToolText(
+    BuildContext context, {
+    required String title,
+    required String body,
+  }) async {
     if (!context.mounted) return;
     await showDialog<void>(
       context: context,
@@ -1612,15 +2105,16 @@ class _ToolsPageState extends State<ToolsPage> {
     final r = await Isolate.run(() => Api.autostartList());
     if (!context.mounted) return;
     if (r['success'] != true) {
-      await _showToolText(context,
-          title: '启动项管理',
-          body: r['message']?.toString() ?? '读取启动项失败');
+      await _showToolText(
+        context,
+        title: '启动项管理',
+        body: r['message']?.toString() ?? '读取启动项失败',
+      );
       return;
     }
     final items = ((r['data'] as Map?)?['items'] as List?) ?? const [];
     if (items.isEmpty) {
-      await _showToolText(context,
-          title: '启动项管理', body: '当前用户的开机启动项是空的。');
+      await _showToolText(context, title: '启动项管理', body: '当前用户的开机启动项是空的。');
       return;
     }
     final body = StringBuffer('当前用户开机启动项：\n\n');
@@ -1647,7 +2141,8 @@ class _ToolsPageState extends State<ToolsPage> {
         final m = (item as Map).cast<String, dynamic>();
         final mb = ((m['WorkingSet64'] as num?)?.toDouble() ?? 0) / 1024 / 1024;
         b.writeln(
-            '• ${m['Name'] ?? '?'}  PID ${m['Id'] ?? '?'}  CPU ${m['CPU'] ?? '-'}  内存 ${mb.toStringAsFixed(1)} MB');
+          '• ${m['Name'] ?? '?'}  PID ${m['Id'] ?? '?'}  CPU ${m['CPU'] ?? '-'}  内存 ${mb.toStringAsFixed(1)} MB',
+        );
       }
       body = b.toString();
     } catch (_) {
@@ -1677,7 +2172,8 @@ class _ToolsPageState extends State<ToolsPage> {
       for (final item in list) {
         final m = (item as Map).cast<String, dynamic>();
         b.writeln(
-            '• ${m['Name'] ?? '?'}: 已用 ${m['UsedGB'] ?? '?'} GB，剩余 ${m['FreeGB'] ?? '?'} GB');
+          '• ${m['Name'] ?? '?'}: 已用 ${m['UsedGB'] ?? '?'} GB，剩余 ${m['FreeGB'] ?? '?'} GB',
+        );
       }
       body = b.toString();
     } catch (_) {
@@ -1705,7 +2201,9 @@ class _ToolsPageState extends State<ToolsPage> {
         children: [
           PageTitle(
             title: I18n.t('tools'),
-            subtitle: I18n.lang == 'en' ? 'More utilities will be added' : '系统小工具按需接入，全部带 QW 前缀',
+            subtitle: I18n.lang == 'en'
+                ? 'More utilities will be added'
+                : '系统小工具按需接入，全部带 QW 前缀',
           ),
           const SizedBox(height: 14),
           Container(
@@ -1713,42 +2211,56 @@ class _ToolsPageState extends State<ToolsPage> {
             padding: const EdgeInsets.symmetric(horizontal: 12),
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(12),
-              color: isDark ? Colors.white.withOpacity(0.06) : Colors.black.withOpacity(0.04),
+              color: isDark
+                  ? Colors.white.withOpacity(0.06)
+                  : Colors.black.withOpacity(0.04),
             ),
-            child: Row(children: [
-              Icon(Icons.search_rounded, size: 18, color: isDark ? Colors.white38 : Colors.black38),
-              const SizedBox(width: 8),
-              Expanded(
-                child: TextField(
-                  controller: _search,
-                  decoration: const InputDecoration(
-                    hintText: '搜工具名或用途',
-                    border: InputBorder.none,
-                    isDense: true,
+            child: Row(
+              children: [
+                Icon(
+                  Icons.search_rounded,
+                  size: 18,
+                  color: isDark ? Colors.white38 : Colors.black38,
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: TextField(
+                    controller: _search,
+                    decoration: const InputDecoration(
+                      hintText: '搜工具名或用途',
+                      border: InputBorder.none,
+                      isDense: true,
+                    ),
+                    style: const TextStyle(fontSize: 12.5),
+                    onChanged: (v) => setState(() => _kw = v),
                   ),
-                  style: const TextStyle(fontSize: 12.5),
-                  onChanged: (v) => setState(() => _kw = v),
                 ),
-              ),
-              if (_kw.isNotEmpty)
-                InkWell(
-                  onTap: () {
-                    _search.clear();
-                    setState(() => _kw = '');
-                  },
-                  child: const Icon(Icons.close_rounded, size: 16),
-                ),
-            ]),
+                if (_kw.isNotEmpty)
+                  InkWell(
+                    onTap: () {
+                      _search.clear();
+                      setState(() => _kw = '');
+                    },
+                    child: const Icon(Icons.close_rounded, size: 16),
+                  ),
+              ],
+            ),
           ),
           const SizedBox(height: 14),
           Expanded(
             child: list.isEmpty
                 ? Center(
-                    child: Text('没找到这个工具',
-                        style: TextStyle(
-                            fontSize: 12.5, color: isDark ? Colors.white38 : Colors.black45)))
+                    child: Text(
+                      '没找到这个工具',
+                      style: TextStyle(
+                        fontSize: 12.5,
+                        color: isDark ? Colors.white38 : Colors.black45,
+                      ),
+                    ),
+                  )
                 : GridView.count(
-                    crossAxisCount: MediaQuery.of(context).size.width > 1180 ? 4 : 3,
+                    crossAxisCount:
+                        MediaQuery.of(context).size.width > 1180 ? 4 : 3,
                     mainAxisSpacing: 13,
                     crossAxisSpacing: 13,
                     childAspectRatio: 1.12,
@@ -1765,32 +2277,51 @@ class _ToolsPageState extends State<ToolsPage> {
                                 decoration: BoxDecoration(
                                   shape: BoxShape.circle,
                                   gradient: const LinearGradient(
-                                      colors: [Color(0xFF4B96FF), Color(0xFF2F7BFF)]),
+                                    colors: [
+                                      Color(0xFF4B96FF),
+                                      Color(0xFF2F7BFF),
+                                    ],
+                                  ),
                                   boxShadow: [
                                     BoxShadow(
-                                        color: const Color(0xFF2F7BFF).withOpacity(0.32),
-                                        blurRadius: 15,
-                                        offset: const Offset(0, 7))
+                                      color: const Color(0xFF2F7BFF)
+                                          .withOpacity(0.32),
+                                      blurRadius: 15,
+                                      offset: const Offset(0, 7),
+                                    ),
                                   ],
                                 ),
-                                child: Icon(t.$2, color: Colors.white, size: 22),
+                                child: Icon(
+                                  t.$2,
+                                  color: Colors.white,
+                                  size: 22,
+                                ),
                               ),
                               const SizedBox(height: 10),
-                              Text('QW 安全电脑管家 · ${t.$1}',
-                                  textAlign: TextAlign.center,
-                                  maxLines: 2,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: const TextStyle(
-                                      fontSize: 12, fontWeight: FontWeight.w600, height: 1.35)),
+                              Text(
+                                'QW 安全电脑管家 · ${t.$1}',
+                                textAlign: TextAlign.center,
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w600,
+                                  height: 1.35,
+                                ),
+                              ),
                               const SizedBox(height: 4),
-                              Text(t.$3,
-                                  textAlign: TextAlign.center,
-                                  maxLines: 2,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: TextStyle(
-                                      fontSize: 10,
-                                      height: 1.3,
-                                      color: isDark ? Colors.white38 : Colors.black45)),
+                              Text(
+                                t.$3,
+                                textAlign: TextAlign.center,
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  fontSize: 10,
+                                  height: 1.3,
+                                  color:
+                                      isDark ? Colors.white38 : Colors.black45,
+                                ),
+                              ),
                             ],
                           ),
                         ),
@@ -1799,16 +2330,19 @@ class _ToolsPageState extends State<ToolsPage> {
           ),
           const SizedBox(height: 10),
           Center(
-            child: Text('新功能陆续推送，敬请期待',
-                style: TextStyle(
-                    fontSize: 11, color: isDark ? Colors.white30 : Colors.black.withOpacity(0.3))),
+            child: Text(
+              '新功能陆续推送，敬请期待',
+              style: TextStyle(
+                fontSize: 11,
+                color: isDark ? Colors.white30 : Colors.black.withOpacity(0.3),
+              ),
+            ),
           ),
         ],
       ),
     );
   }
 }
-
 
 // ======================= 新手引导弹窗 =======================
 
@@ -1872,9 +2406,11 @@ class _QuarantinePageState extends State<QuarantinePage> {
     final r = Api.quarantineRestore(id);
     await _load();
     if (mounted) {
-      _toast(r['success'] == true
-          ? '已恢复：${r['data']['restored_to'] ?? ''}'
-          : (r['message']?.toString() ?? '恢复失败'));
+      _toast(
+        r['success'] == true
+            ? '已恢复：${r['data']['restored_to'] ?? ''}'
+            : (r['message']?.toString() ?? '恢复失败'),
+      );
     }
   }
 
@@ -1882,7 +2418,10 @@ class _QuarantinePageState extends State<QuarantinePage> {
     if (!await strictAuth(context, '彻底删除隔离文件')) return;
     final r = Api.quarantineDelete(id);
     await _load();
-    if (mounted) _toast(r['success'] == true ? '已彻底删除' : (r['message']?.toString() ?? '删除失败'));
+    if (mounted)
+      _toast(
+        r['success'] == true ? '已彻底删除' : (r['message']?.toString() ?? '删除失败'),
+      );
   }
 
   Future<void> _clear() async {
@@ -1905,7 +2444,8 @@ class _QuarantinePageState extends State<QuarantinePage> {
     if (mounted) _toast(r['success'] == true ? '隔离库已清空' : '清空失败');
   }
 
-  int get _total => _items.fold(0, (a, b) => a + ((b['size'] as num?)?.toInt() ?? 0));
+  int get _total =>
+      _items.fold(0, (a, b) => a + ((b['size'] as num?)?.toInt() ?? 0));
 
   String _time(num? t) {
     if (t == null || t == 0) return '';
@@ -1924,101 +2464,135 @@ class _QuarantinePageState extends State<QuarantinePage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          PageTitle(
-            title: '隔离库',
-            subtitle: '查到的威胁都关在这里，不会自动删，随时能放回去',
-          ),
+          PageTitle(title: '隔离库', subtitle: '查到的威胁都关在这里，不会自动删，随时能放回去'),
           const SizedBox(height: 12),
-          Row(children: [
-            Expanded(
-              child: Container(
-                height: 38,
-                padding: const EdgeInsets.symmetric(horizontal: 12),
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(12),
-                  color: isDark ? Colors.white.withOpacity(0.06) : Colors.black.withOpacity(0.04),
-                ),
-                child: Row(children: [
-                  Icon(Icons.search_rounded, size: 17, color: isDark ? Colors.white38 : Colors.black38),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: TextField(
-                      controller: _search,
-                      decoration: const InputDecoration(
-                          hintText: '搜文件名或原路径', border: InputBorder.none, isDense: true),
-                      style: const TextStyle(fontSize: 12),
-                      onChanged: (v) => setState(() => _kw = v),
-                    ),
+          Row(
+            children: [
+              Expanded(
+                child: Container(
+                  height: 38,
+                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(12),
+                    color: isDark
+                        ? Colors.white.withOpacity(0.06)
+                        : Colors.black.withOpacity(0.04),
                   ),
-                  if (_kw.isNotEmpty)
-                    InkWell(
-                      onTap: () {
-                        _search.clear();
-                        setState(() => _kw = '');
-                      },
-                      child: const Icon(Icons.close_rounded, size: 15),
-                    ),
-                ]),
+                  child: Row(
+                    children: [
+                      Icon(
+                        Icons.search_rounded,
+                        size: 17,
+                        color: isDark ? Colors.white38 : Colors.black38,
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: TextField(
+                          controller: _search,
+                          decoration: const InputDecoration(
+                            hintText: '搜文件名或原路径',
+                            border: InputBorder.none,
+                            isDense: true,
+                          ),
+                          style: const TextStyle(fontSize: 12),
+                          onChanged: (v) => setState(() => _kw = v),
+                        ),
+                      ),
+                      if (_kw.isNotEmpty)
+                        InkWell(
+                          onTap: () {
+                            _search.clear();
+                            setState(() => _kw = '');
+                          },
+                          child: const Icon(Icons.close_rounded, size: 15),
+                        ),
+                    ],
+                  ),
+                ),
               ),
-            ),
-            const SizedBox(width: 10),
-            Text('${_items.length} 项 · ${_size(_total)}',
-                style: TextStyle(fontSize: 11.5, color: isDark ? Colors.white54 : Colors.black54)),
-            const SizedBox(width: 8),
-            IconButton(
-              tooltip: '刷新',
-              onPressed: _load,
-              icon: const Icon(Icons.refresh_rounded, size: 18),
-            ),
-          ]),
+              const SizedBox(width: 10),
+              Text(
+                '${_items.length} 项 · ${_size(_total)}',
+                style: TextStyle(
+                  fontSize: 11.5,
+                  color: isDark ? Colors.white54 : Colors.black54,
+                ),
+              ),
+              const SizedBox(width: 8),
+              IconButton(
+                tooltip: '刷新',
+                onPressed: _load,
+                icon: const Icon(Icons.refresh_rounded, size: 18),
+              ),
+            ],
+          ),
           const SizedBox(height: 10),
-          Row(children: [
-            TextButton(
-              onPressed: () => setState(() {
-                final ids = list.map((e) => e['id'].toString()).toSet();
-                if (_sel.containsAll(ids) && ids.isNotEmpty) {
-                  _sel.removeAll(ids);
-                } else {
-                  _sel.addAll(ids);
-                }
-              }),
-              child: Text(_sel.isEmpty ? '全选' : '反选'),
-            ),
-            TextButton(
-              onPressed: _sel.isEmpty
-                  ? null
-                  : () async {
-                      if (!await strictAuth(context, '删除选中的隔离文件')) return;
-                      for (final id in _sel.toList()) {
-                        Api.quarantineDelete(id);
-                      }
-                      await _load();
-                      if (mounted) _toast('已删除选中的 ${_sel.length} 项');
-                    },
-              child: const Text('删除选中'),
-            ),
-            const Spacer(),
-            TextButton(
-              onPressed: _items.isEmpty ? null : _clear,
-              child: const Text('一键清除', style: TextStyle(color: Colors.redAccent)),
-            ),
-          ]),
+          Row(
+            children: [
+              TextButton(
+                onPressed: () => setState(() {
+                  final ids = list.map((e) => e['id'].toString()).toSet();
+                  if (_sel.containsAll(ids) && ids.isNotEmpty) {
+                    _sel.removeAll(ids);
+                  } else {
+                    _sel.addAll(ids);
+                  }
+                }),
+                child: Text(_sel.isEmpty ? '全选' : '反选'),
+              ),
+              TextButton(
+                onPressed: _sel.isEmpty
+                    ? null
+                    : () async {
+                        if (!await strictAuth(context, '删除选中的隔离文件')) return;
+                        for (final id in _sel.toList()) {
+                          Api.quarantineDelete(id);
+                        }
+                        await _load();
+                        if (mounted) _toast('已删除选中的 ${_sel.length} 项');
+                      },
+                child: const Text('删除选中'),
+              ),
+              const Spacer(),
+              TextButton(
+                onPressed: _items.isEmpty ? null : _clear,
+                child: const Text(
+                  '一键清除',
+                  style: TextStyle(color: Colors.redAccent),
+                ),
+              ),
+            ],
+          ),
           const SizedBox(height: 4),
           Expanded(
             child: list.isEmpty
                 ? Center(
-                    child: Column(mainAxisSize: MainAxisSize.min, children: [
-                      Icon(Icons.inbox_rounded,
-                          size: 38, color: isDark ? Colors.white24 : Colors.black26),
-                      const SizedBox(height: 10),
-                      Text('隔离库是空的',
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          Icons.inbox_rounded,
+                          size: 38,
+                          color: isDark ? Colors.white24 : Colors.black26,
+                        ),
+                        const SizedBox(height: 10),
+                        Text(
+                          '隔离库是空的',
                           style: TextStyle(
-                              fontSize: 12.5, color: isDark ? Colors.white38 : Colors.black45)),
-                      const SizedBox(height: 4),
-                      Text('查到病毒后会自动收进来，原目录里就看不到那个文件了',
+                            fontSize: 12.5,
+                            color: isDark ? Colors.white38 : Colors.black45,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          '查到病毒后会自动收进来，原目录里就看不到那个文件了',
                           style: TextStyle(
-                              fontSize: 10.5, color: isDark ? Colors.white24 : Colors.black26)),
-                    ]),
+                            fontSize: 10.5,
+                            color: isDark ? Colors.white24 : Colors.black26,
+                          ),
+                        ),
+                      ],
+                    ),
                   )
                 : ListView.separated(
                     itemCount: list.length,
@@ -2029,52 +2603,81 @@ class _QuarantinePageState extends State<QuarantinePage> {
                       final checked = _sel.contains(id);
                       return LiquidGlass(
                         radius: 20,
-                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                        child: Row(children: [
-                          Checkbox(
-                            value: checked,
-                            visualDensity: VisualDensity.compact,
-                            onChanged: (v) => setState(() {
-                              if (v == true) {
-                                _sel.add(id);
-                              } else {
-                                _sel.remove(id);
-                              }
-                            }),
-                          ),
-                          const SizedBox(width: 2),
-                          Expanded(
-                            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                              Text('${it['name'] ?? ''}',
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: const TextStyle(
-                                      fontSize: 12.5, fontWeight: FontWeight.w600)),
-                              const SizedBox(height: 2),
-                              Text('${it['origin'] ?? ''}',
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: TextStyle(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 10,
+                        ),
+                        child: Row(
+                          children: [
+                            Checkbox(
+                              value: checked,
+                              visualDensity: VisualDensity.compact,
+                              onChanged: (v) => setState(() {
+                                if (v == true) {
+                                  _sel.add(id);
+                                } else {
+                                  _sel.remove(id);
+                                }
+                              }),
+                            ),
+                            const SizedBox(width: 2),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    '${it['name'] ?? ''}',
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: const TextStyle(
+                                      fontSize: 12.5,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 2),
+                                  Text(
+                                    '${it['origin'] ?? ''}',
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: TextStyle(
                                       fontSize: 10,
-                                      color: isDark ? Colors.white38 : Colors.black45)),
-                              const SizedBox(height: 2),
-                              Text(
-                                  '${_size((it['size'] as num?)?.toInt() ?? 0)} · ${_time(it['time'] as num?)} · ${it['engine'] ?? ''}',
-                                  style: TextStyle(
+                                      color: isDark
+                                          ? Colors.white38
+                                          : Colors.black45,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 2),
+                                  Text(
+                                    '${_size((it['size'] as num?)?.toInt() ?? 0)} · ${_time(it['time'] as num?)} · ${it['engine'] ?? ''}',
+                                    style: TextStyle(
                                       fontSize: 9.5,
-                                      color: isDark ? Colors.white24 : Colors.black38)),
-                            ]),
-                          ),
-                          TextButton(
-                            onPressed: () => _restore(id),
-                            child: const Text('恢复', style: TextStyle(fontSize: 12)),
-                          ),
-                          TextButton(
-                            onPressed: () => _delete(id),
-                            child: const Text('清除',
-                                style: TextStyle(fontSize: 12, color: Colors.redAccent)),
-                          ),
-                        ]),
+                                      color: isDark
+                                          ? Colors.white24
+                                          : Colors.black38,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            TextButton(
+                              onPressed: () => _restore(id),
+                              child: const Text(
+                                '恢复',
+                                style: TextStyle(fontSize: 12),
+                              ),
+                            ),
+                            TextButton(
+                              onPressed: () => _delete(id),
+                              child: const Text(
+                                '清除',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: Colors.redAccent,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
                       );
                     },
                   ),
@@ -2085,12 +2688,15 @@ class _QuarantinePageState extends State<QuarantinePage> {
   }
 }
 
-
 class WelcomeSheet extends StatefulWidget {
   final ThemeOption initial;
   final String initialLang;
 
-  const WelcomeSheet({super.key, required this.initial, this.initialLang = 'zh'});
+  const WelcomeSheet({
+    super.key,
+    required this.initial,
+    this.initialLang = 'zh',
+  });
 
   @override
   State<WelcomeSheet> createState() => _WelcomeSheetState();
@@ -2100,16 +2706,28 @@ class _WelcomeSheetState extends State<WelcomeSheet> {
   late ThemeOption _theme = widget.initial;
   late String _lang = widget.initialLang;
   late String _material = Ui.material.value;
-  late final Map<String, bool> _anim = {for (final a in Ui.anims) a.key: Ui.isOn(a.key)};
+  late final Map<String, bool> _anim = {
+    for (final a in Ui.anims) a.key: Ui.isOn(a.key),
+  };
 
   final PageController _pc = PageController();
   int _page = 0;
 
   /// 五档材质：默认混搭（控件玻璃 + 背景云母）
   static const _materials = [
-    ('auto', '智能混搭（默认）', '按钮和选项用液态玻璃，窗口背景用 Win11 云母，各管一块', Icons.auto_awesome_rounded),
+    (
+      'auto',
+      '智能混搭（默认）',
+      '按钮和选项用液态玻璃，窗口背景用 Win11 云母，各管一块',
+      Icons.auto_awesome_rounded,
+    ),
     ('mica', 'Windows 11 云母', '整窗云母，中性冷调，最贴近系统原生观感', Icons.blur_on_rounded),
-    ('aero', 'Windows 7 Aero', '薄雾玻璃加顶部强高光，老 Aero 那种通透感', Icons.wb_sunny_rounded),
+    (
+      'aero',
+      'Windows 7 Aero',
+      '薄雾玻璃加顶部强高光，老 Aero 那种通透感',
+      Icons.wb_sunny_rounded,
+    ),
     ('glass', '液态玻璃', 'iOS 27 液态玻璃，边缘色散、流动折射、玻璃厚度高光', Icons.water_drop_rounded),
     ('solid', '纯色', '不透明实色，最省性能', Icons.square_rounded),
   ];
@@ -2122,7 +2740,11 @@ class _WelcomeSheetState extends State<WelcomeSheet> {
 
   void _go(int delta) {
     final next = (_page + delta).clamp(0, 2);
-    _pc.animateToPage(next, duration: const Duration(milliseconds: 420), curve: Ui.spring);
+    _pc.animateToPage(
+      next,
+      duration: const Duration(milliseconds: 420),
+      curve: Ui.spring,
+    );
     setState(() => _page = next);
   }
 
@@ -2155,60 +2777,82 @@ class _WelcomeSheetState extends State<WelcomeSheet> {
             height: 560,
             child: Column(
               children: [
-                Row(children: [
-                  Expanded(
-                    child: Text(I18n.t('welcome'),
-                        style: const TextStyle(fontSize: 19, fontWeight: FontWeight.w700)),
-                  ),
-                  Text('${_page + 1}/3',
-                      style: TextStyle(fontSize: 11.5, color: isDark ? Colors.white38 : Colors.black38)),
-                ]),
-                const SizedBox(height: 10),
-                // 三段式进度条，切换时也跟着动
-                Row(children: [
-                  for (var i = 0; i < 3; i++) ...[
+                Row(
+                  children: [
                     Expanded(
-                      child: AnimatedContainer(
-                        duration: const Duration(milliseconds: 260),
-                        height: 3.5,
-                        decoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(99),
-                          color: i <= _page
-                              ? const Color(0xFF2F7BFF)
-                              : (isDark ? Colors.white12 : Colors.black12),
+                      child: Text(
+                        I18n.t('welcome'),
+                        style: const TextStyle(
+                          fontSize: 19,
+                          fontWeight: FontWeight.w700,
                         ),
                       ),
                     ),
-                    if (i < 2) const SizedBox(width: 5),
+                    Text(
+                      '${_page + 1}/3',
+                      style: TextStyle(
+                        fontSize: 11.5,
+                        color: isDark ? Colors.white38 : Colors.black38,
+                      ),
+                    ),
                   ],
-                ]),
+                ),
+                const SizedBox(height: 10),
+                // 三段式进度条，切换时也跟着动
+                Row(
+                  children: [
+                    for (var i = 0; i < 3; i++) ...[
+                      Expanded(
+                        child: AnimatedContainer(
+                          duration: const Duration(milliseconds: 260),
+                          height: 3.5,
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(99),
+                            color: i <= _page
+                                ? const Color(0xFF2F7BFF)
+                                : (isDark ? Colors.white12 : Colors.black12),
+                          ),
+                        ),
+                      ),
+                      if (i < 2) const SizedBox(width: 5),
+                    ],
+                  ],
+                ),
                 const SizedBox(height: 16),
                 Expanded(
                   child: PageView(
                     controller: _pc,
                     physics: const NeverScrollableScrollPhysics(),
                     onPageChanged: (i) => setState(() => _page = i),
-                    children: [_matPage(isDark), _animPage(isDark), _themePage(isDark)],
+                    children: [
+                      _matPage(isDark),
+                      _animPage(isDark),
+                      _themePage(isDark),
+                    ],
                   ),
                 ),
                 const SizedBox(height: 10),
-                Row(children: [
-                  if (_page > 0)
-                    TextButton(
-                      onPressed: () => _go(-1),
-                      child: Text(I18n.lang == 'en' ? 'Back' : '上一步'),
-                    )
-                  else
-                    const SizedBox(width: 64),
-                  const Spacer(),
-                  LiquidButton(
-                    text: _page == 2
-                        ? I18n.t('confirm')
-                        : (I18n.lang == 'en' ? 'Next' : '下一步'),
-                    icon: _page == 2 ? Icons.check_rounded : Icons.arrow_forward_rounded,
-                    onTap: _page == 2 ? _finish : () => _go(1),
-                  ),
-                ]),
+                Row(
+                  children: [
+                    if (_page > 0)
+                      TextButton(
+                        onPressed: () => _go(-1),
+                        child: Text(I18n.lang == 'en' ? 'Back' : '上一步'),
+                      )
+                    else
+                      const SizedBox(width: 64),
+                    const Spacer(),
+                    LiquidButton(
+                      text: _page == 2
+                          ? I18n.t('confirm')
+                          : (I18n.lang == 'en' ? 'Next' : '下一步'),
+                      icon: _page == 2
+                          ? Icons.check_rounded
+                          : Icons.arrow_forward_rounded,
+                      onTap: _page == 2 ? _finish : () => _go(1),
+                    ),
+                  ],
+                ),
               ],
             ),
           ),
@@ -2221,10 +2865,18 @@ class _WelcomeSheetState extends State<WelcomeSheet> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text('界面材质', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
+        const Text(
+          '界面材质',
+          style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+        ),
         const SizedBox(height: 5),
-        Text('默认走混搭：按钮和选项是液态玻璃，窗口背景是 Win11 云母。想要整窗全玻璃或者 Win7 那种 Aero 观感，再手动切。',
-            style: TextStyle(fontSize: 11.5, color: isDark ? Colors.white38 : Colors.black45)),
+        Text(
+          '默认走混搭：按钮和选项是液态玻璃，窗口背景是 Win11 云母。想要整窗全玻璃或者 Win7 那种 Aero 观感，再手动切。',
+          style: TextStyle(
+            fontSize: 11.5,
+            color: isDark ? Colors.white38 : Colors.black45,
+          ),
+        ),
         const SizedBox(height: 12),
         for (final m in _materials)
           Padding(
@@ -2233,22 +2885,45 @@ class _WelcomeSheetState extends State<WelcomeSheet> {
               radius: 22,
               padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
               onTap: () => setState(() => _material = m.$1),
-              child: Row(children: [
-                Icon(m.$4, size: 19, color: _material == m.$1 ? const Color(0xFF2F7BFF) : null),
-                const SizedBox(width: 11),
-                Expanded(
-                  child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                    Text(m.$2, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
-                    const SizedBox(height: 2),
-                    Text(m.$3, style: TextStyle(fontSize: 10.5, color: isDark ? Colors.white38 : Colors.black45)),
-                  ]),
-                ),
-                Icon(
-                  _material == m.$1 ? Icons.radio_button_checked_rounded : Icons.radio_button_off_rounded,
-                  size: 18,
-                  color: const Color(0xFF2F7BFF),
-                ),
-              ]),
+              child: Row(
+                children: [
+                  Icon(
+                    m.$4,
+                    size: 19,
+                    color: _material == m.$1 ? const Color(0xFF2F7BFF) : null,
+                  ),
+                  const SizedBox(width: 11),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          m.$2,
+                          style: const TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          m.$3,
+                          style: TextStyle(
+                            fontSize: 10.5,
+                            color: isDark ? Colors.white38 : Colors.black45,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Icon(
+                    _material == m.$1
+                        ? Icons.radio_button_checked_rounded
+                        : Icons.radio_button_off_rounded,
+                    size: 18,
+                    color: const Color(0xFF2F7BFF),
+                  ),
+                ],
+              ),
             ),
           ),
       ],
@@ -2259,10 +2934,18 @@ class _WelcomeSheetState extends State<WelcomeSheet> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text('动画效果', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
+        const Text(
+          '动画效果',
+          style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+        ),
         const SizedBox(height: 5),
-        Text('每一项都能单独关，关掉后对应效果立即停止，配置会记住。',
-            style: TextStyle(fontSize: 11.5, color: isDark ? Colors.white38 : Colors.black45)),
+        Text(
+          '每一项都能单独关，关掉后对应效果立即停止，配置会记住。',
+          style: TextStyle(
+            fontSize: 11.5,
+            color: isDark ? Colors.white38 : Colors.black45,
+          ),
+        ),
         const SizedBox(height: 6),
         Expanded(
           child: ListView(
@@ -2272,8 +2955,10 @@ class _WelcomeSheetState extends State<WelcomeSheet> {
                 SwitchListTile(
                   contentPadding: EdgeInsets.zero,
                   dense: true,
-                  title: Text(I18n.lang == 'en' ? a.en : a.zh,
-                      style: const TextStyle(fontSize: 12.5)),
+                  title: Text(
+                    I18n.lang == 'en' ? a.en : a.zh,
+                    style: const TextStyle(fontSize: 12.5),
+                  ),
                   value: _anim[a.key] ?? a.defaultOn,
                   onChanged: (v) => setState(() => _anim[a.key] = v),
                 ),
@@ -2288,7 +2973,10 @@ class _WelcomeSheetState extends State<WelcomeSheet> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(I18n.t('pickTheme'), style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
+        Text(
+          I18n.t('pickTheme'),
+          style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+        ),
         const SizedBox(height: 12),
         // 顺序：智能 → 跟随系统 → 浅色 → 深色。
         // 「智能」按本地时间调度：06:00–18:00 浅色，18:00–06:00 深色。
@@ -2300,16 +2988,33 @@ class _WelcomeSheetState extends State<WelcomeSheet> {
         const SizedBox(height: 9),
         _opt(I18n.t('dark'), ThemeOption.dark),
         const SizedBox(height: 16),
-        Row(children: [
-          Text('${I18n.t('language')}:', style: const TextStyle(fontSize: 12.5)),
-          const SizedBox(width: 8),
-          // 写全称，不用「简 / 繁 / EN」这种缩写 —— 用户第一眼要能看懂是什么语言
-          ChoiceChip(label: const Text('简体中文'), selected: _lang == 'zh', onSelected: (_) => setState(() => _lang = 'zh')),
-          const SizedBox(width: 6),
-          ChoiceChip(label: const Text('繁體中文'), selected: _lang == 'hant', onSelected: (_) => setState(() => _lang = 'hant')),
-          const SizedBox(width: 6),
-          ChoiceChip(label: const Text('English'), selected: _lang == 'en', onSelected: (_) => setState(() => _lang = 'en')),
-        ]),
+        Row(
+          children: [
+            Text(
+              '${I18n.t('language')}:',
+              style: const TextStyle(fontSize: 12.5),
+            ),
+            const SizedBox(width: 8),
+            // 写全称，不用「简 / 繁 / EN」这种缩写 —— 用户第一眼要能看懂是什么语言
+            ChoiceChip(
+              label: const Text('简体中文'),
+              selected: _lang == 'zh',
+              onSelected: (_) => setState(() => _lang = 'zh'),
+            ),
+            const SizedBox(width: 6),
+            ChoiceChip(
+              label: const Text('繁體中文'),
+              selected: _lang == 'hant',
+              onSelected: (_) => setState(() => _lang = 'hant'),
+            ),
+            const SizedBox(width: 6),
+            ChoiceChip(
+              label: const Text('English'),
+              selected: _lang == 'en',
+              onSelected: (_) => setState(() => _lang = 'en'),
+            ),
+          ],
+        ),
       ],
     );
   }
@@ -2320,16 +3025,22 @@ class _WelcomeSheetState extends State<WelcomeSheet> {
       radius: 22,
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
       onTap: () => setState(() => _theme = v),
-      child: Row(children: [
-        Text(text, style: const TextStyle(fontSize: 14)),
-        const Spacer(),
-        Icon(on ? Icons.radio_button_checked_rounded : Icons.radio_button_off_rounded,
-            size: 19, color: const Color(0xFF2F7BFF)),
-      ]),
+      child: Row(
+        children: [
+          Text(text, style: const TextStyle(fontSize: 14)),
+          const Spacer(),
+          Icon(
+            on
+                ? Icons.radio_button_checked_rounded
+                : Icons.radio_button_off_rounded,
+            size: 19,
+            color: const Color(0xFF2F7BFF),
+          ),
+        ],
+      ),
     );
   }
 }
-
 
 // ======================= 设置 =======================
 
@@ -2389,7 +3100,9 @@ class _SettingsPageState extends State<SettingsPage> {
         _gpuMode = (cfg['data']['gpu_mode']?.toString() ?? 'auto');
       }
       if (wl['success'] == true && wl['data'] is Map) {
-        _wl = ((wl['data']['items'] as List?) ?? const []).map((e) => e.toString()).toList();
+        _wl = ((wl['data']['items'] as List?) ?? const [])
+            .map((e) => e.toString())
+            .toList();
       }
       if (cpu['success'] == true && cpu['data'] is Map) {
         _cpuMsg = '${cpu['data']['cores']} 核 · ${cpu['data']['note'] ?? ''}';
@@ -2416,7 +3129,9 @@ class _SettingsPageState extends State<SettingsPage> {
     if (Platform.isWindows) {
       try {
         await Window.setEffect(
-          effect: currentMatStyle() == MatStyle.solid ? WindowEffect.solid : WindowEffect.mica,
+          effect: currentMatStyle() == MatStyle.solid
+              ? WindowEffect.solid
+              : WindowEffect.mica,
         );
       } catch (_) {}
     }
@@ -2437,244 +3152,382 @@ class _SettingsPageState extends State<SettingsPage> {
         children: [
           PageTitle(
             title: I18n.t('settings'),
-            subtitle: I18n.lang == 'en' ? 'Appearance, performance, updates and security' : '界面材质、性能、更新与安全项',
+            subtitle: I18n.lang == 'en'
+                ? 'Appearance, performance, updates and security'
+                : '界面材质、性能、更新与安全项',
           ),
           const SizedBox(height: 14),
           Expanded(
-            child: ListView(children: [
-              _section('外观与动画'),
-              _perfRow(),
-              _themeRow(),
-              _materialRow(),
-              for (final a in Ui.anims) _animRow(a),
-              _langRow(),
-              _section('悬浮监控'),
-              _switchRow(Icons.picture_in_picture_alt_rounded, I18n.t('floatingWindow'), Ui.floating.value, (v) {
-                setState(() => Ui.floating.value = v);
-                _saveBool('ui_floating', v);
-              }),
-              _metricRow(),
-              _switchRow(Icons.open_in_new_rounded, '桌面级悬浮窗（独立置顶窗口）', _desktopFloat, (v) async {
-                setState(() => _desktopFloat = v);
-                _saveBool('ui_desktop_float', v);
-                if (v) {
-                  final ok = await openDesktopMonitor();
-                  if (!ok && context.mounted) {
-                    _alert(context, '无法创建独立窗口', '当前环境不支持多窗口引擎，已退回应用内浮层。');
-                  }
-                } else {
-                  await closeDesktopMonitor();
-                }
-              }),
-              _section(I18n.t('graphicsMode')),
-              _gpuInfoRow(),
-              _choiceRow(['auto', 'discrete', 'integrated']),
-              if (_renderMsg.isNotEmpty)
-                Padding(
-                  padding: const EdgeInsets.only(top: 6, left: 4),
-                  child: Text(_renderMsg, style: const TextStyle(fontSize: 11, color: Color(0xFF2F7BFF))),
+            child: ListView(
+              children: [
+                _section('外观与动画'),
+                _perfRow(),
+                _themeRow(),
+                _materialRow(),
+                for (final a in Ui.anims) _animRow(a),
+                _langRow(),
+                _section('悬浮监控'),
+                _switchRow(
+                  Icons.picture_in_picture_alt_rounded,
+                  I18n.t('floatingWindow'),
+                  Ui.floating.value,
+                  (v) {
+                    setState(() => Ui.floating.value = v);
+                    _saveBool('ui_floating', v);
+                  },
                 ),
-              _actionRow(Icons.bolt_rounded, I18n.t('cpuSchedule'), _cpuMsg, () async {
-                final r = Api.cpuProfile();
-                setState(() => _cpuMsg = r['success'] == true ? '${r['data']['cores']} 核 · ${r['data']['note']}' : '不可用');
-              }),
-              _section(I18n.t('scan')),
-              _virusActionRow(),
-              _actionRow(Icons.inventory_2_rounded, '隔离库', '病毒收在这里，可恢复可清除', () async {
-                final r = Api.quarantineList();
-                final items = r['success'] == true && r['data'] is Map
-                    ? ((r['data']['items'] as List?) ?? const [])
-                    : const [];
-                if (!context.mounted) return;
-                _alert(context, '隔离库',
-                    items.isEmpty ? '还没关进去过东西。' : '共 ${items.length} 项。到左侧「隔离库」页可以看详情、恢复或清除。');
-              }),
-              _actionRow(Icons.playlist_add_check_rounded, I18n.t('whitelist'), '共 ${_wl.length} 项', () async {
-                final r = Api.whitelist();
-                if (r['success'] == true) {
-                  setState(() => _wl = ((r['data']['items'] as List?) ?? const []).map((e) => e.toString()).toList());
-                }
-                if (context.mounted) _showList(context, I18n.t('whitelist'), _wl, (p) async {
-                  if (!await strictAuth(context, '移除信任文件')) return;
-                  Api.whitelistRemove(p);
-                  final rr = Api.whitelist();
-                  setState(() => _wl = ((rr['data']['items'] as List?) ?? const []).map((e) => e.toString()).toList());
-                });
-              }),
-              _actionRow(Icons.usb_rounded, I18n.t('usbCheck'), _usbMsg, () async {
-                final r = Api.usb();
-                if (r['success'] == true) {
-                  final d = r['data'];
-                  final risky = d['risky_count'] ?? 0;
-                  final drives = (d['drives'] as List?) ?? const [];
-                  setState(() => _usbMsg = drives.isEmpty ? '未发现 U 盘' : '${drives.length} 个设备 · 风险 $risky');
-                  if (context.mounted && risky > 0) {
-                    _alert(context, 'U 盘风险', '检测到 autorun.inf，建议先扫描再打开。');
-                  }
-                }
-              }),
-              _section(I18n.t('tools')),
-              // 运行库补全已经从设置页移走：工具页里本来就有一整张卡片
-              // （带扫描 → 确认 → 后台补齐的完整流程）。设置页这里只留一条
-              // 「点一下看缺什么」的残废版，同一功能两个入口，用户反而找不到。
-              _actionRow(Icons.storage_rounded, I18n.t('installRec'), _installMsg, () async {
-                final r = Api.recommendDir();
-                setState(() => _installMsg = r['success'] == true ? '${r['data']['reason']}' : '${r['message']}');
-              }),
-              _section(I18n.t('update')),
-              _repoRow(),
-              _actionRow(Icons.system_update_rounded, I18n.t('update'), _updateMsg, _checkUpdate),
-              _section('后台任务'),
-              _actionRow(Icons.cleaning_services_rounded, '垃圾清理频率', _intervalText(_cleanInterval), () async {
-                await _pickInterval('垃圾清理频率', _cleanInterval, 'clean_interval_min',
-                    (v) => setState(() => _cleanInterval = v));
-              }, guard: false),
-              _actionRow(Icons.shield_rounded, '病毒查杀频率', _intervalText(_scanInterval), () async {
-                await _pickInterval('病毒查杀频率', _scanInterval, 'scan_interval_min',
-                    (v) => setState(() => _scanInterval = v));
-              }, guard: false),
-              _switchRow(Icons.hourglass_bottom_rounded, '只在系统空闲时运行', _idleOnly, (v) async {
-                setState(() => _idleOnly = v);
-                Api.securitySet('idle_only', v);
-              }),
-              _switchRow(Icons.speed_rounded, '查杀性能模式', _scanFullSpeed, (v) async {
-                setState(() => _scanFullSpeed = v);
-                Api.securitySet('scan_full_speed', v);
-              }),
-              _actionRow(Icons.play_circle_rounded, '立即执行一轮', '不等时间，马上扫一遍', () async {
-                final r = Api.bgRunOnce();
-                if (context.mounted) {
-                  _alert(context, '执行完成',
-                      r['success'] == true ? '释放 ${_size((r['data']['freed'] as num?) ?? 0)}，删除 ${r['data']['deleted'] ?? 0} 个文件，命中 ${r['data']['found'] ?? 0} 项' : '${r['message']}');
-                }
-              }),
-              _section('安全'),
-              _switchRow(Icons.system_update_alt_rounded, '发现新版本时静默安装', _silentUpdate, (v) async {
-                if (!v) {
-                  final ok = await showDialog<bool>(
-                    context: context,
-                    builder: (_) => QDialog(
-                      icon: Icons.system_update_alt_rounded,
-                      title: '关闭静默更新',
-                      body: '关闭后将无法体验新功能，也不会自动修补漏洞。确定要关闭吗？',
-                      okText: '确定关闭',
-                      cancelText: '保持开启',
-                    ),
-                  );
-                  if (ok != true) return;
-                }
-                if (!await strictAuth(context, '修改静默更新')) return;
-                setState(() => _silentUpdate = v);
-                Api.securitySet('silent_update', v);
-              }, guard: false),
-              _switchRow(Icons.lock_rounded, '密码保护', _pwdEnabled, (v) async {
-                if (v) {
-                  final pwd = await _askNewPassword();
-                  if (pwd == null) return;
-                  final r = Api.passwordSet(pwd);
-                  if (r['success'] != true) {
-                    if (context.mounted) _alert(context, '设置失败', '${r['message']}');
-                    return;
-                  }
-                  setState(() => _pwdEnabled = true);
-                } else {
-                  final ok = await showDialog<bool>(
-                    context: context,
-                    builder: (_) => QDialog(
-                      icon: Icons.lock_open_rounded,
-                      title: '关闭密码保护',
-                      body: '关掉之后，退出后台、关闭自启动、关闭软件都不再需要验证身份。确定吗？',
-                      okText: '确定关闭',
-                      cancelText: '取消',
-                    ),
-                  );
-                  if (ok != true) return;
-                  final pass = await _askPasswordFor('关闭密码保护');
-                  if (!pass) return;
-                  final r = Api.passwordClear();
-                  if (r['success'] != true) {
-                    if (context.mounted) _alert(context, '关闭失败', '${r['message']}');
-                    return;
-                  }
-                  setState(() => _pwdEnabled = false);
-                }
-              }, guard: false),
-              _switchRow(
-                Icons.verified_user_rounded,
-                '严格模式',
-                _pwdEnabled && _strictMode,
-                (v) async {
-                  if (!_pwdEnabled) return;
-                  if (!await askPasswordFor(context, '修改严格模式')) return;
-                  final r = Api.securitySet('strict_mode', v);
-                  if (!mounted) return;
-                  if (r['success'] != true) {
-                    _alert(context, '修改失败', '${r['message']}');
-                    return;
-                  }
-                  setState(() => _strictMode = v);
-                },
-                enabled: _pwdEnabled,
-                guard: false,
-              ),
-              _section('AI 代理'),
-              _actionRow(Icons.smart_toy_rounded, 'AI 代理 · MCP 助手',
-                  '只读接入 Claude / Cursor 等 AI 客户端', _showMcpInfo,
-                  guard: false),
-              _section(I18n.t('autostart')),
-              SwitchListTile(
-                contentPadding: EdgeInsets.zero,
-                title: Text(I18n.t('autostart')),
-                subtitle: Text(
-                  Platform.isWindows
-                      ? '开机登录后自动拉起后台防护：在注册表 HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run 下登记 QWGuard。关闭后该项会被删除，开机不再自动防护。'
-                      : '开机登录后自动拉起后台防护：在 ~/.config/autostart 写一个 QWGuard 启动项。',
-                  style: const TextStyle(fontSize: 11),
+                _metricRow(),
+                _switchRow(
+                  Icons.open_in_new_rounded,
+                  '桌面级悬浮窗（独立置顶窗口）',
+                  _desktopFloat,
+                  (v) async {
+                    setState(() => _desktopFloat = v);
+                    _saveBool('ui_desktop_float', v);
+                    if (v) {
+                      final ok = await openDesktopMonitor();
+                      if (!ok && context.mounted) {
+                        _alert(context, '无法创建独立窗口', '当前环境不支持多窗口引擎，已退回应用内浮层。');
+                      }
+                    } else {
+                      await closeDesktopMonitor();
+                    }
+                  },
                 ),
-                value: _autoStart,
-                onChanged: (v) async {
-                  if (!v) {
+                _section(I18n.t('graphicsMode')),
+                _gpuInfoRow(),
+                _choiceRow(['auto', 'discrete', 'integrated']),
+                if (_renderMsg.isNotEmpty)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 6, left: 4),
+                    child: Text(
+                      _renderMsg,
+                      style: const TextStyle(
+                        fontSize: 11,
+                        color: Color(0xFF2F7BFF),
+                      ),
+                    ),
+                  ),
+                _actionRow(
+                  Icons.bolt_rounded,
+                  I18n.t('cpuSchedule'),
+                  _cpuMsg,
+                  () async {
+                    final r = Api.cpuProfile();
+                    setState(
+                      () => _cpuMsg = r['success'] == true
+                          ? '${r['data']['cores']} 核 · ${r['data']['note']}'
+                          : '不可用',
+                    );
+                  },
+                ),
+                _section(I18n.t('scan')),
+                _virusActionRow(),
+                _actionRow(
+                  Icons.inventory_2_rounded,
+                  '隔离库',
+                  '病毒收在这里，可恢复可清除',
+                  () async {
+                    final r = Api.quarantineList();
+                    final items = r['success'] == true && r['data'] is Map
+                        ? ((r['data']['items'] as List?) ?? const [])
+                        : const [];
+                    if (!context.mounted) return;
+                    _alert(
+                      context,
+                      '隔离库',
+                      items.isEmpty
+                          ? '还没关进去过东西。'
+                          : '共 ${items.length} 项。到左侧「隔离库」页可以看详情、恢复或清除。',
+                    );
+                  },
+                ),
+                _actionRow(
+                  Icons.playlist_add_check_rounded,
+                  I18n.t('whitelist'),
+                  '共 ${_wl.length} 项',
+                  () async {
+                    final r = Api.whitelist();
+                    if (r['success'] == true) {
+                      setState(
+                        () => _wl = ((r['data']['items'] as List?) ?? const [])
+                            .map((e) => e.toString())
+                            .toList(),
+                      );
+                    }
+                    if (context.mounted)
+                      _showList(context, I18n.t('whitelist'), _wl, (p) async {
+                        if (!await strictAuth(context, '移除信任文件')) return;
+                        Api.whitelistRemove(p);
+                        final rr = Api.whitelist();
+                        setState(
+                          () => _wl =
+                              ((rr['data']['items'] as List?) ?? const [])
+                                  .map((e) => e.toString())
+                                  .toList(),
+                        );
+                      });
+                  },
+                ),
+                _actionRow(
+                  Icons.usb_rounded,
+                  I18n.t('usbCheck'),
+                  _usbMsg,
+                  () async {
+                    final r = Api.usb();
+                    if (r['success'] == true) {
+                      final d = r['data'];
+                      final risky = d['risky_count'] ?? 0;
+                      final drives = (d['drives'] as List?) ?? const [];
+                      setState(
+                        () => _usbMsg = drives.isEmpty
+                            ? '未发现 U 盘'
+                            : '${drives.length} 个设备 · 风险 $risky',
+                      );
+                      if (context.mounted && risky > 0) {
+                        _alert(context, 'U 盘风险', '检测到 autorun.inf，建议先扫描再打开。');
+                      }
+                    }
+                  },
+                ),
+                _section(I18n.t('tools')),
+                // 运行库补全已经从设置页移走：工具页里本来就有一整张卡片
+                // （带扫描 → 确认 → 后台补齐的完整流程）。设置页这里只留一条
+                // 「点一下看缺什么」的残废版，同一功能两个入口，用户反而找不到。
+                _actionRow(
+                  Icons.storage_rounded,
+                  I18n.t('installRec'),
+                  _installMsg,
+                  () async {
+                    final r = Api.recommendDir();
+                    setState(
+                      () => _installMsg = r['success'] == true
+                          ? '${r['data']['reason']}'
+                          : '${r['message']}',
+                    );
+                  },
+                ),
+                _section(I18n.t('update')),
+                _repoRow(),
+                _actionRow(
+                  Icons.system_update_rounded,
+                  I18n.t('update'),
+                  _updateMsg,
+                  _checkUpdate,
+                ),
+                _section('后台任务'),
+                _actionRow(
+                  Icons.cleaning_services_rounded,
+                  '垃圾清理频率',
+                  _intervalText(_cleanInterval),
+                  () async {
+                    await _pickInterval(
+                      '垃圾清理频率',
+                      _cleanInterval,
+                      'clean_interval_min',
+                      (v) => setState(() => _cleanInterval = v),
+                    );
+                  },
+                  guard: false,
+                ),
+                _actionRow(
+                  Icons.shield_rounded,
+                  '病毒查杀频率',
+                  _intervalText(_scanInterval),
+                  () async {
+                    await _pickInterval(
+                      '病毒查杀频率',
+                      _scanInterval,
+                      'scan_interval_min',
+                      (v) => setState(() => _scanInterval = v),
+                    );
+                  },
+                  guard: false,
+                ),
+                _switchRow(
+                  Icons.hourglass_bottom_rounded,
+                  '只在系统空闲时运行',
+                  _idleOnly,
+                  (v) async {
+                    setState(() => _idleOnly = v);
+                    Api.securitySet('idle_only', v);
+                  },
+                ),
+                _switchRow(Icons.speed_rounded, '查杀性能模式', _scanFullSpeed, (
+                  v,
+                ) async {
+                  setState(() => _scanFullSpeed = v);
+                  Api.securitySet('scan_full_speed', v);
+                }),
+                _actionRow(Icons.play_circle_rounded, '立即执行一轮', '不等时间，马上扫一遍',
+                    () async {
+                  final r = Api.bgRunOnce();
+                  if (context.mounted) {
+                    _alert(
+                      context,
+                      '执行完成',
+                      r['success'] == true
+                          ? '释放 ${_size((r['data']['freed'] as num?) ?? 0)}，删除 ${r['data']['deleted'] ?? 0} 个文件，命中 ${r['data']['found'] ?? 0} 项'
+                          : '${r['message']}',
+                    );
+                  }
+                }),
+                _section('安全'),
+                _switchRow(
+                  Icons.system_update_alt_rounded,
+                  '发现新版本时静默安装',
+                  _silentUpdate,
+                  (v) async {
+                    if (!v) {
+                      final ok = await showDialog<bool>(
+                        context: context,
+                        builder: (_) => QDialog(
+                          icon: Icons.system_update_alt_rounded,
+                          title: '关闭静默更新',
+                          body: '关闭后将无法体验新功能，也不会自动修补漏洞。确定要关闭吗？',
+                          okText: '确定关闭',
+                          cancelText: '保持开启',
+                        ),
+                      );
+                      if (ok != true) return;
+                    }
+                    if (!await strictAuth(context, '修改静默更新')) return;
+                    setState(() => _silentUpdate = v);
+                    Api.securitySet('silent_update', v);
+                  },
+                  guard: false,
+                ),
+                _switchRow(Icons.lock_rounded, '密码保护', _pwdEnabled, (v) async {
+                  if (v) {
+                    final pwd = await _askNewPassword();
+                    if (pwd == null) return;
+                    final r = Api.passwordSet(pwd);
+                    if (r['success'] != true) {
+                      if (context.mounted)
+                        _alert(context, '设置失败', '${r['message']}');
+                      return;
+                    }
+                    setState(() => _pwdEnabled = true);
+                  } else {
                     final ok = await showDialog<bool>(
                       context: context,
                       builder: (_) => QDialog(
-                        icon: Icons.power_off_rounded,
-                        title: '不建议关闭自启动',
-                        body: '关掉之后，开机不会自动进入防护状态，这段时间电脑是不设防的，安全性会下降。\n\n确定要关闭吗？',
-                        okText: '仍然关闭',
-                        cancelText: '保持开启',
+                        icon: Icons.lock_open_rounded,
+                        title: '关闭密码保护',
+                        body: '关掉之后，退出后台、关闭自启动、关闭软件都不再需要验证身份。确定吗？',
+                        okText: '确定关闭',
+                        cancelText: '取消',
                       ),
                     );
                     if (ok != true) return;
-                  }
-                  if (!await strictAuth(context, '修改开机自启动')) return;
-                  if (_pwdEnabled && !_strictMode) {
-                    final pass = await _askPasswordFor('关闭自启动');
+                    final pass = await _askPasswordFor('关闭密码保护');
                     if (!pass) return;
+                    final r = Api.passwordClear();
+                    if (r['success'] != true) {
+                      if (context.mounted)
+                        _alert(context, '关闭失败', '${r['message']}');
+                      return;
+                    }
+                    setState(() => _pwdEnabled = false);
                   }
-                  if (v) {
-                    // 老版本登记的是英文名 QWGuard。先删掉它，否则同一个程序
-                    // 在注册表里会挂两条，任务管理器的启动项里会出现两个同名项。
-                    Api.autostartSet('QWGuard', Platform.resolvedExecutable, false);
-                  }
-                  final r = Api.autostartSet('QW安全电脑管家', Platform.resolvedExecutable, v);
-                  setState(() => _autoStart = v);
-                  _saveBool('autostart', v);
-                  if (context.mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(r['message']?.toString() ?? '')));
-                  }
-                },
-              ),
-              Padding(
-                padding: const EdgeInsets.only(top: 10),
-                child: Text(
-                  I18n.lang == 'en' ? 'Uninstall removes install dir and HKCU entries.' : '卸载时会清理安装目录与 HKCU 注册表项，避免残留。',
-                  style: TextStyle(fontSize: 11, color: isDark ? Colors.white38 : Colors.black38),
+                }, guard: false),
+                _switchRow(
+                  Icons.verified_user_rounded,
+                  '严格模式',
+                  _pwdEnabled && _strictMode,
+                  (v) async {
+                    if (!_pwdEnabled) return;
+                    if (!await askPasswordFor(context, '修改严格模式')) return;
+                    final r = Api.securitySet('strict_mode', v);
+                    if (!mounted) return;
+                    if (r['success'] != true) {
+                      _alert(context, '修改失败', '${r['message']}');
+                      return;
+                    }
+                    setState(() => _strictMode = v);
+                  },
+                  enabled: _pwdEnabled,
+                  guard: false,
                 ),
-              ),
-              _section('作者与项目'),
-              _authorRow(),
-              const SizedBox(height: 30),
-            ]),
+                _section('AI 代理'),
+                _actionRow(
+                  Icons.smart_toy_rounded,
+                  'AI 代理 · MCP 助手',
+                  '只读接入 Claude / Cursor 等 AI 客户端',
+                  _showMcpInfo,
+                  guard: false,
+                ),
+                _section(I18n.t('autostart')),
+                SwitchListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: Text(I18n.t('autostart')),
+                  subtitle: Text(
+                    Platform.isWindows
+                        ? '开机登录后自动拉起后台防护：在注册表 HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run 下登记 QWGuard。关闭后该项会被删除，开机不再自动防护。'
+                        : '开机登录后自动拉起后台防护：在 ~/.config/autostart 写一个 QWGuard 启动项。',
+                    style: const TextStyle(fontSize: 11),
+                  ),
+                  value: _autoStart,
+                  onChanged: (v) async {
+                    if (!v) {
+                      final ok = await showDialog<bool>(
+                        context: context,
+                        builder: (_) => QDialog(
+                          icon: Icons.power_off_rounded,
+                          title: '不建议关闭自启动',
+                          body:
+                              '关掉之后，开机不会自动进入防护状态，这段时间电脑是不设防的，安全性会下降。\n\n确定要关闭吗？',
+                          okText: '仍然关闭',
+                          cancelText: '保持开启',
+                        ),
+                      );
+                      if (ok != true) return;
+                    }
+                    if (!await strictAuth(context, '修改开机自启动')) return;
+                    if (_pwdEnabled && !_strictMode) {
+                      final pass = await _askPasswordFor('关闭自启动');
+                      if (!pass) return;
+                    }
+                    if (v) {
+                      // 老版本登记的是英文名 QWGuard。先删掉它，否则同一个程序
+                      // 在注册表里会挂两条，任务管理器的启动项里会出现两个同名项。
+                      Api.autostartSet(
+                        'QWGuard',
+                        Platform.resolvedExecutable,
+                        false,
+                      );
+                    }
+                    final r = Api.autostartSet(
+                      'QW安全电脑管家',
+                      Platform.resolvedExecutable,
+                      v,
+                    );
+                    setState(() => _autoStart = v);
+                    _saveBool('autostart', v);
+                    if (context.mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(content: Text(r['message']?.toString() ?? '')),
+                      );
+                    }
+                  },
+                ),
+                Padding(
+                  padding: const EdgeInsets.only(top: 10),
+                  child: Text(
+                    I18n.lang == 'en'
+                        ? 'Uninstall removes install dir and HKCU entries.'
+                        : '卸载时会清理安装目录与 HKCU 注册表项，避免残留。',
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: isDark ? Colors.white38 : Colors.black38,
+                    ),
+                  ),
+                ),
+                _section('作者与项目'),
+                _authorRow(),
+                const SizedBox(height: 30),
+              ],
+            ),
           ),
         ],
       ),
@@ -2694,42 +3547,73 @@ class _SettingsPageState extends State<SettingsPage> {
       ('ask', '询问我', '弹窗让你决定（默认）'),
       ('record', '仅记录', '只记一笔，不动文件'),
     ];
-    final cur = opts.firstWhere((o) => o.$1 == _virusAction, orElse: () => opts[1]);
-    return _actionRow(Icons.notifications_active_rounded, '发现病毒时', cur.$2, () async {
-      final r = await showDialog<String>(
-        context: context,
-        builder: (_) => SimpleDialog(
-          title: const Text('发现病毒时'),
-          children: [
-            for (final o in opts)
-              SimpleDialogOption(
-                onPressed: () => Navigator.of(context).pop(o.$1),
-                child: Row(children: [
-                  Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                    Text(o.$2, style: const TextStyle(fontWeight: FontWeight.w600)),
-                    const SizedBox(height: 2),
-                    Text(o.$3, style: const TextStyle(fontSize: 11)),
-                  ]),
-                  const Spacer(),
-                  if (_virusAction == o.$1) const Icon(Icons.check_rounded, size: 18),
-                ]),
-              ),
-          ],
-        ),
-      );
-      if (r == null) return;
-      if (!await strictAuth(context, '修改发现病毒时的处理方式')) return;
-      setState(() => _virusAction = r);
-      Api.securitySet('virus_action', r);
-    }, guard: false);
+    final cur = opts.firstWhere(
+      (o) => o.$1 == _virusAction,
+      orElse: () => opts[1],
+    );
+    return _actionRow(
+      Icons.notifications_active_rounded,
+      '发现病毒时',
+      cur.$2,
+      () async {
+        final r = await showDialog<String>(
+          context: context,
+          builder: (_) => SimpleDialog(
+            title: const Text('发现病毒时'),
+            children: [
+              for (final o in opts)
+                SimpleDialogOption(
+                  onPressed: () => Navigator.of(context).pop(o.$1),
+                  child: Row(
+                    children: [
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            o.$2,
+                            style: const TextStyle(fontWeight: FontWeight.w600),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(o.$3, style: const TextStyle(fontSize: 11)),
+                        ],
+                      ),
+                      const Spacer(),
+                      if (_virusAction == o.$1)
+                        const Icon(Icons.check_rounded, size: 18),
+                    ],
+                  ),
+                ),
+            ],
+          ),
+        );
+        if (r == null) return;
+        if (!await strictAuth(context, '修改发现病毒时的处理方式')) return;
+        setState(() => _virusAction = r);
+        Api.securitySet('virus_action', r);
+      },
+      guard: false,
+    );
   }
 
   /// 选频率：1/2/4/6/8/12 小时，1~5 天，关闭（关闭要二级确认）
-  Future<void> _pickInterval(String title, int cur, String key, ValueChanged<int> done) async {
+  Future<void> _pickInterval(
+    String title,
+    int cur,
+    String key,
+    ValueChanged<int> done,
+  ) async {
     const opts = [
-      (60, '1 小时'), (120, '2 小时'), (240, '4 小时'), (360, '6 小时'),
-      (480, '8 小时'), (720, '12 小时'),
-      (1440, '1 天'), (2880, '2 天'), (4320, '3 天'), (5760, '4 天'), (7200, '5 天'),
+      (60, '1 小时'),
+      (120, '2 小时'),
+      (240, '4 小时'),
+      (360, '6 小时'),
+      (480, '8 小时'),
+      (720, '12 小时'),
+      (1440, '1 天'),
+      (2880, '2 天'),
+      (4320, '3 天'),
+      (5760, '4 天'),
+      (7200, '5 天'),
       (-1, '自定义…'),
       (0, '关闭'),
     ];
@@ -2741,11 +3625,13 @@ class _SettingsPageState extends State<SettingsPage> {
           for (final o in opts)
             SimpleDialogOption(
               onPressed: () => Navigator.of(context).pop(o.$1),
-              child: Row(children: [
-                Text(o.$2),
-                const Spacer(),
-                if (cur == o.$1) const Icon(Icons.check_rounded, size: 18),
-              ]),
+              child: Row(
+                children: [
+                  Text(o.$2),
+                  const Spacer(),
+                  if (cur == o.$1) const Icon(Icons.check_rounded, size: 18),
+                ],
+              ),
             ),
         ],
       ),
@@ -2834,21 +3720,32 @@ class _SettingsPageState extends State<SettingsPage> {
             ? ConstrainedBox(
                 constraints: const BoxConstraints(maxHeight: 330),
                 child: SingleChildScrollView(
-                  child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                    SelectableText('服务端：$mcp',
-                        style: const TextStyle(fontSize: 11, height: 1.5)),
-                    const SizedBox(height: 10),
-                    Container(
-                      width: double.infinity,
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: Colors.black.withOpacity(0.18),
-                        borderRadius: BorderRadius.circular(14),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      SelectableText(
+                        '服务端：$mcp',
+                        style: const TextStyle(fontSize: 11, height: 1.5),
                       ),
-                      child: SelectableText(config,
-                          style: const TextStyle(fontSize: 11, height: 1.5, fontFamily: 'monospace')),
-                    ),
-                  ]),
+                      const SizedBox(height: 10),
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: Colors.black.withOpacity(0.18),
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                        child: SelectableText(
+                          config,
+                          style: const TextStyle(
+                            fontSize: 11,
+                            height: 1.5,
+                            fontFamily: 'monospace',
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               )
             : null,
@@ -2881,17 +3778,27 @@ class _SettingsPageState extends State<SettingsPage> {
           body: err.isEmpty ? '设置之后，退出后台再打开、关闭自启动、关闭软件都要验证。' : err,
           okText: '保存',
           cancelText: '取消',
-          child: Column(children: [
-            TextField(
+          child: Column(
+            children: [
+              TextField(
                 controller: a,
                 obscureText: true,
-                decoration: const InputDecoration(hintText: '输入密码（至少 8 位）', isDense: true)),
-            const SizedBox(height: 8),
-            TextField(
+                decoration: const InputDecoration(
+                  hintText: '输入密码（至少 8 位）',
+                  isDense: true,
+                ),
+              ),
+              const SizedBox(height: 8),
+              TextField(
                 controller: b,
                 obscureText: true,
-                decoration: const InputDecoration(hintText: '再输一次', isDense: true)),
-          ]),
+                decoration: const InputDecoration(
+                  hintText: '再输一次',
+                  isDense: true,
+                ),
+              ),
+            ],
+          ),
           onOk: () {
             if (a.text.length < 8) {
               setS(() => err = '至少 8 位');
@@ -2926,31 +3833,59 @@ class _SettingsPageState extends State<SettingsPage> {
         children: [
           ClipRRect(
             borderRadius: BorderRadius.circular(10),
-            child: Image.asset('assets/donate_qr.png', width: 108, height: 108, fit: BoxFit.cover),
+            child: Image.asset(
+              'assets/donate_qr.png',
+              width: 108,
+              height: 108,
+              fit: BoxFit.cover,
+            ),
           ),
           const SizedBox(width: 16),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('QW351784',
-                    style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w800, height: 1.1)),
+                Text(
+                  'QW351784',
+                  style: const TextStyle(
+                    fontSize: 22,
+                    fontWeight: FontWeight.w800,
+                    height: 1.1,
+                  ),
+                ),
                 const SizedBox(height: 4),
                 MouseRegion(
                   cursor: SystemMouseCursors.click,
                   child: GestureDetector(
-                    onTap: () => _openUrl('https://github.com/QW351784/QWGuard'),
-                    child: Text('github.com/QW351784/QWGuard',
-                        style: TextStyle(
-                            fontSize: 12, color: accent, decoration: TextDecoration.none, height: 1.3)),
+                    onTap: () =>
+                        _openUrl('https://github.com/QW351784/QWGuard'),
+                    child: Text(
+                      'github.com/QW351784/QWGuard',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: accent,
+                        decoration: TextDecoration.none,
+                        height: 1.3,
+                      ),
+                    ),
                   ),
                 ),
                 const SizedBox(height: 10),
-                Text('酷安：QW123456780',
-                    style: TextStyle(fontSize: 12, color: isDark ? Colors.white60 : Colors.black54)),
+                Text(
+                  '酷安：QW123456780',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: isDark ? Colors.white60 : Colors.black54,
+                  ),
+                ),
                 const SizedBox(height: 2),
-                Text('作者制作维护不容易，爱心捐款，一杯奶茶价钱，就是作者继续维护更新的动力。',
-                    style: TextStyle(fontSize: 10.5, color: isDark ? Colors.white38 : Colors.black38)),
+                Text(
+                  '作者制作维护不容易，爱心捐款，一杯奶茶价钱，就是作者继续维护更新的动力。',
+                  style: TextStyle(
+                    fontSize: 10.5,
+                    color: isDark ? Colors.white38 : Colors.black38,
+                  ),
+                ),
               ],
             ),
           ),
@@ -2974,7 +3909,14 @@ class _SettingsPageState extends State<SettingsPage> {
 
   Widget _section(String t) => Padding(
         padding: const EdgeInsets.fromLTRB(4, 18, 4, 8),
-        child: Text(t, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700, letterSpacing: 0.6)),
+        child: Text(
+          t,
+          style: const TextStyle(
+            fontSize: 12,
+            fontWeight: FontWeight.w700,
+            letterSpacing: 0.6,
+          ),
+        ),
       );
 
   static const _animIcons = {
@@ -3004,14 +3946,21 @@ class _SettingsPageState extends State<SettingsPage> {
           children: [
             const Icon(Icons.speed_rounded, size: 20),
             const SizedBox(width: 12),
-            const Expanded(child: Text('实时帧耗时', style: TextStyle(fontSize: 14))),
+            const Expanded(
+              child: Text('实时帧耗时', style: TextStyle(fontSize: 14)),
+            ),
             ValueListenableBuilder<double>(
               valueListenable: Ui.frameMs,
               builder: (_, ms, __) {
                 final fps = ms <= 0 ? 0.0 : 1000 / ms;
                 return Text(
-                  ms <= 0 ? '—' : '${ms.toStringAsFixed(1)} ms · ${fps.toStringAsFixed(0)} FPS',
-                  style: TextStyle(fontSize: 12, color: isDark ? Colors.white70 : Colors.black54),
+                  ms <= 0
+                      ? '—'
+                      : '${ms.toStringAsFixed(1)} ms · ${fps.toStringAsFixed(0)} FPS',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: isDark ? Colors.white70 : Colors.black54,
+                  ),
                 );
               },
             ),
@@ -3047,13 +3996,18 @@ class _SettingsPageState extends State<SettingsPage> {
               children: [
                 const Icon(Icons.brightness_6_rounded, size: 20),
                 const SizedBox(width: 12),
-                const Expanded(child: Text('界面主题', style: TextStyle(fontSize: 14))),
+                const Expanded(
+                  child: Text('界面主题', style: TextStyle(fontSize: 14)),
+                ),
                 Flexible(
                   child: Text(
                     label,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: TextStyle(fontSize: 12.5, color: isDark ? Colors.white70 : Colors.black54),
+                    style: TextStyle(
+                      fontSize: 12.5,
+                      color: isDark ? Colors.white70 : Colors.black54,
+                    ),
                   ),
                 ),
                 const SizedBox(width: 4),
@@ -3066,7 +4020,10 @@ class _SettingsPageState extends State<SettingsPage> {
               padding: const EdgeInsets.only(top: 5, left: 6),
               child: Text(
                 '智能调度：06:00–18:00 浅色，18:00–06:00 深色',
-                style: TextStyle(fontSize: 11, color: isDark ? Colors.white38 : Colors.black45),
+                style: TextStyle(
+                  fontSize: 11,
+                  color: isDark ? Colors.white38 : Colors.black45,
+                ),
               ),
             ),
         ],
@@ -3077,7 +4034,11 @@ class _SettingsPageState extends State<SettingsPage> {
   Future<void> _pickTheme() async {
     final cur = Ui.theme.value;
     const opts = <(ThemeOption, String, String)>[
-      (ThemeOption.smart, '智能（白天浅色，夜间深色）', '06:00–18:00 浅色，18:00–06:00 深色，按本地时间自动切'),
+      (
+        ThemeOption.smart,
+        '智能（白天浅色，夜间深色）',
+        '06:00–18:00 浅色，18:00–06:00 深色，按本地时间自动切',
+      ),
       (ThemeOption.system, '跟随系统', '跟随 Windows 的浅色 / 深色设置'),
       (ThemeOption.light, '浅色模式', '始终使用浅色界面'),
       (ThemeOption.dark, '深色模式', '始终使用深色界面'),
@@ -3094,7 +4055,9 @@ class _SettingsPageState extends State<SettingsPage> {
               ListTile(
                 dense: true,
                 leading: Icon(
-                  o.$1 == cur ? Icons.radio_button_checked_rounded : Icons.radio_button_off_rounded,
+                  o.$1 == cur
+                      ? Icons.radio_button_checked_rounded
+                      : Icons.radio_button_off_rounded,
                   size: 18,
                   color: const Color(0xFF2F7BFF),
                 ),
@@ -3136,8 +4099,13 @@ class _SettingsPageState extends State<SettingsPage> {
             const Icon(Icons.palette_rounded, size: 20),
             const SizedBox(width: 12),
             const Expanded(child: Text('界面材质', style: TextStyle(fontSize: 14))),
-            Text(label,
-                style: TextStyle(fontSize: 12.5, color: isDark ? Colors.white70 : Colors.black54)),
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 12.5,
+                color: isDark ? Colors.white70 : Colors.black54,
+              ),
+            ),
             const SizedBox(width: 4),
             const Icon(Icons.chevron_right_rounded, size: 18),
           ],
@@ -3167,7 +4135,9 @@ class _SettingsPageState extends State<SettingsPage> {
               ListTile(
                 dense: true,
                 leading: Icon(
-                  o.$1 == cur ? Icons.radio_button_checked_rounded : Icons.radio_button_off_rounded,
+                  o.$1 == cur
+                      ? Icons.radio_button_checked_rounded
+                      : Icons.radio_button_off_rounded,
                   size: 18,
                   color: const Color(0xFF2F7BFF),
                 ),
@@ -3197,7 +4167,9 @@ class _SettingsPageState extends State<SettingsPage> {
         if (Platform.isWindows) {
           try {
             await Window.setEffect(
-              effect: currentMatStyle() == MatStyle.solid ? WindowEffect.solid : WindowEffect.mica,
+              effect: currentMatStyle() == MatStyle.solid
+                  ? WindowEffect.solid
+                  : WindowEffect.mica,
             );
           } catch (_) {}
         }
@@ -3219,8 +4191,10 @@ class _SettingsPageState extends State<SettingsPage> {
       child: SwitchListTile(
         contentPadding: EdgeInsets.zero,
         secondary: Icon(icon, size: 20, color: enabled ? null : Colors.grey),
-        title: Text(title,
-            style: TextStyle(fontSize: 14, color: enabled ? null : Colors.grey)),
+        title: Text(
+          title,
+          style: TextStyle(fontSize: 14, color: enabled ? null : Colors.grey),
+        ),
         value: value,
         onChanged: !enabled
             ? null
@@ -3232,8 +4206,13 @@ class _SettingsPageState extends State<SettingsPage> {
     );
   }
 
-  Widget _actionRow(IconData icon, String title, String subtitle, VoidCallback onTap,
-      {bool guard = true}) {
+  Widget _actionRow(
+    IconData icon,
+    String title,
+    String subtitle,
+    VoidCallback onTap, {
+    bool guard = true,
+  }) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 10),
       child: LiquidGlass(
@@ -3245,21 +4224,37 @@ class _SettingsPageState extends State<SettingsPage> {
                 onTap();
               }
             : onTap,
-        child: Row(children: [
-          Icon(icon, size: 20, color: const Color(0xFF2F7BFF)),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text(title, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
-              if (subtitle.isNotEmpty)
-                Padding(
-                  padding: const EdgeInsets.only(top: 3),
-                  child: Text(subtitle, maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 11)),
-                ),
-            ]),
-          ),
-          const Icon(Icons.chevron_right_rounded, size: 18),
-        ]),
+        child: Row(
+          children: [
+            Icon(icon, size: 20, color: const Color(0xFF2F7BFF)),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: const TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  if (subtitle.isNotEmpty)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 3),
+                      child: Text(
+                        subtitle,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(fontSize: 11),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+            const Icon(Icons.chevron_right_rounded, size: 18),
+          ],
+        ),
       ),
     );
   }
@@ -3272,7 +4267,8 @@ class _SettingsPageState extends State<SettingsPage> {
     setState(() {
       if (r['success'] == true && r['data'] is Map) {
         final d = (r['data'] as Map).cast<String, dynamic>();
-        _renderMsg = '已指向 ${d['gpu']}（${d['kind'] == 'discrete' ? '独显' : '核显'}）· 重启生效';
+        _renderMsg =
+            '已指向 ${d['gpu']}（${d['kind'] == 'discrete' ? '独显' : '核显'}）· 重启生效';
       } else {
         _renderMsg = r['message']?.toString() ?? '设置失败';
       }
@@ -3283,7 +4279,15 @@ class _SettingsPageState extends State<SettingsPage> {
     if (_gpus.isEmpty) {
       return Padding(
         padding: const EdgeInsets.only(bottom: 8),
-        child: Text('未检测到显卡信息', style: TextStyle(fontSize: 11, color: Theme.of(context).brightness == Brightness.dark ? Colors.white38 : Colors.black38)),
+        child: Text(
+          '未检测到显卡信息',
+          style: TextStyle(
+            fontSize: 11,
+            color: Theme.of(context).brightness == Brightness.dark
+                ? Colors.white38
+                : Colors.black38,
+          ),
+        ),
       );
     }
     return Padding(
@@ -3318,27 +4322,38 @@ class _SettingsPageState extends State<SettingsPage> {
     return LiquidGlass(
       radius: 26,
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-      child: Row(children: [
-        const Icon(Icons.videogame_asset_rounded, size: 20, color: Color(0xFF2F7BFF)),
-        const SizedBox(width: 12),
-        for (final m in modes) ...[
-          ChoiceChip(
-            label: Text(labels[m]!),
-            selected: _gpuMode == m,
-            onSelected: (_) async {
-              if (!await strictAuth(context, '修改显卡模式')) return;
-              _applyGpu(m);
-            },
+      child: Row(
+        children: [
+          const Icon(
+            Icons.videogame_asset_rounded,
+            size: 20,
+            color: Color(0xFF2F7BFF),
           ),
-          const SizedBox(width: 8),
+          const SizedBox(width: 12),
+          for (final m in modes) ...[
+            ChoiceChip(
+              label: Text(labels[m]!),
+              selected: _gpuMode == m,
+              onSelected: (_) async {
+                if (!await strictAuth(context, '修改显卡模式')) return;
+                _applyGpu(m);
+              },
+            ),
+            const SizedBox(width: 8),
+          ],
         ],
-      ]),
+      ),
     );
   }
 
-
   Widget _metricRow() {
-    const opts = {'cpu': 'CPU', 'mem': '内存', 'gpu': 'GPU', 'npu': 'NPU', 'temp': '温度'};
+    const opts = {
+      'cpu': 'CPU',
+      'mem': '内存',
+      'gpu': 'GPU',
+      'npu': 'NPU',
+      'temp': '温度',
+    };
     return Padding(
       padding: const EdgeInsets.only(bottom: 10),
       child: LiquidGlass(
@@ -3372,24 +4387,30 @@ class _SettingsPageState extends State<SettingsPage> {
     return LiquidGlass(
       radius: 26,
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-      child: Row(children: [
-        const Icon(Icons.translate_rounded, size: 20, color: Color(0xFF2F7BFF)),
-        const SizedBox(width: 12),
-        const Text('简体 / 繁體 / English', style: TextStyle(fontSize: 13)),
-        const Spacer(),
-        for (final l in ['zh', 'hant', 'en']) ...[
-          ChoiceChip(
-            label: Text({'zh': '简体中文', 'hant': '繁體中文', 'en': 'English'}[l]!),
-            selected: I18n.lang == l,
-            onSelected: (_) async {
-              if (!await strictAuth(context, '切换语言')) return;
-              setState(() => I18n.lang = l);
-              await AppSettings.saveLang(l);
-            },
+      child: Row(
+        children: [
+          const Icon(
+            Icons.translate_rounded,
+            size: 20,
+            color: Color(0xFF2F7BFF),
           ),
-          const SizedBox(width: 6),
+          const SizedBox(width: 12),
+          const Text('简体 / 繁體 / English', style: TextStyle(fontSize: 13)),
+          const Spacer(),
+          for (final l in ['zh', 'hant', 'en']) ...[
+            ChoiceChip(
+              label: Text({'zh': '简体中文', 'hant': '繁體中文', 'en': 'English'}[l]!),
+              selected: I18n.lang == l,
+              onSelected: (_) async {
+                if (!await strictAuth(context, '切换语言')) return;
+                setState(() => I18n.lang = l);
+                await AppSettings.saveLang(l);
+              },
+            ),
+            const SizedBox(width: 6),
+          ],
         ],
-      ]),
+      ),
     );
   }
 
@@ -3398,22 +4419,27 @@ class _SettingsPageState extends State<SettingsPage> {
     return LiquidGlass(
       radius: 26,
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-      child: Row(children: [
-        const Icon(Icons.link_rounded, size: 20, color: Color(0xFF2F7BFF)),
-        const SizedBox(width: 12),
-        Expanded(
-          child: TextField(
-            controller: ctrl,
-            decoration: const InputDecoration(hintText: 'owner/repo', isDense: true),
-            onChanged: (v) => _repo = v.trim(),
-            onSubmitted: (v) async {
-              if (!await strictAuth(context, '修改更新仓库')) return;
-              final sp = await SharedPreferences.getInstance();
-              await sp.setString('github_repo', v.trim());
-            },
+      child: Row(
+        children: [
+          const Icon(Icons.link_rounded, size: 20, color: Color(0xFF2F7BFF)),
+          const SizedBox(width: 12),
+          Expanded(
+            child: TextField(
+              controller: ctrl,
+              decoration: const InputDecoration(
+                hintText: 'owner/repo',
+                isDense: true,
+              ),
+              onChanged: (v) => _repo = v.trim(),
+              onSubmitted: (v) async {
+                if (!await strictAuth(context, '修改更新仓库')) return;
+                final sp = await SharedPreferences.getInstance();
+                await sp.setString('github_repo', v.trim());
+              },
+            ),
           ),
-        ),
-      ]),
+        ],
+      ),
     );
   }
 
@@ -3428,9 +4454,10 @@ class _SettingsPageState extends State<SettingsPage> {
     if (r['success'] == true) {
       final d = (r['data'] as Map).cast<String, dynamic>();
       final has = await UpdateUtil.shouldUpdate(d);
-      setState(() => _updateMsg = has
-          ? '${I18n.t('hasUpdate')}: ${d['latest']}'
-          : I18n.t('noUpdate'));
+      setState(
+        () => _updateMsg =
+            has ? '${I18n.t('hasUpdate')}: ${d['latest']}' : I18n.t('noUpdate'),
+      );
       // 静默更新开启时，检查到新版、或同版本重发包，就直接下载并后台覆盖升级。
       // 不再弹安装向导，也不让用户再确认一次。
       final url = d['download_url']?.toString() ?? '';
@@ -3445,10 +4472,13 @@ class _SettingsPageState extends State<SettingsPage> {
         if (dl['success'] == true) {
           final dir = File(Platform.resolvedExecutable).parent.path;
           await Process.start(
-            dst,
-            ['--silent', '--dir=$dir', '--asset-time=$assetTime'],
-            mode: ProcessStartMode.detached,
-          );
+              dst,
+              [
+                '--silent',
+                '--dir=$dir',
+                '--asset-time=$assetTime',
+              ],
+              mode: ProcessStartMode.detached);
           await Future.delayed(const Duration(seconds: 2));
           exit(0);
         } else {
@@ -3460,7 +4490,12 @@ class _SettingsPageState extends State<SettingsPage> {
     }
   }
 
-  void _showList(BuildContext context, String title, List<String> items, Future<void> Function(String) onRemove) {
+  void _showList(
+    BuildContext context,
+    String title,
+    List<String> items,
+    Future<void> Function(String) onRemove,
+  ) {
     showDialog(
       context: context,
       builder: (_) => AlertDialog(
@@ -3475,7 +4510,11 @@ class _SettingsPageState extends State<SettingsPage> {
                     for (final i in items)
                       ListTile(
                         dense: true,
-                        title: Text(i, maxLines: 1, overflow: TextOverflow.ellipsis),
+                        title: Text(
+                          i,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
                         trailing: IconButton(
                           icon: const Icon(Icons.close_rounded, size: 18),
                           onPressed: () async {
@@ -3492,12 +4531,21 @@ class _SettingsPageState extends State<SettingsPage> {
   }
 
   void _alert(BuildContext context, String title, String msg) {
-    showDialog(context: context, builder: (_) => AlertDialog(title: Text(title), content: Text(msg), actions: [
-      TextButton(onPressed: () => Navigator.pop(_), child: const Text('OK')),
-    ]));
+    showDialog(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: Text(title),
+        content: Text(msg),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(_),
+            child: const Text('OK'),
+          ),
+        ],
+      ),
+    );
   }
 }
-
 
 /// 卡片入场：关闭动画时直接显示
 class _Entrance extends StatefulWidget {
@@ -3509,10 +4557,13 @@ class _Entrance extends StatefulWidget {
   State<_Entrance> createState() => _EntranceState();
 }
 
-class _EntranceState extends State<_Entrance> with SingleTickerProviderStateMixin {
+class _EntranceState extends State<_Entrance>
+    with SingleTickerProviderStateMixin {
   late final AnimationController _c = AnimationController(
     vsync: this,
-    duration: Ui.isOn('cardEntrance') ? const Duration(milliseconds: 420) : Duration.zero,
+    duration: Ui.isOn('cardEntrance')
+        ? const Duration(milliseconds: 420)
+        : Duration.zero,
   );
 
   @override
@@ -3540,7 +4591,10 @@ class _EntranceState extends State<_Entrance> with SingleTickerProviderStateMixi
     return FadeTransition(
       opacity: curved,
       child: SlideTransition(
-        position: Tween(begin: const Offset(0, 0.12), end: Offset.zero).animate(curved),
+        position: Tween(
+          begin: const Offset(0, 0.12),
+          end: Offset.zero,
+        ).animate(curved),
         child: widget.child,
       ),
     );

@@ -42,9 +42,12 @@ Future<void> _preferHighPerformanceGpu() async {
     await Process.run('reg', [
       'add',
       r'HKCU\SOFTWARE\Microsoft\DirectX\UserGpuPreferences',
-      '/v', exe,
-      '/t', 'REG_SZ',
-      '/d', 'GpuPreference=2;',
+      '/v',
+      exe,
+      '/t',
+      'REG_SZ',
+      '/d',
+      'GpuPreference=2;',
       '/f',
     ]);
   } catch (_) {}
@@ -59,8 +62,8 @@ Future<void> _setupWindow({bool silent = false}) async {
     // 一个安装向导占满全屏，看起来就像软件本体，而不是「安装器」。
     // 真软件的安装窗口一般 800-900 宽，这里定 900x620、居中、不可放大。
     const opts = WindowOptions(
-      size: Size(900, 620),
-      minimumSize: Size(880, 600),
+      size: Size(920, 660),
+      minimumSize: Size(900, 640),
       center: true,
       title: 'QW 安全电脑管家',
     );
@@ -75,6 +78,10 @@ Future<void> _setupWindow({bool silent = false}) async {
     });
     await windowManager.setResizable(false);
     await windowManager.setMaximizable(false);
+    // 让 DWM 的 Mica 从客户区透出来；Scaffold/背景层再用低透明度柔光上色。
+    try {
+      await windowManager.setBackgroundColor(Colors.transparent);
+    } catch (_) {}
   } catch (_) {}
 }
 
@@ -90,10 +97,12 @@ String _argValue(List<String> args, String prefix) {
 Future<Color?> _readSystemAccent() async {
   if (!Platform.isWindows) return null;
   try {
-    final r = await Process.run(
-      'reg',
-      ['query', r'HKCU\Software\Microsoft\Windows\DWM', '/v', 'ColorizationColor'],
-    );
+    final r = await Process.run('reg', [
+      'query',
+      r'HKCU\Software\Microsoft\Windows\DWM',
+      '/v',
+      'ColorizationColor',
+    ]);
     if (r.exitCode != 0) return null;
     final m = RegExp(r'0x[0-9a-fA-F]{8}').firstMatch(r.stdout.toString());
     if (m == null) return null;
@@ -114,6 +123,13 @@ Future<Color?> _readSystemAccent() async {
 
 Future<void> main(List<String> args) async {
   WidgetsFlutterBinding.ensureInitialized();
+  // 安装向导也要走 Mica：必须在任何窗口分支之前初始化 Acrylic 桥。
+  // 之前这行放在主程序分支后面，--setup 提前 return，安装窗口永远没有窗口级云母。
+  if (Platform.isWindows) {
+    try {
+      await Window.initialize();
+    } catch (_) {}
+  }
   await _preferHighPerformanceGpu();
   final accent = await _readSystemAccent();
   if (accent != null) AppTheme.setSeed(accent);
@@ -126,12 +142,14 @@ Future<void> main(List<String> args) async {
       orElse: () => '',
     );
     await _setupWindow(silent: silent);
-    runApp(SetupApp(
-      uninstall: args.contains('--uninstall'),
-      silent: silent,
-      initialDir: dirArg.isEmpty ? null : dirArg.substring('--dir='.length),
-      assetTime: _argValue(args, '--asset-time='),
-    ));
+    runApp(
+      SetupApp(
+        uninstall: args.contains('--uninstall'),
+        silent: silent,
+        initialDir: dirArg.isEmpty ? null : dirArg.substring('--dir='.length),
+        assetTime: _argValue(args, '--asset-time='),
+      ),
+    );
     return;
   }
 
@@ -152,12 +170,14 @@ Future<void> main(List<String> args) async {
         orElse: () => '',
       );
       await _setupWindow(silent: silent);
-      runApp(SetupApp(
-        uninstall: false,
-        silent: silent,
-        initialDir: dirArg.isEmpty ? null : dirArg.substring('--dir='.length),
-        assetTime: _argValue(args, '--asset-time='),
-      ));
+      runApp(
+        SetupApp(
+          uninstall: false,
+          silent: silent,
+          initialDir: dirArg.isEmpty ? null : dirArg.substring('--dir='.length),
+          assetTime: _argValue(args, '--asset-time='),
+        ),
+      );
       return;
     }
     if (exeName.contains('uninstall')) {
@@ -186,10 +206,6 @@ Future<void> main(List<String> args) async {
   if (fm != null && fm.isNotEmpty) Ui.floatMetrics.value = fm.toSet();
 
   if (Platform.isWindows) {
-    try {
-      await Window.initialize();
-    } catch (_) {}
-
     try {
       DesktopMultiWindow.setMethodHandler((call, fromWindowId) async {
         if (call.method == 'close') {
@@ -243,19 +259,21 @@ Future<void> _autoUpdateCheck() async {
     final url = d['download_url']?.toString() ?? '';
     // 版本更高，或同版本但 Release/资产是重新发布的，都走升级
     if (!await UpdateUtil.shouldUpdate(d) || url.isEmpty) return;
-    final dst = '${Directory.systemTemp.path}${Platform.pathSeparator}'
+    final dst =
+        '${Directory.systemTemp.path}${Platform.pathSeparator}'
         'QWGuard-update-${DateTime.now().millisecondsSinceEpoch}.exe';
     final dl = Api.downloadUpdate(url, dst);
     if (dl['success'] != true) return;
     final installDir = File(Platform.resolvedExecutable).parent.path;
-    final assetTime = d['download_updated_at']?.toString() ??
+    final assetTime =
+        d['download_updated_at']?.toString() ??
         d['published_at']?.toString() ??
         '';
-    await Process.start(
-      dst,
-      ['--silent', '--dir=$installDir', '--asset-time=$assetTime'],
-      mode: ProcessStartMode.detached,
-    );
+    await Process.start(dst, [
+      '--silent',
+      '--dir=$installDir',
+      '--asset-time=$assetTime',
+    ], mode: ProcessStartMode.detached);
     // 给安装器留出解包时间，然后退出主程序，避免它占着要替换的 exe/dll。
     await Future.delayed(const Duration(seconds: 3));
     exit(0);
@@ -268,7 +286,8 @@ class ToolboxApp extends StatefulWidget {
   final ThemeOption initialTheme;
   const ToolboxApp({super.key, required this.initialTheme});
 
-  static _ToolboxAppState? of(BuildContext context) => context.findAncestorStateOfType<_ToolboxAppState>();
+  static _ToolboxAppState? of(BuildContext context) =>
+      context.findAncestorStateOfType<_ToolboxAppState>();
 
   @override
   State<ToolboxApp> createState() => _ToolboxAppState();
@@ -289,11 +308,11 @@ class _ToolboxAppState extends State<ToolboxApp> with WidgetsBindingObserver {
   }
 
   ThemeMode get _mode => switch (_theme) {
-        ThemeOption.light => ThemeMode.light,
-        ThemeOption.dark => ThemeMode.dark,
-        ThemeOption.system => ThemeMode.system,
-        ThemeOption.smart => _isDayTime ? ThemeMode.light : ThemeMode.dark,
-      };
+    ThemeOption.light => ThemeMode.light,
+    ThemeOption.dark => ThemeMode.dark,
+    ThemeOption.system => ThemeMode.system,
+    ThemeOption.smart => _isDayTime ? ThemeMode.light : ThemeMode.dark,
+  };
 
   @override
   void initState() {
@@ -322,7 +341,9 @@ class _ToolboxAppState extends State<ToolboxApp> with WidgetsBindingObserver {
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     // 睡眠唤醒后 Timer 可能被延后，恢复时立刻按当前时间重算一次
-    if (state == AppLifecycleState.resumed && _theme == ThemeOption.smart && mounted) {
+    if (state == AppLifecycleState.resumed &&
+        _theme == ThemeOption.smart &&
+        mounted) {
       setState(() {});
     }
   }
@@ -578,11 +599,15 @@ class _ShellState extends State<Shell>
     try {
       await trayManager.setIcon('assets/tray.ico');
       await trayManager.setToolTip('QW 安全电脑管家');
-      await trayManager.setContextMenu(Menu(items: [
-        MenuItem(key: 'show', label: '打开主界面'),
-        MenuItem.separator(),
-        MenuItem(key: 'exit', label: '退出 QW 安全电脑管家'),
-      ]));
+      await trayManager.setContextMenu(
+        Menu(
+          items: [
+            MenuItem(key: 'show', label: '打开主界面'),
+            MenuItem.separator(),
+            MenuItem(key: 'exit', label: '退出 QW 安全电脑管家'),
+          ],
+        ),
+      );
       _trayReady = true;
     } catch (_) {}
   }
@@ -632,7 +657,9 @@ class _ShellState extends State<Shell>
 
     final st = Api.passwordState();
     final needPwd =
-        st['success'] == true && st['data'] is Map && st['data']['enabled'] == true;
+        st['success'] == true &&
+        st['data'] is Map &&
+        st['data']['enabled'] == true;
     if (needPwd) {
       final ok = await _askPassword('退出软件');
       if (!ok) return;
@@ -696,7 +723,10 @@ class _ShellState extends State<Shell>
               controller: ctrl,
               obscureText: true,
               autofocus: true,
-              decoration: const InputDecoration(hintText: '输入密码', isDense: true),
+              decoration: const InputDecoration(
+                hintText: '输入密码',
+                isDense: true,
+              ),
             ),
           ),
           onOk: () {
@@ -717,14 +747,17 @@ class _ShellState extends State<Shell>
   /// 启动自检：系统版本过低 / 只是被单独提取出来，都明说，不给白屏
   Future<void> _envCheck() async {
     final os = Api.osVersion();
-    if (os['success'] == true && os['data'] is Map && os['data']['supported'] == false) {
+    if (os['success'] == true &&
+        os['data'] is Map &&
+        os['data']['supported'] == false) {
       if (!mounted) return;
       await showDialog(
         context: context,
         builder: (_) => QDialog(
           icon: Icons.error_outline_rounded,
           title: '系统版本过低',
-          body: "${os['data']['label']}（内部版本 ${os['data']['build']}）。\n\n${os['data']['tip']}",
+          body:
+              "${os['data']['label']}（内部版本 ${os['data']['build']}）。\n\n${os['data']['tip']}",
           okText: '知道了',
         ),
       );
@@ -734,7 +767,9 @@ class _ShellState extends State<Shell>
     final env = Api.envCheck();
     // 只有「真的缺文件」才拦。没有安装记录（免安装解压版）不算错误，
     // 以前拿 installed==false 就弹框退出，导致 portable 包根本打不开。
-    if (env['success'] == true && env['data'] is Map && env['data']['ok'] == false) {
+    if (env['success'] == true &&
+        env['data'] is Map &&
+        env['data']['ok'] == false) {
       final issues = (env['data']['issues'] as List?)?.join('、') ?? '未知';
       if (!mounted) return;
       await showDialog(
@@ -743,7 +778,8 @@ class _ShellState extends State<Shell>
         builder: (_) => QDialog(
           icon: Icons.folder_off_rounded,
           title: '缺少必要文件',
-          body: '程序目录里少了运行所需的文件，无法启动。\n'
+          body:
+              '程序目录里少了运行所需的文件，无法启动。\n'
               '缺的东西：$issues\n\n'
               '请重新解压完整压缩包，或运行安装包重新安装。',
           okText: '确定',
@@ -756,7 +792,10 @@ class _ShellState extends State<Shell>
 
   Future<void> _guard() async {
     final st = Api.passwordState();
-    if (st['success'] != true || st['data'] is! Map || st['data']['enabled'] != true) return;
+    if (st['success'] != true ||
+        st['data'] is! Map ||
+        st['data']['enabled'] != true)
+      return;
     await _askPassword('打开软件');
   }
 
@@ -855,23 +894,43 @@ class _ShellState extends State<Shell>
     }
 
     final content = Stack(
-        children: [
-          Positioned.fill(child: RepaintBoundary(child: DecoratedBox(decoration: AppTheme.background(brightness)))),
-          Positioned.fill(
-            child: ValueListenableBuilder<bool>(
-              valueListenable: Ui.on('aurora'),
-              builder: (_, on, __) => on
-                  ? const IgnorePointer(child: AuroraFlow())
-                  : const SizedBox.shrink(),
-            ),
+      children: [
+        Positioned.fill(
+          child: RepaintBoundary(
+            child: DecoratedBox(decoration: AppTheme.background(brightness)),
           ),
-          Positioned.fill(child: ParticleLayer()),
-          Positioned(top: -120, left: -100, child: FloatingBlob(color: AppTheme.blobTop(brightness), size: 320, phase: 0.4)),
-          Positioned(bottom: -160, right: -130, child: FloatingBlob(color: AppTheme.blobBottom(brightness), size: 400, phase: 2.1)),
+        ),
+        Positioned.fill(
+          child: ValueListenableBuilder<bool>(
+            valueListenable: Ui.on('aurora'),
+            builder: (_, on, __) => on
+                ? const IgnorePointer(child: AuroraFlow())
+                : const SizedBox.shrink(),
+          ),
+        ),
+        Positioned.fill(child: ParticleLayer()),
+        Positioned(
+          top: -120,
+          left: -100,
+          child: FloatingBlob(
+            color: AppTheme.blobTop(brightness),
+            size: 320,
+            phase: 0.4,
+          ),
+        ),
+        Positioned(
+          bottom: -160,
+          right: -130,
+          child: FloatingBlob(
+            color: AppTheme.blobBottom(brightness),
+            size: 400,
+            phase: 2.1,
+          ),
+        ),
 
-          Positioned.fill(
-            child: RepaintBoundary(
-              child: Padding(
+        Positioned.fill(
+          child: RepaintBoundary(
+            child: Padding(
               padding: const EdgeInsets.fromLTRB(18, 54, 18, 96),
               child: ClipPath(
                 // 同心圆角：外框 24，内边距 18，内层就该是 24-18=6。
@@ -881,8 +940,11 @@ class _ShellState extends State<Shell>
                 child: Container(
                   decoration: BoxDecoration(
                     color: brightness == Brightness.dark
-                        ? const Color(0xFF11151D).withOpacity(Ui.glass.value ? 0.34 : 0.92)
-                        : Colors.white.withOpacity(Ui.glass.value ? 0.42 : 0.94),
+                        ? const Color(0xFF11151D)
+                              .withOpacity(Ui.glass.value ? 0.34 : 0.92)
+                        : Colors.white.withOpacity(
+                            Ui.glass.value ? 0.42 : 0.94,
+                          ),
                   ),
                   // 用 IndexedStack 而不是 AnimatedSwitcher：切页时旧页不再被销毁，
                   // 扫描进度、清理进度、已读到的硬件信息都留在原页面。
@@ -918,52 +980,61 @@ class _ShellState extends State<Shell>
                 ),
               ),
             ),
+          ),
+        ),
+
+        // 悬浮液态玻璃 Dock
+        Positioned(
+          left: 0,
+          right: 0,
+          bottom: 22,
+          child: Center(
+            child: RepaintBoundary(
+              child: _Dock(index: _index, icons: _icons, onTap: _switchPage),
             ),
           ),
+        ),
 
-          // 悬浮液态玻璃 Dock
-          Positioned(
-            left: 0,
-            right: 0,
-            bottom: 22,
-            child: Center(child: RepaintBoundary(child: _Dock(index: _index, icons: _icons, onTap: _switchPage))),
-          ),
+        // 窗口标题栏（拖动区 + 三键）
+        Positioned(
+          top: 0,
+          left: 0,
+          right: 0,
+          child: RepaintBoundary(child: const _WindowBar()),
+        ),
 
-          // 窗口标题栏（拖动区 + 三键）
-          Positioned(top: 0, left: 0, right: 0, child: RepaintBoundary(child: const _WindowBar())),
+        // 悬浮监控窗
+        if (Ui.floating.value) const FloatingMonitor(),
 
-          // 悬浮监控窗
-          if (Ui.floating.value) const FloatingMonitor(),
-
-          // OOBE 交接的白光：从中心扩散到整屏，和主界面的缩放/去虚化同步
-          Positioned.fill(
-            child: IgnorePointer(
-              child: AnimatedBuilder(
-                animation: _reveal,
-                builder: (_, __) {
-                  if (_reveal.isCompleted) return const SizedBox.shrink();
-                  final t = Curves.easeOutQuint.transform(_reveal.value);
-                  return DecoratedBox(
-                    decoration: BoxDecoration(
-                      gradient: RadialGradient(
-                        radius: 0.06 + 1.25 * t,
-                        colors: [
-                          Colors.white.withOpacity(0.30 * (1 - t)),
-                          Colors.white.withOpacity(0.0),
-                        ],
-                        stops: const [0.0, 1.0],
-                      ),
+        // OOBE 交接的白光：从中心扩散到整屏，和主界面的缩放/去虚化同步
+        Positioned.fill(
+          child: IgnorePointer(
+            child: AnimatedBuilder(
+              animation: _reveal,
+              builder: (_, __) {
+                if (_reveal.isCompleted) return const SizedBox.shrink();
+                final t = Curves.easeOutQuint.transform(_reveal.value);
+                return DecoratedBox(
+                  decoration: BoxDecoration(
+                    gradient: RadialGradient(
+                      radius: 0.06 + 1.25 * t,
+                      colors: [
+                        Colors.white.withOpacity(0.30 * (1 - t)),
+                        Colors.white.withOpacity(0.0),
+                      ],
+                      stops: const [0.0, 1.0],
                     ),
-                  );
-                },
-              ),
+                  ),
+                );
+              },
             ),
           ),
+        ),
 
-          // 水纹层压在最上面：收指针事件但不挡点击
-          const Positioned.fill(child: WaterRipple()),
-        ],
-      );
+        // 水纹层压在最上面：收指针事件但不挡点击
+        const Positioned.fill(child: WaterRipple()),
+      ],
+    );
 
     // 窗口现在是不透明底（0xFF14171D），外层再套 ClipPath 裁圆角的话，
     // 被裁掉的四个角会露出窗口底色 —— 浅色主题下就是四块深色缺口，
@@ -977,14 +1048,14 @@ class _ShellState extends State<Shell>
         if (_reveal.isCompleted) return child!;
         final v = const _SpringCurve().transform(_reveal.value);
         // alpha：60ms 起、230ms 到 1，对应原版 startOffset=60 + duration=230
-        final a = const Interval(60 / 619, 290 / 619, curve: Curves.easeInOutSine)
-            .transform(_reveal.value);
+        final a = const Interval(
+          60 / 619,
+          290 / 619,
+          curve: Curves.easeInOutSine,
+        ).transform(_reveal.value);
         return Opacity(
           opacity: a,
-          child: Transform.scale(
-            scale: 1.3 - 0.3 * v,
-            child: child,
-          ),
+          child: Transform.scale(scale: 1.3 - 0.3 * v, child: child),
         );
       },
       child: content,
@@ -1008,10 +1079,13 @@ class _WindowBar extends StatelessWidget {
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     Widget btn(IconData icon, VoidCallback onTap) => InkWell(
-          onTap: onTap,
-          borderRadius: BorderRadius.circular(8),
-          child: Padding(padding: const EdgeInsets.all(8), child: Icon(icon, size: 14)),
-        );
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(8),
+      child: Padding(
+        padding: const EdgeInsets.all(8),
+        child: Icon(icon, size: 14),
+      ),
+    );
 
     return SizedBox(
       height: 36,
@@ -1037,7 +1111,10 @@ class _WindowBar extends StatelessWidget {
                   padding: const EdgeInsets.only(left: 16),
                   child: Text(
                     'QW 安全电脑管家',
-                    style: TextStyle(fontSize: 11, color: isDark ? Colors.white38 : Colors.black38),
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: isDark ? Colors.white38 : Colors.black38,
+                    ),
                   ),
                 ),
               ),
@@ -1077,17 +1154,31 @@ class _Dock extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       decoration: BoxDecoration(
         color: glass
-            ? (isDark ? const Color(0xFF1A1F29).withOpacity(0.55) : Colors.white.withOpacity(0.62))
+            ? (isDark
+                  ? const Color(0xFF1A1F29).withOpacity(0.55)
+                  : Colors.white.withOpacity(0.62))
             : (isDark ? const Color(0xFF1B2029) : Colors.white),
         borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: Colors.white.withOpacity(glass ? (isDark ? 0.16 : 0.80) : 0.10), width: 1.1),
+        border: Border.all(
+          color: Colors.white.withOpacity(
+            glass ? (isDark ? 0.16 : 0.80) : 0.10,
+          ),
+          width: 1.1,
+        ),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(glass ? (isDark ? 0.42 : 0.14) : 0.10),
+            color: Colors.black.withOpacity(
+              glass ? (isDark ? 0.42 : 0.14) : 0.10,
+            ),
             blurRadius: glass ? 30 : 14,
             offset: const Offset(0, 10),
           ),
-          if (glass) BoxShadow(color: Colors.white.withOpacity(isDark ? 0.06 : 0.55), blurRadius: 12, offset: const Offset(-5, -5)),
+          if (glass)
+            BoxShadow(
+              color: Colors.white.withOpacity(isDark ? 0.06 : 0.55),
+              blurRadius: 12,
+              offset: const Offset(-5, -5),
+            ),
         ],
       ),
       child: Row(
@@ -1096,14 +1187,30 @@ class _Dock extends StatelessWidget {
           for (var i = 0; i < icons.length; i++) ...[
             _DockItem(
               icon: icons[i],
-              label: [I18n.t('hw'), I18n.t('clean'), I18n.t('scan'), I18n.t('tools'), '隔离库'][i],
+              label: [
+                I18n.t('hw'),
+                I18n.t('clean'),
+                I18n.t('scan'),
+                I18n.t('tools'),
+                '隔离库',
+              ][i],
               selected: index == i,
               onTap: () => onTap(i),
             ),
             const SizedBox(width: 4),
           ],
-          Container(width: 1, height: 24, color: isDark ? Colors.white24 : Colors.black12, margin: const EdgeInsets.symmetric(horizontal: 6)),
-          _DockItem(icon: Icons.settings_rounded, label: I18n.t('settings'), selected: index == 5, onTap: () => onTap(5)),
+          Container(
+            width: 1,
+            height: 24,
+            color: isDark ? Colors.white24 : Colors.black12,
+            margin: const EdgeInsets.symmetric(horizontal: 6),
+          ),
+          _DockItem(
+            icon: Icons.settings_rounded,
+            label: I18n.t('settings'),
+            selected: index == 5,
+            onTap: () => onTap(5),
+          ),
         ],
       ),
     );
@@ -1112,7 +1219,12 @@ class _Dock extends StatelessWidget {
 
     return ClipRRect(
       borderRadius: BorderRadius.circular(999),
-      child: BackdropFilter(filter: Ui.realtimeBlur.value ? ImageFilter.blur(sigmaX: 22, sigmaY: 22) : ImageFilter.blur(sigmaX: 0, sigmaY: 0), child: bar),
+      child: BackdropFilter(
+        filter: Ui.realtimeBlur.value
+            ? ImageFilter.blur(sigmaX: 22, sigmaY: 22)
+            : ImageFilter.blur(sigmaX: 0, sigmaY: 0),
+        child: bar,
+      ),
     );
   }
 }
@@ -1123,7 +1235,12 @@ class _DockItem extends StatefulWidget {
   final bool selected;
   final VoidCallback onTap;
 
-  const _DockItem({required this.icon, required this.label, required this.selected, required this.onTap});
+  const _DockItem({
+    required this.icon,
+    required this.label,
+    required this.selected,
+    required this.onTap,
+  });
 
   @override
   State<_DockItem> createState() => _DockItemState();
@@ -1135,7 +1252,9 @@ class _DockItemState extends State<_DockItem> {
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final fg = widget.selected ? const Color(0xFF2F7BFF) : (isDark ? Colors.white70 : Colors.black54);
+    final fg = widget.selected
+        ? const Color(0xFF2F7BFF)
+        : (isDark ? Colors.white70 : Colors.black54);
 
     return MouseRegion(
       onEnter: (_) => setState(() => _hover = true),
@@ -1146,19 +1265,35 @@ class _DockItemState extends State<_DockItem> {
         child: AnimatedContainer(
           duration: Ui.dur('dockSpring', 220),
           curve: Ui.curve('dockSpring'),
-          padding: EdgeInsets.symmetric(horizontal: widget.selected || _hover ? 14 : 10, vertical: 9),
+          padding: EdgeInsets.symmetric(
+            horizontal: widget.selected || _hover ? 14 : 10,
+            vertical: 9,
+          ),
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(999),
             color: widget.selected
                 ? const Color(0xFF2F7BFF).withOpacity(isDark ? 0.24 : 0.13)
-                : (_hover ? (isDark ? Colors.white.withOpacity(0.06) : Colors.black.withOpacity(0.04)) : Colors.transparent),
+                : (_hover
+                      ? (isDark
+                            ? Colors.white.withOpacity(0.06)
+                            : Colors.black.withOpacity(0.04))
+                      : Colors.transparent),
           ),
           child: Row(
             children: [
               Icon(widget.icon, size: 19, color: fg),
               if (widget.selected || _hover) ...[
                 const SizedBox(width: 7),
-                Text(widget.label, style: TextStyle(fontSize: 12.5, fontWeight: widget.selected ? FontWeight.w700 : FontWeight.w500, color: fg)),
+                Text(
+                  widget.label,
+                  style: TextStyle(
+                    fontSize: 12.5,
+                    fontWeight: widget.selected
+                        ? FontWeight.w700
+                        : FontWeight.w500,
+                    color: fg,
+                  ),
+                ),
               ],
             ],
           ),
@@ -1168,14 +1303,16 @@ class _DockItemState extends State<_DockItem> {
   }
 }
 
-
 /// HyperCeiler provision 的 enter_home spring：damping 0.65 / response 0.55s。
 /// Android 的 response 是弹簧周期量级，这里换算成 Flutter 的 stiffness。
 /// 归一化到 0→1，允许轻微过冲（原版就是弹一下再落定）。
 class _SpringCurve extends Curve {
   const _SpringCurve();
-  static final SpringDescription _desc =
-      SpringDescription.withDampingRatio(mass: 1, stiffness: 130, ratio: 0.65);
+  static final SpringDescription _desc = SpringDescription.withDampingRatio(
+    mass: 1,
+    stiffness: 130,
+    ratio: 0.65,
+  );
   @override
   double transform(double t) {
     if (t <= 0) return 0;
