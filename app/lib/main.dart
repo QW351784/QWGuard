@@ -639,11 +639,25 @@ class _ShellState extends State<Shell>
   bool _trayReady = false;
   bool _quitAsked = false;
 
+  /// 托盘图标用 exe 同目录的绝对路径，避免从别的目录启动时相对路径找不到图标。
+  /// Flutter 自带 assets 已经打包在 data/flutter_assets 里，优先用那份；
+  /// 旧包如果还留有根目录 assets/tray.ico，则兼容回退。
+  String _trayIconPath() {
+    final exeDir = File(Platform.resolvedExecutable).parent.path;
+    final sep = Platform.pathSeparator;
+    final bundled =
+        '$exeDir${sep}data${sep}flutter_assets${sep}assets${sep}tray.ico';
+    if (File(bundled).existsSync()) return bundled;
+    final legacy = '$exeDir${sep}assets${sep}tray.ico';
+    if (File(legacy).existsSync()) return legacy;
+    return 'assets/tray.ico';
+  }
+
   /// 托盘：图标、悬停名、右键菜单。名字一律中文，不露英文 exe 名
   Future<void> _initTray() async {
     if (_trayReady) return;
     try {
-      await trayManager.setIcon('assets/tray.ico');
+      await trayManager.setIcon(_trayIconPath());
       await trayManager.setToolTip('QW 安全电脑管家');
       await trayManager.setContextMenu(
         Menu(

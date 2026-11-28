@@ -1193,22 +1193,6 @@ class _ScanPageState extends State<ScanPage> {
     _loadRules();
   }
 
-  void _alert(BuildContext ctx, String title, String msg) {
-    showDialog(
-      context: ctx,
-      builder: (_) => AlertDialog(
-        title: Text(title),
-        content: Text(msg),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(_),
-            child: const Text('知道了'),
-          ),
-        ],
-      ),
-    );
-  }
-
   void _toastScan(String m) {
     if (m.isEmpty) return;
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(m)));
@@ -3057,7 +3041,6 @@ class _SettingsPageState extends State<SettingsPage> {
   String _current = '1.1.0';
   String _updateMsg = '';
   List<String> _wl = [];
-  String _runtimeMsg = '';
   String _installMsg = '';
   String _usbMsg = '';
   String _cpuMsg = '';
@@ -3120,21 +3103,6 @@ class _SettingsPageState extends State<SettingsPage> {
         _silentUpdate = d['silent_update'] != false;
       }
     });
-  }
-
-  Future<void> _setGlass(bool v) async {
-    Ui.glass.value = v;
-    final sp = await SharedPreferences.getInstance();
-    await sp.setBool('ui_glass', v);
-    if (Platform.isWindows) {
-      try {
-        await Window.setEffect(
-          effect: currentMatStyle() == MatStyle.solid
-              ? WindowEffect.solid
-              : WindowEffect.mica,
-        );
-      } catch (_) {}
-    }
   }
 
   Future<void> _saveBool(String key, bool v) async {

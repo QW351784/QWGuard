@@ -66,7 +66,11 @@ jobs:
           if (Test-Path "$rel\system_toolbox.exe") {
             Rename-Item "$rel\system_toolbox.exe" 'QWGuard.exe' -Force
           }
-          if (Test-Path 'app\assets') { Copy-Item app\assets -Recurse (Join-Path $rel 'assets') -Force }
+          # Flutter 资产已随 app 构建进入 data/flutter_assets，根目录 assets 不再复制，
+          # 避免字体/二维码在安装包里重复一份。
+          if (Test-Path "$rel\assets") { Remove-Item "$rel\assets" -Recurse -Force }
+          New-Item -ItemType Directory -Path "$rel\assets" -Force | Out-Null
+          Copy-Item 'app\assets\tray.ico' "$rel\assets\tray.ico" -Force
           # 运行库补全的两个工具必须跟着 exe 走，否则工具页点开找不到文件
           if (Test-Path 'vendor\runtime') {
             Copy-Item 'vendor\runtime' -Destination (Join-Path $rel 'runtime') -Recurse -Force

@@ -141,11 +141,9 @@ class _SetupAppState extends State<SetupApp> {
         // 提权实例已经拉起，这个普通权限的窗口必须退出，否则它自己也占着文件
         await Future.delayed(const Duration(milliseconds: 500));
         exit(0);
-        return;
       }
       if (d?['elevated'] != true) {
         exit(0);
-        return;
       }
     }
     final t = Api.systemTheme();
@@ -204,8 +202,6 @@ class _SetupAppState extends State<SetupApp> {
       });
     }
   }
-
-  double get _progress => _step == 2 ? 1.0 : 0.0;
 
   /// 高级选项：自定义安装位置（主程序可以改；工具箱里的工具、运行库不允许改）
   Future<void> _pickDir() async {
@@ -1604,22 +1600,6 @@ class _SetupAppState extends State<SetupApp> {
           ],
         ),
       ],
-    );
-  }
-
-  Widget _check(String label, bool value, ValueChanged<bool> onChanged) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 4),
-      child: Row(
-        children: [
-          Checkbox(
-            value: value,
-            onChanged: (v) => onChanged(v ?? false),
-            visualDensity: VisualDensity.compact,
-          ),
-          Expanded(child: Text(label, style: const TextStyle(fontSize: 12.5))),
-        ],
-      ),
     );
   }
 }

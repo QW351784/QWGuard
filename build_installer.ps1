@@ -24,9 +24,15 @@ if (Test-Path "$native\toolkit_native.dll") {
 if (Test-Path "$native\qw_mcp.exe") {
     Copy-Item "$native\qw_mcp.exe" $release -Force
 }
-if (Test-Path "$root\app\assets") {
-    Copy-Item "$root\app\assets" -Destination "$release\assets" -Recurse -Force
+# Flutter 资产已经在 data/flutter_assets 里随构建打包；
+# 根目录再复制一份 fonts/二维码是纯重复，安装包会白大近 1MB。
+# 托盘图标也改走 data/flutter_assets 的绝对路径，旧根目录 assets 只做兼容。
+if (Test-Path "$release\assets") {
+    Remove-Item "$release\assets" -Recurse -Force
 }
+# 只留托盘图标兼容副本；字体、二维码已在 data/flutter_assets 内，不再重复。
+New-Item -ItemType Directory -Path "$release\assets" -Force | Out-Null
+Copy-Item "$root\app\assets\tray.ico" "$release\assets\tray.ico" -Force
 if (Test-Path "$root\vendor\runtime") {
     Copy-Item "$root\vendor\runtime" -Destination "$release\runtime" -Recurse -Force
 }
