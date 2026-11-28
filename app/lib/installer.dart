@@ -39,6 +39,18 @@ class SetupApp extends StatefulWidget {
   State<SetupApp> createState() => _SetupAppState();
 }
 
+/// 后台 isolate 的入口必须只拿可发送的原始值，不能把 State 对象一起带进去。
+/// 之前闭包直接读 `this._dir`，某些 Dart 版本会报 unsendable，安装线程还没跑就失败，
+/// 界面就停在 0%。这里改成顶层函数 + Map 参数。
+Map<String, dynamic> _installWorker(Map<String, Object?> a) {
+  return Api.installRun(
+    a['src']! as String,
+    a['dst']! as String,
+    desktopIcon: a['desktopIcon']! as bool,
+    autostart: a['autostart']! as bool,
+  );
+}
+
 class _SetupAppState extends State<SetupApp> {
   bool _dark = false;
   bool _ready = false;
@@ -261,16 +273,20 @@ class _SetupAppState extends State<SetupApp> {
         });
       }
     });
+    final srcPath = src;
+    final dstPath = _dir;
+    final desktopIcon = _desktopIcon;
+    final autostart = _autostart;
     Map<String, dynamic> r;
     try {
-      r = await Isolate.run(
-        () => Api.installRun(
-          src,
-          _dir,
-          desktopIcon: _desktopIcon,
-          autostart: _autostart,
-        ),
-      );
+      r = await Isolate.run(() => _installWorker({
+            'src': srcPath,
+            'dst': dstPath,
+            'desktopIcon': desktopIcon,
+            'autostart': autostart,
+          }));
+    } catch (e) {
+      r = {'success': false, 'message': '安装线程异常：$e'};
     } finally {
       timer.cancel();
     }
