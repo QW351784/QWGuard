@@ -42,7 +42,15 @@ jobs:
 
       - name: Scaffold Windows runner
         working-directory: app
-        run: flutter create --platforms=windows --project-name system_toolbox .
+        shell: pwsh
+        run: |
+          # 仓库里已经带了 windows/runner（含 requireAdministrator 清单），
+          # 不要再用 flutter create 覆盖；只有缺目录时才生成。
+          if (!(Test-Path 'windows')) {
+            flutter create --platforms=windows --project-name system_toolbox .
+          } else {
+            Write-Host '保留仓库内 windows runner（管理员清单）'
+          }
 
       - name: Pub get
         working-directory: app

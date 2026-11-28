@@ -146,7 +146,7 @@ class _SetupAppState extends State<SetupApp> {
       if (rec['success'] == true && rec['data'] is Map) {
         final p = rec['data']['path']?.toString() ?? '';
         if (p.isNotEmpty) {
-          // 新版 Rust 直接返回完整安装目录（%LOCALAPPDATA%\Programs\QWGuard）。
+          // 新版 Rust 直接返回完整安装目录（%ProgramFiles%\QWGuard）。
           // 旧 DLL 只返回盘符根，兼容时再拼一次 QWGuard。
           final lower = p.toLowerCase();
           final alreadyInstallDir = lower.endsWith('qwguard') ||
@@ -162,11 +162,12 @@ class _SetupAppState extends State<SetupApp> {
           }
         }
       }
-      // 推荐接口失败时的兜底：仍然优先当前用户可写目录，绝不退回 Program Files。
+      // 推荐接口失败时仍装系统程序目录；安装器已经在管理员上下文里，
+      // 不再退回 LocalAppData，避免“安装、卸载、主程序全程提权”变成一半普通权限。
       if (dir == _dir) {
-        final local = Platform.environment['LOCALAPPDATA']?.trim() ?? '';
-        if (local.isNotEmpty) {
-          dir = '$local\\Programs\\QWGuard';
+        final pf = Platform.environment['ProgramFiles']?.trim() ?? '';
+        if (pf.isNotEmpty) {
+          dir = '$pf\\QWGuard';
         }
       }
     }
@@ -354,7 +355,7 @@ class _SetupAppState extends State<SetupApp> {
       debugShowCheckedModeBanner: false,
       theme: theme,
       home: Scaffold(
-        // 这里是安装器自己的窗口。_setupWindow() 里没给 WindowOptions 设不透明底，
+        // 这里是安装器自己的窗口；Scaffold 透明，下面由 Mica 和极光层托底。
         // Scaffold 再写 transparent，整个向导就会透出桌面。必须自己画底色。
         // 透明底给 DWM 的 Mica 留出通道；真正的不透明兜底画在 _body/加载层里。
         backgroundColor: Colors.transparent,
@@ -945,7 +946,7 @@ class _SetupAppState extends State<SetupApp> {
         ),
         const SizedBox(height: 6),
         Text(
-          '装到当前用户目录，普通权限就能写入，不会因为 Program Files 的 ACL 卡在写入阶段。',
+          '装到系统程序目录，安装器会先请求管理员权限；不会因为 Program Files 的 ACL 写一半失败。',
           style: TextStyle(
             fontSize: 11.5,
             height: 1.55,
@@ -1054,7 +1055,7 @@ class _SetupAppState extends State<SetupApp> {
             const SizedBox(width: 5),
             Expanded(
               child: Text(
-                '默认路径在 %LOCALAPPDATA%\\Programs\\QWGuard，不需要管理员权限；点路径可改到 D 盘。',
+                '默认路径在 %ProgramFiles%\\QWGuard，安装器需要管理员权限；点路径可改到 D 盘。',
                 style: TextStyle(
                   fontSize: 10,
                   height: 1.45,

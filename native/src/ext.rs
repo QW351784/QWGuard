@@ -853,21 +853,16 @@ pub extern "C" fn recommend_install_dir(buf: *mut u8, len: usize) -> i32 {
 
         match best {
             Some(b) => {
-                // Windows 上不要推荐盘符根目录或 Program Files：
-                // 普通用户写 C:\ 和 C:\Program Files 会被 ACL 拒绝，安装会卡在“写入文件”。
-                // 统一推荐当前用户的 %LOCALAPPDATA%\Programs\QWGuard，普通权限可写、卸载也不需要全程管理员。
+                // 用户要求安装、卸载、主程序全程管理员：默认装系统程序目录，
+                // 由安装器的 requireAdministrator 清单提前拿 UAC，不会写一半被 ACL 拒绝。
                 #[cfg(windows)]
                 let (install_path, reason) = {
-                    let local = std::env::var("LOCALAPPDATA").unwrap_or_default();
-                    let base = if local.trim().is_empty() {
-                        PathBuf::from(&b.0).join("Users").join("Public")
-                    } else {
-                        PathBuf::from(local)
-                    };
-                    let p = base.join("Programs").join("QWGuard");
+                    let pf = std::env::var("ProgramFiles")
+                        .unwrap_or_else(|_| "C:\\Program Files".to_string());
+                    let p = PathBuf::from(pf).join("QWGuard");
                     (
                         p.to_string_lossy().to_string(),
-                        "当前用户程序目录，普通权限可写，不需要管理员权限".to_string(),
+                        "系统程序目录，安装/卸载需要管理员权限".to_string(),
                     )
                 };
                 #[cfg(not(windows))]
