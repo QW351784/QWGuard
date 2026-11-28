@@ -95,7 +95,8 @@ class _SetupAppState extends State<SetupApp> {
     _clock
       ..reset()
       ..start();
-    _ticker ??= Timer.periodic(const Duration(milliseconds: 16), (_) {
+    // 30fps 足够让极光/玻璃高光动起来，GPU 占用比 60fps 直接减半。
+    _ticker ??= Timer.periodic(const Duration(milliseconds: 33), (_) {
       if (!mounted) return;
       Ui.tick.value = _clock.elapsedMicroseconds / 1000000.0;
     });
@@ -1616,32 +1617,37 @@ class _InstallerBackdrop extends StatefulWidget {
   State<_InstallerBackdrop> createState() => _InstallerBackdropState();
 }
 
-class _InstallerBackdropState extends State<_InstallerBackdrop>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _c = AnimationController(
-    vsync: this,
-    duration: const Duration(seconds: 22),
-  )..repeat();
+class _InstallerBackdropState extends State<_InstallerBackdrop> {
+  // 不用 AnimationController：它按 vsync 每帧推进，等于强制 60fps。
+  // 这里用 30fps 定时器推相位，极光仍然连续，但重绘次数减半。
+  Timer? _timer;
+  double _t = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _timer = Timer.periodic(const Duration(milliseconds: 33), (_) {
+      if (!mounted) return;
+      setState(() => _t = (_t + 33 / 22000) % 1.0);
+    });
+  }
 
   @override
   void dispose() {
-    _c.dispose();
+    _timer?.cancel();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
     return RepaintBoundary(
-      child: AnimatedBuilder(
-        animation: _c,
-        builder: (_, __) => CustomPaint(
-          painter: _InstallerBackdropPainter(
-            t: _c.value,
-            dark: widget.dark,
-            accent: widget.accent,
-          ),
-          child: const SizedBox.expand(),
+      child: CustomPaint(
+        painter: _InstallerBackdropPainter(
+          t: _t,
+          dark: widget.dark,
+          accent: widget.accent,
         ),
+        child: const SizedBox.expand(),
       ),
     );
   }
