@@ -1301,6 +1301,21 @@ class _ToolsPageState extends State<ToolsPage> {
       case '文件粉碎机':
         await _shredder(context);
         break;
+      case '启动项管理':
+        await _startupManager(context);
+        break;
+      case '进程管理':
+        await _processManager(context);
+        break;
+      case '网络诊断':
+        await _networkDiag(context);
+        break;
+      case '磁盘分析':
+        await _diskAnalyzer(context);
+        break;
+      case '注册表清理':
+        await _registryCleaner(context);
+        break;
       case '环境自检':
         final r = Api.envCheck();
         _toast(
@@ -1426,7 +1441,7 @@ class _ToolsPageState extends State<ToolsPage> {
     final missing =
         ((data['missing'] as List?) ?? const []).map((e) => e.toString()).toList();
 
-    final tr = Api.runtimeTools();
+    final tr = await Isolate.run(() => Api.runtimeTools());
     final tdata = (tr['data'] as Map?)?.cast<String, dynamic>() ?? <String, dynamic>{};
     final vcInfo = (tdata['vcredist'] as Map?)?.cast<String, dynamic>();
     final dxInfo = (tdata['dxrepair'] as Map?)?.cast<String, dynamic>();
@@ -1560,6 +1575,123 @@ class _ToolsPageState extends State<ToolsPage> {
         );
       },
     );
+  }
+
+  Future<String> _ps(String script) async {
+    // PowerShell 的默认 stdout 在中文 Windows 上是 OEM 编码，Dart 读出来会乱码。
+    // 先强制 UTF-8，再把原生命令输出当文本回传，UI 线程全程 await。
+    final prefix =
+        r'[Console]::OutputEncoding=[Text.UTF8Encoding]::new(); $OutputEncoding=[Text.UTF8Encoding]::new(); $ErrorActionPreference="SilentlyContinue"; ';
+    final r = await Process.run(
+      'powershell',
+      ['-NoProfile', '-NonInteractive', '-Command', prefix + script],
+    );
+    final out = r.stdout.toString().trim();
+    final err = r.stderr.toString().trim();
+    if (out.isEmpty) return err.isEmpty ? '没有输出（退出码 ${r.exitCode}）' : err;
+    return err.isEmpty ? out : '$out\n\n$err';
+  }
+
+  Future<void> _showToolText(BuildContext context,
+      {required String title, required String body}) async {
+    if (!context.mounted) return;
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => QDialog(
+        icon: Icons.build_circle_rounded,
+        title: 'QW 安全电脑管家 · $title',
+        body: body,
+        okText: '知道了',
+        cancelText: '关闭',
+        onOk: () => Navigator.of(ctx).pop(),
+      ),
+    );
+  }
+
+  Future<void> _startupManager(BuildContext context) async {
+    final r = await Isolate.run(() => Api.autostartList());
+    if (!context.mounted) return;
+    if (r['success'] != true) {
+      await _showToolText(context,
+          title: '启动项管理',
+          body: r['message']?.toString() ?? '读取启动项失败');
+      return;
+    }
+    final items = ((r['data'] as Map?)?['items'] as List?) ?? const [];
+    if (items.isEmpty) {
+      await _showToolText(context,
+          title: '启动项管理', body: '当前用户的开机启动项是空的。');
+      return;
+    }
+    final body = StringBuffer('当前用户开机启动项：\n\n');
+    for (final it in items) {
+      final m = (it as Map).cast<String, dynamic>();
+      body.writeln('• ${m['name'] ?? ''}');
+      body.writeln('  ${m['cmd'] ?? ''}\n');
+    }
+    body.write('只读查看，不会擅自删除启动项。要关闭 QWGuard 自启，可在设置页操作。');
+    await _showToolText(context, title: '启动项管理', body: body.toString());
+  }
+
+  Future<void> _processManager(BuildContext context) async {
+    final raw = await _ps(
+      r"Get-Process | Sort-Object WorkingSet64 -Descending | Select-Object -First 20 Name,Id,CPU,WorkingSet64 | ConvertTo-Json -Compress",
+    );
+    if (!context.mounted) return;
+    String body;
+    try {
+      final decoded = jsonDecode(raw);
+      final list = decoded is List ? decoded : [decoded];
+      final b = StringBuffer('占用内存最高的进程：\n\n');
+      for (final item in list) {
+        final m = (item as Map).cast<String, dynamic>();
+        final mb = ((m['WorkingSet64'] as num?)?.toDouble() ?? 0) / 1024 / 1024;
+        b.writeln(
+            '• ${m['Name'] ?? '?'}  PID ${m['Id'] ?? '?'}  CPU ${m['CPU'] ?? '-'}  内存 ${mb.toStringAsFixed(1)} MB');
+      }
+      body = b.toString();
+    } catch (_) {
+      body = raw;
+    }
+    await _showToolText(context, title: '进程管理', body: body);
+  }
+
+  Future<void> _networkDiag(BuildContext context) async {
+    final raw = await _ps(
+      r"$p = ping -n 3 223.5.5.5; $n = netstat -ano | Select-String 'LISTENING' | Select-Object -First 12; '--- ping 223.5.5.5 ---'; $p; ''; '--- 本机监听端口（前 12 条）---'; $n",
+    );
+    if (!context.mounted) return;
+    await _showToolText(context, title: '网络诊断', body: raw);
+  }
+
+  Future<void> _diskAnalyzer(BuildContext context) async {
+    final raw = await _ps(
+      r"Get-PSDrive -PSProvider FileSystem | Select-Object Name,@{n='UsedGB';e={[math]::Round($_.Used/1GB,1)}},@{n='FreeGB';e={[math]::Round($_.Free/1GB,1)}} | ConvertTo-Json -Compress",
+    );
+    if (!context.mounted) return;
+    String body;
+    try {
+      final decoded = jsonDecode(raw);
+      final list = decoded is List ? decoded : [decoded];
+      final b = StringBuffer('磁盘占用：\n\n');
+      for (final item in list) {
+        final m = (item as Map).cast<String, dynamic>();
+        b.writeln(
+            '• ${m['Name'] ?? '?'}: 已用 ${m['UsedGB'] ?? '?'} GB，剩余 ${m['FreeGB'] ?? '?'} GB');
+      }
+      body = b.toString();
+    } catch (_) {
+      body = raw;
+    }
+    await _showToolText(context, title: '磁盘分析', body: body);
+  }
+
+  Future<void> _registryCleaner(BuildContext context) async {
+    final raw = await _ps(
+      r"$roots=@('HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall','HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall','HKLM:\Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall'); $bad=@(); foreach($r in $roots){ if(Test-Path $r){ Get-ChildItem $r | ForEach-Object { $p=$_; $loc=(Get-ItemProperty $p.PSPath).InstallLocation; if($loc -and -not (Test-Path $loc)){ $bad += [pscustomobject]@{Name=(Get-ItemProperty $p.PSPath).DisplayName; Path=$loc} } } } }; '扫描到 ' + $bad.Count + ' 个安装目录已不存在的卸载项（只扫描，不自动删除）'; $bad | Select-Object -First 20 | Format-Table -AutoSize | Out-String -Width 200",
+    );
+    if (!context.mounted) return;
+    await _showToolText(context, title: '注册表清理', body: raw);
   }
 
   @override

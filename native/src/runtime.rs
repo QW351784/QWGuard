@@ -385,6 +385,66 @@ fn trim_log(path: &Path) {
 
 /// 跑一个子进程并等它结束，输出写日志。返回 exit code
 /// 带超时：安装器卡住就 kill 掉，别把后台线程永久挂死
+/// PowerShell 单引号转义。运行库工具路径里可能有 `'`，不能直接拼。
+#[cfg(windows)]
+fn ps_quote(s: &str) -> String {
+    s.replace('\'', "''")
+}
+
+/// 非管理员时用 UAC 拉起安装器，等它结束并返回真实退出码。
+/// 之前直接 Command::spawn 继承的是当前普通权限，VC++/DirectX 安装器
+/// 会以 5 / 740 这类退出码结束；用户看到“跑完了但退出码不是 0”，
+/// 实际是根本没有管理员令牌。
+#[cfg(windows)]
+fn run_elevated_tool(
+    exe: &Path,
+    args: &[&str],
+    label: &str,
+    timeout: Duration,
+) -> Result<i32, String> {
+    let arg_list = args
+        .iter()
+        .map(|a| format!("'{}'", ps_quote(a)))
+        .collect::<Vec<_>>()
+        .join(",");
+    let script = format!(
+        "$ErrorActionPreference='Stop'; \
+         try {{ \
+           $p = Start-Process -FilePath '{}' -ArgumentList @({}) \
+                 -Verb RunAs -Wait -PassThru -WindowStyle Hidden; \
+           exit $p.ExitCode \
+         }} catch {{ \
+           Write-Output $_.Exception.Message; exit 1223 \
+         }}",
+        ps_quote(&exe.to_string_lossy()),
+        arg_list
+    );
+
+    let mut cmd = crate::proc::cmd("powershell");
+    cmd.args(["-NoProfile", "-NonInteractive", "-Command", &script])
+        .creation_flags(CREATE_NO_WINDOW);
+    let mut child = cmd
+        .spawn()
+        .map_err(|e| format!("UAC 启动失败（{label}）: {e}"))?;
+    let t0 = Instant::now();
+    loop {
+        match child.try_wait() {
+            Ok(Some(st)) => {
+                return Ok(st.code().unwrap_or(-1));
+            }
+            Ok(None) => {
+                if t0.elapsed() > timeout {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    return Ok(-1);
+                }
+                std::thread::sleep(Duration::from_millis(500));
+            }
+            Err(e) => return Err(format!("等待 UAC 子进程失败（{label}）: {e}")),
+        }
+    }
+}
+
 fn run_tool(exe: &Path, args: &[&str], log_name: &str, timeout: Duration) -> Result<i32, String> {
     use std::io::{Read as _, Write as _};
     let lp = log_path();
@@ -400,6 +460,16 @@ fn run_tool(exe: &Path, args: &[&str], log_name: &str, timeout: Duration) -> Res
         exe.display(),
         args
     );
+
+    // 没管理员令牌就直接起安装器，VC++/DirectX 会以权限错误退出。
+    // 这里先检查，必要时走 UAC 重新拉起，日志和退出码仍然回给界面。
+    #[cfg(windows)]
+    if !crate::installer::is_elevated() {
+        let _ = writeln!(log, "当前不是管理员，正在请求 UAC 提权...");
+        let code = run_elevated_tool(exe, args, log_name, timeout).unwrap_or(-1);
+        let _ = writeln!(log, "exit = {code}");
+        return Ok(code);
+    }
 
     let mut cmd = crate::proc::cmd(exe);
     cmd.args(args)

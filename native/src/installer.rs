@@ -464,10 +464,29 @@ fn progress_cell() -> &'static Mutex<(u64, u64, String, String)> {
     P.get_or_init(|| Mutex::new((0, 0, String::new(), String::new())))
 }
 
+/// 跨 isolate 的兜底进度文件。
+/// Windows 上同一路径的 DLL 通常共享静态数据，但 Flutter 的
+/// `Isolate.run` 不能假设所有平台都这样；实测一旦静态单元没共享，
+/// UI 就只看到 0%。所以每次进度变化同时落一个很小的 JSON 文件，
+/// UI 侧读不到共享单元时直接读它。
+fn progress_file() -> PathBuf {
+    std::env::temp_dir().join("qwguard-install-progress.json")
+}
+
 fn set_progress(copied: u64, total: u64, phase: &str, file: &str) {
     if let Ok(mut g) = progress_cell().lock() {
         *g = (copied, total, phase.to_string(), file.to_string());
     }
+    let _ = fs::write(
+        progress_file(),
+        json!({
+            "copied": copied,
+            "total": total,
+            "phase": phase,
+            "file": file,
+        })
+        .to_string(),
+    );
 }
 
 fn count_files(dir: &Path) -> u64 {
@@ -495,12 +514,32 @@ fn count_files(dir: &Path) -> u64 {
 #[no_mangle]
 pub extern "C" fn install_progress(buf: *mut u8, len: usize) -> i32 {
     crate::ffi_guard!(buf, len, {
-        let (c, t, ph, f) = progress_cell().lock().map(|g| g.clone()).unwrap_or((
-            0,
-            0,
-            String::new(),
-            String::new(),
-        ));
+        let (mut c, mut t, mut ph, mut f) = progress_cell()
+            .lock()
+            .map(|g| g.clone())
+            .unwrap_or((0, 0, String::new(), String::new()));
+
+        // 后台 isolate 和 UI isolate 没有共享静态数据时，静态单元一直是 0。
+        // 读安装线程落盘的进度文件，保证界面能看到真实文件/阶段。
+        if t == 0 {
+            if let Ok(text) = fs::read_to_string(progress_file()) {
+                if let Ok(v) = serde_json::from_str::<serde_json::Value>(&text) {
+                    c = v.get("copied").and_then(|x| x.as_u64()).unwrap_or(c);
+                    t = v.get("total").and_then(|x| x.as_u64()).unwrap_or(t);
+                    ph = v
+                        .get("phase")
+                        .and_then(|x| x.as_str())
+                        .unwrap_or(&ph)
+                        .to_string();
+                    f = v
+                        .get("file")
+                        .and_then(|x| x.as_str())
+                        .unwrap_or(&f)
+                        .to_string();
+                }
+            }
+        }
+
         let v =
             json!({ "success": true, "data": { "copied": c, "total": t, "phase": ph, "file": f } });
         ok(buf, len, "", v)
@@ -594,6 +633,7 @@ pub extern "C" fn install_run(
             }
         }
         let total_files = count_files(&from);
+        let _ = fs::remove_file(progress_file());
         set_progress(0, total_files, "正在校验安装文件", "");
 
         // ① 完整性校验：manifest.json 里每个文件的 SHA-256 必须对上
@@ -765,7 +805,7 @@ pub extern "C" fn install_run(
 /// 当前进程是不是管理员（高完整性级别）。
 /// 不用 OpenProcessToken：whoami /groups 里高完整性会带 S-1-16-12288，
 /// 系统级是 S-1-16-16384，这两个 SID 不随系统语言变化。
-fn is_elevated() -> bool {
+pub(crate) fn is_elevated() -> bool {
     if !cfg!(windows) {
         return true;
     }
