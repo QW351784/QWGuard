@@ -1,0 +1,80 @@
+name: Build Windows ARM64
+
+# 注意：Flutter 官方还没发布 Windows arm64 SDK（releases_windows.json 里 arm64 条目为 0），
+# subosito/flutter-action 在 arm64 runner 上直接报 "Unable to determine Flutter version ... architecture: arm64"。
+# 等官方发 arm64 SDK 再启用。这里只留手动触发，不跟着每次 push 跑。
+on:
+  workflow_dispatch:
+
+jobs:
+  build-arm64:
+    runs-on: windows-11-arm
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Rust toolchain（最新 stable）+ arm64 target
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-pc-windows-msvc
+
+      - name: Rust 构建缓存
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: native -> target
+          cache-on-failure: true
+
+      - name: Flutter（最新 stable）
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: 版本自检
+        shell: pwsh
+        run: |
+          Write-Host "OS arch: $env:PROCESSOR_ARCHITECTURE"
+          rustc --version
+          rustup target list --installed
+          flutter --version
+          dart --version
+
+      - name: Build Rust core（aarch64）
+        working-directory: native
+        run: cargo build --release --target aarch64-pc-windows-msvc
+
+      - name: Scaffold Windows runner
+        working-directory: app
+        run: flutter create --platforms=windows --project-name system_toolbox .
+
+      - name: Pub get
+        working-directory: app
+        run: flutter pub get
+
+      - name: Build Windows app（arm64）
+        working-directory: app
+        run: flutter build windows --release
+
+      - name: 产物定位
+        shell: pwsh
+        run: |
+          $dirs = @(
+            'app\build\windows\arm64\runner\Release',
+            'app\build\windows\arm64\runner\release'
+          )
+          foreach ($d in $dirs) { if (Test-Path $d) { Write-Host "FOUND $d"; Get-ChildItem $d | Select-Object Name, Length } }
+
+      - name: Copy native dll, assets and runtime tools
+        shell: pwsh
+        run: |
+          $rel = 'app\build\windows\arm64\runner\Release'
+          Copy-Item native\target\aarch64-pc-windows-msvc\release\toolkit_native.dll $rel -Force
+          Copy-Item native\target\aarch64-pc-windows-msvc\release\qw_mcp.exe $rel -Force
+          if (Test-Path 'app\assets') { Copy-Item app\assets -Recurse (Join-Path $rel 'assets') -Force }
+          if (Test-Path 'vendor\runtime') { Copy-Item 'vendor\runtime' -Destination (Join-Path $rel 'runtime') -Recurse -Force }
+      - name: Upload arm64 build
+        uses: actions/upload-artifact@v4
+        with:
+          name: QWGuard-windows-arm64
+          path: app/build/windows/arm64/runner/Release/**
+          if-no-files-found: warn

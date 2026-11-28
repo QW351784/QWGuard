@@ -1,0 +1,49 @@
+[package]
+name = "toolkit_native"
+version = "1.1.0"
+edition = "2021"
+
+[lib]
+name = "toolkit_native"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+# 0.30 只有 multithread 一个 feature，没有可裁的模块，保持默认
+sysinfo = "0.30"
+rayon = "1.10"
+sha2 = "0.10"
+# 大文件零拷贝扫描：不把整个文件读进堆
+memmap2 = "0.9"
+# YARA-X：VirusTotal 的纯 Rust 重写版。走进程内扫描，不再每个文件起
+# 一次 yara64.exe —— 深度复核慢十几倍的根源就是进程启动开销。
+# 关掉默认的 generate-proto-code（用仓库里预生成的代码），
+# 否则构建期还要拉一套 protobuf 代码生成。
+yara-x = { version = "1", default-features = false, features = [
+    "constant-folding", "exact-atoms", "fast-regexp",
+    "pe-module", "hash-module", "math-module", "string-module", "time-module",
+] }
+
+zip = { version = "2", default-features = false, features = ["deflate"] }
+pbkdf2 = { version = "0.12", default-features = false }
+aes-gcm = "0.10"
+getrandom = "0.2"
+hmac = "0.12"
+
+[target.'cfg(not(windows))'.dependencies]
+ureq = "2.10"
+
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.58", features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging", "Win32_System_Threading", "Win32_Storage_FileSystem"] }
+
+# 性能优先：opt-level 3 而不是体积优先的 z
+# fat LTO + codegen-units = 4 让 LLVM 跨模块优化
+# 保留 unwind：FFI 入口的 catch_unwind 才能真正兜住 Rust panic；
+# panic=abort 会让一次越界直接把整个管家进程带走。
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+panic = "unwind"
+strip = "symbols"

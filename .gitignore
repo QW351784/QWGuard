@@ -1,0 +1,20 @@
+# Flutter / Dart
+app/.dart_tool/
+app/build/
+app/.flutter-plugins
+app/.flutter-plugins-dependencies
+app/windows/flutter/ephemeral/
+
+# Rust
+native/target/
+
+# 产物
+dist/
+*.zip
+
+# 第三方工具二进制（安装包内置，随仓库走）
+# vendor/runtime/*.exe 故意不忽略：要打进安装包
+
+# 系统
+.DS_Store
+Thumbs.db

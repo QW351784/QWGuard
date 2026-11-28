@@ -1,0 +1,2335 @@
+//! QW 安全电脑管家 —— 扩展能力：显卡判定、设置、自启动、U盘、安装目录、运行库、更新、白名单、多线程扫描
+
+use rayon::prelude::*;
+use serde::{Deserialize, Serialize};
+use serde_json::{json, Value};
+use std::ffi::c_char;
+use std::fs;
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
+use std::sync::Mutex;
+
+// ---- 查杀实时进度（前端 200ms 轮询一次，画那个旋转盾牌动效用的） ----
+static SCAN_RUNNING: AtomicBool = AtomicBool::new(false);
+static SCAN_TOTAL: AtomicU64 = AtomicU64::new(0);
+static SCAN_DONE: AtomicU64 = AtomicU64::new(0);
+static SCAN_HITS: AtomicU32 = AtomicU32::new(0);
+static SCAN_CUR: Mutex<String> = Mutex::new(String::new());
+/// 扫描过程中命中的结果实时放这里，页面每 150 ms 就能读到，
+/// 不用等整盘扫完 —— 以前是「扫完才返回」，所以界面上永远显示 0。
+static SCAN_FOUND: Mutex<Vec<serde_json::Value>> = Mutex::new(Vec::new());
+static SCAN_SCOPE: Mutex<String> = Mutex::new(String::new());
+static SCAN_CANCEL: AtomicBool = AtomicBool::new(false);
+/// 外部引擎（火绒/PYAS）的取消标志，和内置扫描分开，避免互相误停
+static EXT_CANCEL: AtomicBool = AtomicBool::new(false);
+
+use crate::{cstr, fail, ok, round1};
+
+// ================= 显卡 =================
+
+#[derive(Serialize, Clone)]
+pub struct Gpu {
+    pub name: String,
+    pub kind: String,   // discrete / integrated
+    pub vendor: String, // nvidia / amd / intel / other
+    pub vram_mb: u32,
+    pub score: u32,
+    pub note: String,
+}
+
+fn classify(name: &str) -> &'static str {
+    // 不绑型号：只看名字里的通用标记，4080/4090/RX 7900/Arc A770 都能认出来。
+    // 先判独显再判核显 —— 否则 "Intel(R) Arc(TM) A770" 因为带括号匹配不上 "arc a"，会被当成核显。
+    let n = name
+        .to_lowercase()
+        .replace('(', "")
+        .replace(')', "")
+        .replace('™', "")
+        .replace('®', "")
+        .replace("  ", " ");
+    const DISCRETE: [&str; 16] = [
+        "nvidia",
+        "geforce",
+        "rtx",
+        "gtx",
+        "quadro",
+        "radeon rx",
+        "rx 5",
+        "rx 6",
+        "rx 7",
+        "rx 9",
+        "radeon vii",
+        "arc a",
+        "arc b",
+        "intel arc",
+        "arc graphics",
+        "geforce mx",
+    ];
+    const INTEGRATED: [&str; 9] = [
+        "intel uhd",
+        "intel iris",
+        "xe graphics",
+        "hd graphics",
+        "uhd graphics",
+        "radeon graphics",
+        "radeon vega",
+        "vega 8",
+        "apple m",
+    ];
+    if DISCRETE.iter().any(|k| n.contains(k)) {
+        "discrete"
+    } else if INTEGRATED.iter().any(|k| n.contains(k)) {
+        "integrated"
+    } else if n.contains("microsoft basic") || n.contains("remote") {
+        "integrated"
+    } else {
+        "integrated"
+    }
+}
+
+fn vendor_of(name: &str) -> &'static str {
+    let n = name.to_lowercase();
+    if n.contains("nvidia")
+        || n.contains("geforce")
+        || n.contains("rtx")
+        || n.contains("gtx")
+        || n.contains("quadro")
+    {
+        "nvidia"
+    } else if n.contains("amd") || n.contains("radeon") || n.contains("rx ") {
+        "amd"
+    } else if n.contains("intel") || n.contains("iris") || n.contains("uhd") || n.contains("arc") {
+        "intel"
+    } else {
+        "other"
+    }
+}
+
+fn score_of(name: &str, kind: &str, vram_mb: u32) -> u32 {
+    let n = name.to_lowercase();
+    if kind == "integrated" {
+        return 50 + (vram_mb / 512).min(4);
+    }
+    let mut base = 80 + (vram_mb / 1024) * 5;
+    for (k, add) in [
+        ("rtx 50", 40),
+        ("rtx 40", 32),
+        ("rtx 30", 22),
+        ("rtx 20", 12),
+        ("gtx 16", 8),
+        ("gtx 10", 4),
+        ("rx 9", 34),
+        ("rx 7", 24),
+        ("rx 6", 14),
+        ("arc b", 20),
+        ("arc a", 14),
+        ("radeon vii", 10),
+    ] {
+        if n.contains(k) {
+            base += add;
+            break;
+        }
+    }
+    base.min(200)
+}
+
+pub fn detect_gpus() -> Vec<Gpu> {
+    let mut out = Vec::new();
+
+    if cfg!(windows) {
+        let script = "Get-CimInstance Win32_VideoController | Select-Object Name,AdapterRAM | ConvertTo-Json -Compress";
+        if let Ok(v) = crate::proc::ps_json(script) {
+            let list = match v {
+                Value::Array(a) => a,
+                other => vec![other],
+            };
+            for item in list {
+                let name = item
+                    .get("Name")
+                    .and_then(|x| x.as_str())
+                    .unwrap_or("")
+                    .trim()
+                    .to_string();
+                if name.is_empty() {
+                    continue;
+                }
+                let vram =
+                    item.get("AdapterRAM").and_then(|x| x.as_u64()).unwrap_or(0) as u32 / 1048576;
+                push_gpu(&mut out, name, vram);
+            }
+        }
+    }
+
+    if out.is_empty() {
+        // Linux / 兜底
+        if let Ok(o) = crate::proc::cmd("sh")
+            .args(["-c", "lspci 2>/dev/null | grep -Ei 'vga|3d|display'"])
+            .output()
+        {
+            for line in String::from_utf8_lossy(&o.stdout).lines() {
+                let name = line.split(": ").last().unwrap_or(line).trim().to_string();
+                if !name.is_empty() {
+                    push_gpu(&mut out, name, 0);
+                }
+            }
+        }
+    }
+
+    out
+}
+
+fn push_gpu(out: &mut Vec<Gpu>, name: String, vram: u32) {
+    let kind = classify(&name).to_string();
+    let score = score_of(&name, &kind, vram);
+    let note = if kind == "discrete" {
+        "独立显卡".to_string()
+    } else {
+        "核显 / 集显".to_string()
+    };
+    if out.iter().any(|g| g.name == name) {
+        return;
+    }
+    let vendor = vendor_of(&name).to_string();
+    out.push(Gpu {
+        name,
+        kind,
+        vendor,
+        vram_mb: vram,
+        score,
+        note,
+    });
+}
+
+pub fn recommend_gpu(gpus: &[Gpu]) -> String {
+    if gpus.is_empty() {
+        return "none".into();
+    }
+    let mut best = &gpus[0];
+    for g in gpus {
+        if g.score > best.score {
+            best = g;
+        }
+    }
+    best.kind.clone()
+}
+
+#[no_mangle]
+pub extern "C" fn detect_gpu(buf: *mut u8, len: usize) -> i32 {
+    crate::ffi_guard!(buf, len, {
+        let gpus = detect_gpus();
+        let recommended = recommend_gpu(&gpus);
+        ok(
+            buf,
+            len,
+            "显卡检测完成",
+            json!({"gpus": gpus, "recommended": recommended}),
+        )
+    })
+}
+
+#[no_mangle]
+pub extern "C" fn get_gpu_preference(buf: *mut u8, len: usize) -> i32 {
+    crate::ffi_guard!(buf, len, {
+        let cfg = load_config();
+        let mode = cfg
+            .get("gpu_mode")
+            .and_then(|v| v.as_str())
+            .unwrap_or("auto");
+        let gpus = detect_gpus();
+        let detected = recommend_gpu(&gpus);
+        let effective = match mode {
+            "discrete" => "discrete",
+            "integrated" => "integrated",
+            _ => detected.as_str(),
+        };
+        ok(
+            buf,
+            len,
+            "显卡偏好",
+            json!({
+                "mode": mode,
+                "detected": detected,
+                "effective": effective,
+                "gpus": gpus
+            }),
+        )
+    })
+}
+
+// ================= 配置 =================
+
+pub(crate) fn cfg_dir() -> PathBuf {
+    if cfg!(windows) {
+        let base = std::env::var("APPDATA").unwrap_or_else(|_| ".".into());
+        PathBuf::from(base).join("QWGuard")
+    } else {
+        std::env::var("HOME")
+            .map(|h| PathBuf::from(h).join(".config/qwguard"))
+            .unwrap_or_else(|_| PathBuf::from("/tmp/qwguard"))
+    }
+}
+
+fn cfg_path() -> PathBuf {
+    cfg_dir().join("config.json")
+}
+
+pub(crate) fn load_config() -> Value {
+    fs::read_to_string(cfg_path())
+        .ok()
+        .and_then(|s| serde_json::from_str(&s).ok())
+        .unwrap_or_else(|| json!({}))
+}
+
+pub(crate) fn save_config(v: &Value) {
+    let _ = crate::write_atomic(&cfg_path(), &v.to_string());
+}
+
+#[no_mangle]
+pub extern "C" fn get_settings(buf: *mut u8, len: usize) -> i32 {
+    crate::ffi_guard!(buf, len, {
+        let mut cfg = load_config();
+        // Token 只给更新检查用，没必要回传给界面/调用方；要改就整条重设。
+        if let Value::Object(ref mut m) = cfg {
+            if let Some(t) = m.get("github_token").and_then(|v| v.as_str()) {
+                let has = !t.is_empty();
+                m.insert("github_token".into(), Value::String(String::new()));
+                m.insert("github_token_set".into(), Value::Bool(has));
+            }
+        }
+        ok(buf, len, "设置", cfg)
+    })
+}
+
+#[no_mangle]
+pub extern "C" fn set_setting(
+    key: *const c_char,
+    value: *const c_char,
+    buf: *mut u8,
+    len: usize,
+) -> i32 {
+    crate::ffi_guard!(buf, len, {
+        let (Some(k), Some(v)) = (cstr(key), cstr(value)) else {
+            return fail(buf, len, -1, "参数为空");
+        };
+        // 通用设置接口只放白名单键，避免把 engine 路径一类的敏感配置
+        // 从任意 FFI 调用方写进来（写进去下一步就是被当程序执行）。
+        if !matches!(k.as_str(), "gpu_mode" | "github_token") {
+            return fail(buf, len, -1, "不允许修改这个配置项");
+        }
+        if v.len() > 4096 {
+            return fail(buf, len, -1, "配置值过长");
+        }
+        let mut cfg = load_config();
+        if let Value::Object(ref mut map) = cfg {
+            let parsed = serde_json::from_str::<Value>(&v).unwrap_or(Value::String(v.clone()));
+            map.insert(k.clone(), parsed);
+        }
+        save_config(&cfg);
+        ok(buf, len, "已保存", json!({"key": k}))
+    })
+}
+
+/// CPU 型号/核心数兜底：sysinfo 在部分 Windows 机器上拿不到 CPU 品牌，
+/// 空的 cpu_name + 0 核在页面上就是「硬件检测一片空白」。
+/// 这里直接问 Windows 自己（Get-CimInstance），一条命令同时带回名称和核心数。
+pub(crate) fn ps_cpu() -> Option<(String, usize)> {
+    if !cfg!(windows) {
+        return None;
+    }
+    let script = "Get-CimInstance Win32_Processor | Select-Object -First 1 Name,NumberOfCores,NumberOfLogicalProcessors | ConvertTo-Json -Compress";
+    let v = crate::proc::ps_json(script).ok()?;
+    let name = v
+        .get("Name")
+        .and_then(|x| x.as_str())
+        .unwrap_or("")
+        .trim()
+        .to_string();
+    let cores = v.get("NumberOfCores").and_then(|x| x.as_u64()).unwrap_or(0) as usize;
+    let logical = v
+        .get("NumberOfLogicalProcessors")
+        .and_then(|x| x.as_u64())
+        .unwrap_or(0) as usize;
+    if name.is_empty() && cores == 0 {
+        None
+    } else {
+        Some((name, if cores > 0 { cores } else { logical }))
+    }
+}
+
+// ================= 开机自启动 =================
+
+#[derive(Serialize, Deserialize, Clone)]
+struct AutoItem {
+    name: String,
+    cmd: String,
+    enabled: bool,
+}
+
+#[no_mangle]
+pub extern "C" fn autostart_list(buf: *mut u8, len: usize) -> i32 {
+    crate::ffi_guard!(buf, len, {
+        let mut items = Vec::new();
+        if cfg!(windows) {
+            if let Ok(o) = crate::proc::cmd("reg")
+                .args([
+                    "query",
+                    r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run",
+                ])
+                .output()
+            {
+                for line in String::from_utf8_lossy(&o.stdout).lines() {
+                    let t = line.trim();
+                    if let Some((k, v)) = t.split_once("    REG_SZ    ") {
+                        items.push(AutoItem {
+                            name: k.trim().to_string(),
+                            cmd: v.trim().to_string(),
+                            enabled: true,
+                        });
+                    }
+                }
+            }
+        } else {
+            let dir = std::env::var("HOME").unwrap_or_default() + "/.config/autostart";
+            if let Ok(rd) = fs::read_dir(&dir) {
+                for e in rd.flatten() {
+                    let p = e.path();
+                    if p.extension().map(|x| x == "desktop").unwrap_or(false) {
+                        let text = fs::read_to_string(&p).unwrap_or_default();
+                        let exec = text
+                            .lines()
+                            .find(|l| l.starts_with("Exec="))
+                            .unwrap_or("Exec=")
+                            .to_string();
+                        items.push(AutoItem {
+                            name: p.file_stem().unwrap_or_default().to_string_lossy().into(),
+                            cmd: exec.trim_start_matches("Exec=").to_string(),
+                            enabled: true,
+                        });
+                    }
+                }
+            }
+        }
+        ok(buf, len, "自启动列表", json!({"items": items}))
+    })
+}
+
+#[no_mangle]
+pub extern "C" fn autostart_set(
+    name: *const c_char,
+    exe: *const c_char,
+    enabled: i32,
+    buf: *mut u8,
+    len: usize,
+) -> i32 {
+    crate::ffi_guard!(buf, len, {
+        let (Some(name), Some(exe)) = (cstr(name), cstr(exe)) else {
+            return fail(buf, len, -1, "参数为空");
+        };
+        // 老英文名 QWGuard 的清理是幂等删除，不必再消耗一次授权；
+        // 真正写当前自启动项时才过闸门。
+        if name != "QWGuard" {
+            if let Err(e) = crate::security::require_admin("修改开机自启动") {
+                return fail(buf, len, -5, &e);
+            }
+        }
+        if cfg!(windows) {
+            let run = r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run";
+            let res = if enabled != 0 {
+                crate::proc::cmd("reg")
+                    .args(["add", run, "/v", &name, "/t", "REG_SZ", "/d", &exe, "/f"])
+                    .output()
+            } else {
+                crate::proc::cmd("reg")
+                    .args(["delete", run, "/v", &name, "/f"])
+                    .output()
+            };
+            match res {
+                Ok(o) if o.status.success() => ok(
+                    buf,
+                    len,
+                    "已更新自启动",
+                    json!({"name": name, "enabled": enabled != 0}),
+                ),
+                _ => fail(buf, len, -3, "注册表操作失败（可能需要权限）"),
+            }
+        } else {
+            let path = PathBuf::from(std::env::var("HOME").unwrap_or_default())
+                .join(".config/autostart")
+                .join(format!("{name}.desktop"));
+            if enabled != 0 {
+                if let Some(parent) = path.parent() {
+                    let _ = fs::create_dir_all(parent);
+                }
+                let content = format!("[Desktop Entry]\nType=Application\nName={name}\nExec={exe}\nX-GNOME-Autostart-enabled=true\n");
+                match fs::write(&path, content) {
+                    Ok(_) => ok(
+                        buf,
+                        len,
+                        "已开启自启动",
+                        json!({"name": name, "path": path.to_string_lossy()}),
+                    ),
+                    Err(e) => fail(buf, len, -3, &format!("写入失败: {e}")),
+                }
+            } else {
+                let _ = fs::remove_file(&path);
+                ok(buf, len, "已关闭自启动", json!({"name": name}))
+            }
+        }
+    })
+}
+
+// ================= U 盘检测 =================
+
+#[derive(Serialize)]
+struct UsbDrive {
+    letter: String,
+    label: String,
+    size_gb: f32,
+    filesystem: String,
+    autorun: bool,
+    risk: bool,
+}
+
+#[no_mangle]
+pub extern "C" fn usb_check(buf: *mut u8, len: usize) -> i32 {
+    crate::ffi_guard!(buf, len, {
+        let mut drives = Vec::new();
+
+        if cfg!(windows) {
+            let script = "Get-Volume | Where-Object {$_.DriveType -eq 'Removable'} | Select-Object DriveLetter,FileSystemLabel,Size,FileSystem | ConvertTo-Json -Compress";
+            if let Ok(v) = crate::proc::ps_json(script) {
+                let list = match v {
+                    Value::Array(a) => a,
+                    other => vec![other],
+                };
+                for item in list {
+                    let letter = item
+                        .get("DriveLetter")
+                        .and_then(|x| x.as_str())
+                        .unwrap_or("")
+                        .to_string();
+                    if letter.is_empty() {
+                        continue;
+                    }
+                    let autorun = Path::new(&format!("{letter}:\\autorun.inf")).exists();
+                    let size_gb = item.get("Size").and_then(|x| x.as_f64()).unwrap_or(0.0) as f32
+                        / 1073741824.0;
+                    drives.push(UsbDrive {
+                        letter: format!("{letter}:"),
+                        label: item
+                            .get("FileSystemLabel")
+                            .and_then(|x| x.as_str())
+                            .unwrap_or("")
+                            .to_string(),
+                        size_gb: round1(size_gb),
+                        filesystem: item
+                            .get("FileSystem")
+                            .and_then(|x| x.as_str())
+                            .unwrap_or("")
+                            .to_string(),
+                        autorun,
+                        risk: autorun,
+                    });
+                }
+            }
+        } else {
+            if let Ok(text) = fs::read_to_string("/proc/mounts") {
+                for line in text.lines() {
+                    let parts: Vec<&str> = line.split_whitespace().collect();
+                    if parts.len() < 2 {
+                        continue;
+                    }
+                    let mp = parts[1];
+                    if mp.starts_with("/media") || mp.starts_with("/run/media") {
+                        let autorun = Path::new(mp).join("autorun.inf").exists();
+                        drives.push(UsbDrive {
+                            letter: mp.to_string(),
+                            label: mp.rsplit('/').next().unwrap_or("").to_string(),
+                            size_gb: 0.0,
+                            filesystem: parts[2].to_string(),
+                            autorun,
+                            risk: autorun,
+                        });
+                    }
+                }
+            }
+        }
+
+        let risky = drives.iter().filter(|d| d.risk).count();
+        ok(
+            buf,
+            len,
+            "U 盘检测完成",
+            json!({"drives": drives, "risky_count": risky}),
+        )
+    })
+}
+
+// ================= 安装目录推荐 =================
+
+// NVMe 型号分档表（只按厂商定位粗分，拿不到真实读写速度）
+// 0 档 = 旗舰 / 高性能，1 档 = 主流，其余 NVMe 记 2 档
+const NVME_T0: &[&str] = &[
+    // 三星
+    "9100 PRO",
+    "990 PRO",
+    "980 PRO",
+    "PM9A3",
+    "PM1743",
+    // 西数 / 闪迪
+    "SN8100",
+    "SN850X",
+    "SN850",
+    "SN8050",
+    // 致态（长江存储）
+    "TIPRO",
+    // 铠侠 / 东芝
+    "EXCERIA PRO",
+    "XG8",
+    "XG7",
+    // Solidigm / SK 海力士
+    "P44 PRO",
+    "P41",
+    "PC801",
+    "PC811",
+    // 美光 / 英睿达
+    "T700",
+    "T705",
+    // 金士顿
+    "KC3000",
+    "FURY RENEGADE",
+    // 威刚
+    "S70",
+    "LEGEND 960",
+    // 浦科特
+    "M10P",
+    // 海盗船
+    "MP600",
+    "MP700",
+    // 雷克沙
+    "NM800",
+    // 希捷
+    "FIRECUDA 530",
+    "酷玩 530",
+    // 微星
+    "SPATIUM M480",
+    "M480",
+    // 影驰
+    "HOF",
+    "名人堂",
+    // HP
+    "FX900",
+    // 联想 / OEM 高端
+    "SL700",
+    // 海康存储 / 大华
+    "C4000",
+    "C970",
+];
+
+const NVME_T1: &[&str] = &[
+    // 三星
+    "PM9A1",
+    "PM9B1",
+    "980",
+    "970 EVO",
+    "970 PRO",
+    "960 EVO",
+    "SM961",
+    // 西数 / 闪迪
+    "SN770",
+    "SN750",
+    "SN740",
+    "SN730",
+    "SN570",
+    "SN560",
+    "SN550",
+    "SN520",
+    // 致态
+    "TIPLUS 7100",
+    "TIPLUS 5000",
+    "TIPLUS 600",
+    "TI600",
+    "PC005",
+    // 铠侠
+    "EXCERIA PLUS",
+    "EXCERIA G2",
+    "BG5",
+    "BG4",
+    "RC10",
+    "RC20",
+    // Solidigm / 海力士
+    "P41 PLUS",
+    "P31",
+    "P11",
+    // 美光 / 英睿达
+    "P5 PLUS",
+    "P3 PLUS",
+    "P3",
+    "P2",
+    // 金士顿
+    "KC2500",
+    "KC2000",
+    "NV2",
+    "NV1",
+    "A2000",
+    "FURY",
+    // 威刚
+    "S50",
+    "S40",
+    "LEGEND 850",
+    "LEGEND 800",
+    // 浦科特
+    "M9P PLUS",
+    "M9PEG",
+    "M8PE",
+    "M8SE",
+    // 海盗船
+    "MP500",
+    "MP510",
+    // 雷克沙
+    "NM790",
+    "NM620",
+    "NM610",
+    // 希捷
+    "酷玩 520",
+    "酷玩 510",
+    "FIRECUDA 520",
+    // 联想
+    "SL7000",
+    "SL500",
+    // 海康存储 / 大华
+    "CC700",
+    "C3000",
+    "C900",
+    "C900 PLUS",
+    // 铭瑄 / 七彩虹 / 台电 / 光威 / 金百达 / 梵想 / 铨兴 / 爱国者 / 长城
+    "终结者",
+    "太极",
+    "CN700",
+    "CN600",
+    "CN500",
+    "幻影",
+    "弈",
+    "天策",
+    "骁将",
+    "KP260",
+    "KP200",
+    "KP230",
+    "S790",
+    "S500 PRO",
+    "S500",
+    "S101",
+    "猎鹰",
+    "铨兴",
+    "P7000",
+    "P2000",
+    "GT70",
+    "GT50",
+    // 影驰
+    "星曜",
+    "擎",
+    // 微星
+    "M470",
+    "M390",
+    "M370",
+    // HP
+    "EX900",
+    "EX950",
+    // 技嘉 / 华硕 / 戴尔 OEM
+    "AORUS",
+    "ROG",
+    "SN530",
+];
+
+fn nvme_perf_score(model: &str) -> u8 {
+    let m = model.to_uppercase();
+    if NVME_T0.iter().any(|k| m.contains(&k.to_uppercase())) {
+        0
+    } else if NVME_T1.iter().any(|k| m.contains(&k.to_uppercase())) {
+        1
+    } else {
+        2
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn recommend_install_dir(buf: *mut u8, len: usize) -> i32 {
+    crate::ffi_guard!(buf, len, {
+        // (路径, 剩余GB, 介质, 型号)
+        let mut cands: Vec<(String, f32, String, String)> = Vec::new();
+
+        if cfg!(windows) {
+            let script = r#"Get-Volume | Where-Object {$_.DriveLetter} | ForEach-Object { $v=$_; try { $p=Get-Partition -DriveLetter $v.DriveLetter; $d=Get-PhysicalDisk -DeviceNumber $p.DiskNumber; [pscustomobject]@{Letter=$v.DriveLetter;Free=[double]$v.SizeRemaining;Media=[string]$d.MediaType;Bus=[string]$d.BusType;Model=[string]$d.FriendlyName} } catch {} } | ConvertTo-Json -Compress"#;
+            if let Ok(v) = crate::proc::ps_json(script) {
+                let list = match v {
+                    Value::Array(a) => a,
+                    other => vec![other],
+                };
+                for item in list {
+                    let letter = item.get("Letter").and_then(|x| x.as_str()).unwrap_or("");
+                    if letter.is_empty() {
+                        continue;
+                    }
+                    let free =
+                        item.get("Free").and_then(|x| x.as_f64()).unwrap_or(0.0) / 1073741824.0;
+                    let media = item
+                        .get("Media")
+                        .and_then(|x| x.as_str())
+                        .unwrap_or("")
+                        .to_string();
+                    let bus = item.get("Bus").and_then(|x| x.as_str()).unwrap_or("");
+                    // MediaType 只区分 SSD/HDD，NVMe 要靠 BusType 补上
+                    let media = if bus.to_uppercase().contains("NVME")
+                        && !media.to_uppercase().contains("NVME")
+                    {
+                        format!("{media}/NVMe")
+                    } else {
+                        media
+                    };
+                    let model = item
+                        .get("Model")
+                        .and_then(|x| x.as_str())
+                        .unwrap_or("")
+                        .to_string();
+                    cands.push((format!("{letter}:\\"), free as f32, media, model));
+                }
+            }
+        }
+
+        if cands.is_empty() {
+            // 兜底：用 sysinfo 磁盘
+            use sysinfo::Disks;
+            for d in Disks::new_with_refreshed_list().list() {
+                let mp = d.mount_point().to_string_lossy().to_string();
+                let is_dir = Path::new(&mp).is_dir();
+                let skip = ["/proc", "/sys", "/dev", "/etc", "/run", "/boot", "/var/lib"]
+                    .iter()
+                    .any(|p| mp == *p || mp.starts_with(&format!("{p}/")));
+                if !is_dir || skip {
+                    continue;
+                }
+                if !cfg!(windows) && mp != "/" && !mp.starts_with("/home") {
+                    continue;
+                }
+                let free = d.available_space() as f32 / 1073741824.0;
+                let media = disk_media(&mp).unwrap_or_else(|| "Unknown".into());
+                let model = d.name().to_string_lossy().to_string();
+                cands.push((mp, free, media, model));
+            }
+        }
+
+        let system_drive = std::env::var("SystemDrive")
+            .unwrap_or_else(|_| "C:".into())
+            .to_uppercase();
+
+        // 分四步挑：① NVMe 固态优先 ② 其他固态 ③ 机械盘
+        // 同档里再按型号粗分性能（旗舰型号排前面），最后非系统盘、剩余空间大的优先
+        let rank = |c: &(String, f32, String, String)| -> (u8, u8, u8, f32) {
+            let m = c.2.to_uppercase();
+            let tier = if m.contains("NVME") {
+                0u8
+            } else if m.contains("SSD") {
+                1
+            } else {
+                2
+            };
+            // 型号只能粗判：旗舰 0，主流 1，其余 2（拿不到真实读写速度）
+            let perf = if tier == 0 { nvme_perf_score(&c.3) } else { 2 };
+            let is_sys = c.0.to_uppercase().starts_with(&system_drive)
+                || c.0.to_uppercase().starts_with("C:");
+            (tier, perf, if is_sys { 1 } else { 0 }, c.1)
+        };
+
+        cands.sort_by(|a, b| {
+            let ra = rank(a);
+            let rb = rank(b);
+            ra.0.cmp(&rb.0)
+                .then(ra.1.cmp(&rb.1))
+                .then(ra.2.cmp(&rb.2))
+                .then(rb.3.partial_cmp(&ra.3).unwrap_or(std::cmp::Ordering::Equal))
+        });
+
+        let best = cands.first();
+
+        match best {
+            Some(b) => {
+                let reason = format!(
+                    "{}（{} {}，剩余 {:.1} GB{}）",
+                    b.0,
+                    if b.2.is_empty() {
+                        "磁盘"
+                    } else {
+                        b.2.as_str()
+                    },
+                    b.3,
+                    b.1,
+                    if b.0.to_uppercase().starts_with("C:") {
+                        "，系统盘"
+                    } else {
+                        ""
+                    }
+                );
+                ok(
+                    buf,
+                    len,
+                    "推荐安装位置",
+                    json!({"path": b.0, "reason": reason, "candidates": cands.iter().map(|c| json!({"path": c.0, "free_gb": round1(c.1), "media": c.2, "model": c.3})).collect::<Vec<_>>() }),
+                )
+            }
+            None => fail(buf, len, -3, "未找到可用磁盘"),
+        }
+    })
+}
+
+pub fn disk_media(mount: &str) -> Option<String> {
+    if cfg!(windows) {
+        None
+    } else {
+        let name = mount
+            .trim_start_matches('/')
+            .split('/')
+            .next()
+            .unwrap_or("");
+        let path = format!("/sys/block/{name}/queue/rotational");
+        fs::read_to_string(path).ok().map(|s| {
+            if s.trim() == "0" {
+                "SSD".to_string()
+            } else {
+                "HDD".to_string()
+            }
+        })
+    }
+}
+
+// ================= 运行库检查 =================
+
+#[no_mangle]
+pub extern "C" fn runtime_check(buf: *mut u8, len: usize) -> i32 {
+    crate::ffi_guard!(buf, len, {
+        if !cfg!(windows) {
+            return ok(
+                buf,
+                len,
+                "非 Windows，跳过",
+                json!({"ok": true, "missing": []}),
+            );
+        }
+        let needed = ["msvcp140.dll", "vcruntime140.dll", "vcruntime140_1.dll"];
+        let mut missing = Vec::new();
+        for dll in needed {
+            if !Path::new("C:\\Windows\\System32").join(dll).exists() {
+                missing.push(dll);
+            }
+        }
+        ok(
+            buf,
+            len,
+            "运行库检查",
+            json!({"ok": missing.is_empty(), "missing": missing}),
+        )
+    })
+}
+
+// ================= GitHub 检查更新 =================
+
+fn vtuple(s: &str) -> Vec<u32> {
+    s.trim_start_matches('v')
+        .split('.')
+        .map(|p| {
+            p.chars()
+                .take_while(|c| c.is_ascii_digit())
+                .collect::<String>()
+        })
+        .map(|p| p.parse::<u32>().unwrap_or(0))
+        .collect()
+}
+
+fn newer(latest: &str, current: &str) -> bool {
+    let (a, b) = (vtuple(latest), vtuple(current));
+    for i in 0..a.len().max(b.len()) {
+        let x = a.get(i).copied().unwrap_or(0);
+        let y = b.get(i).copied().unwrap_or(0);
+        if x != y {
+            return x > y;
+        }
+    }
+    false
+}
+
+/// 统一 HTTP GET → JSON
+#[cfg(not(windows))]
+fn http_json(url: &str, token: &str) -> Result<Value, String> {
+    let mut req = ureq::get(url)
+        .set("User-Agent", "QWGuard")
+        .set("Accept", "application/vnd.github+json")
+        .timeout(std::time::Duration::from_secs(12));
+    if !token.is_empty() {
+        req = req.set("Authorization", &format!("Bearer {token}"));
+    }
+    match req.call() {
+        Ok(r) => {
+            let body = r.into_string().unwrap_or_default();
+            serde_json::from_str::<Value>(&body).map_err(|e| format!("解析失败: {e}"))
+        }
+        Err(e) => Err(format!("网络请求失败: {e}")),
+    }
+}
+
+#[cfg(windows)]
+fn http_json(url: &str, token: &str) -> Result<Value, String> {
+    // URL / Token 一律走环境变量，不拼进脚本字符串：token 里的单引号再也打不穿引号
+    let script = "$ProgressPreference='SilentlyContinue';$h=@{'User-Agent'='QWGuard';'Accept'='application/vnd.github+json'};
+if ($env:QW_TOKEN) { $h['Authorization'] = \"Bearer $($env:QW_TOKEN)\" }
+try { (Invoke-RestMethod -Uri $env:QW_URL -Headers $h -TimeoutSec 12 | ConvertTo-Json -Depth 4 -Compress) }
+catch { Write-Output \"__ERR__ $($_.Exception.Message)\" }";
+    let _ = url; // 由环境变量传入，保留参数签名
+    match crate::proc::cmd("powershell")
+        .args(["-NoProfile", "-Command", script])
+        .env("QW_URL", url)
+        .env("QW_TOKEN", token)
+        .output()
+    {
+        Ok(o) => {
+            let text = String::from_utf8_lossy(&o.stdout).trim().to_string();
+            if let Some(msg) = text.strip_prefix("__ERR__") {
+                return Err(format!("网络请求失败:{msg}"));
+            }
+            serde_json::from_str::<Value>(&text).map_err(|e| format!("解析失败: {e}"))
+        }
+        Err(e) => Err(format!("调用 PowerShell 失败: {e}")),
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn check_update(
+    repo: *const c_char,
+    current: *const c_char,
+    buf: *mut u8,
+    len: usize,
+) -> i32 {
+    crate::ffi_guard!(buf, len, {
+        let (Some(repo), Some(current)) = (cstr(repo), cstr(current)) else {
+            return fail(buf, len, -1, "参数为空");
+        };
+        if repo.is_empty() {
+            return fail(buf, len, -1, "未配置 GitHub 仓库");
+        }
+        let url = format!("https://api.github.com/repos/{repo}/releases/latest");
+        let token = load_config()
+            .get("github_token")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+
+        match http_json(&url, &token) {
+            Ok(v) => {
+                let tag = v.get("tag_name").and_then(|x| x.as_str()).unwrap_or("");
+                let html = v.get("html_url").and_then(|x| x.as_str()).unwrap_or("");
+                let notes = v.get("body").and_then(|x| x.as_str()).unwrap_or("");
+                let published = v.get("published_at").and_then(|x| x.as_str()).unwrap_or("");
+                // 自动更新需要直接拿到安装包。Release 里可能有源码包/校验文件，
+                // 只认 .exe，且优先名字里带 Setup 的那个。
+                let assets = v.get("assets").and_then(|x| x.as_array());
+                // 同版本重发时版本号不变，只能靠资产更新时间判断是不是新包。
+                let mut setup_asset: Option<(&str, &str)> = None;
+                let mut any_exe: Option<(&str, &str)> = None;
+                if let Some(list) = assets {
+                    for a in list {
+                        let name = a.get("name").and_then(|x| x.as_str()).unwrap_or("");
+                        let dl = a.get("browser_download_url").and_then(|x| x.as_str()).unwrap_or("");
+                        let at = a
+                            .get("updated_at")
+                            .or_else(|| a.get("created_at"))
+                            .and_then(|x| x.as_str())
+                            .unwrap_or("");
+                        if !name.to_ascii_lowercase().ends_with(".exe") || dl.is_empty() {
+                            continue;
+                        }
+                        if name.to_ascii_lowercase().contains("setup") && setup_asset.is_none() {
+                            setup_asset = Some((dl, at));
+                        } else if any_exe.is_none() {
+                            any_exe = Some((dl, at));
+                        }
+                    }
+                }
+                let (download_url, download_updated_at) =
+                    setup_asset.or(any_exe).unwrap_or(("", ""));
+                ok(
+                    buf,
+                    len,
+                    "检查完成",
+                    json!({
+                        "latest": tag,
+                        "current": current,
+                        "has_update": newer(tag, &current),
+                        "url": html,
+                        "download_url": download_url,
+                        "download_updated_at": download_updated_at,
+                        "notes": notes.chars().take(500).collect::<String>(),
+                        "published_at": published
+                    }),
+                )
+            }
+            Err(e) => fail(
+                buf,
+                len,
+                -3,
+                &format!("{e}（若为 403 限流，可在设置里填 GitHub Token）"),
+            ),
+        }
+    })
+}
+
+/// 下载更新安装包。只接受 https://github.com / https://objects.githubusercontent.com 的地址，
+/// 避免把任意 URL 变成「下载并执行」的入口。
+#[no_mangle]
+pub extern "C" fn download_update(
+    url: *const c_char,
+    dst: *const c_char,
+    buf: *mut u8,
+    len: usize,
+) -> i32 {
+    crate::ffi_guard!(buf, len, {
+        let (Some(url), Some(dst)) = (cstr(url), cstr(dst)) else {
+            return fail(buf, len, -1, "参数为空");
+        };
+        if !(url.starts_with("https://github.com/")
+            || url.starts_with("https://objects.githubusercontent.com/"))
+        {
+            return fail(buf, len, -1, "更新地址不在允许的 GitHub 域名内");
+        }
+        if dst.is_empty() {
+            return fail(buf, len, -1, "保存路径为空");
+        }
+        if !cfg!(windows) {
+            return fail(buf, len, -1, "自动更新仅在 Windows 上可用");
+        }
+        let parent = std::path::Path::new(&dst)
+            .parent()
+            .map(|p| p.to_path_buf())
+            .unwrap_or_else(std::env::temp_dir);
+        let _ = fs::create_dir_all(&parent);
+        let script = "$ProgressPreference='SilentlyContinue';[Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12;
+try { Invoke-WebRequest -Uri $env:QW_URL -OutFile $env:QW_DST -UseBasicParsing -TimeoutSec 300; Write-Output 'OK' }
+catch { Write-Output \"__ERR__ $($_.Exception.Message)\" }";
+        match crate::proc::cmd("powershell")
+            .args(["-NoProfile", "-WindowStyle", "Hidden", "-Command", script])
+            .env("QW_URL", url)
+            .env("QW_DST", &dst)
+            .output()
+        {
+            Ok(o) => {
+                let text = String::from_utf8_lossy(&o.stdout).trim().to_string();
+                if text.starts_with("__ERR__") {
+                    return fail(buf, len, -3, text.trim_start_matches("__ERR__ ").trim());
+                }
+                let size = fs::metadata(&dst).map(|m| m.len()).unwrap_or(0);
+                if size < 1024 * 1024 {
+                    return fail(buf, len, -3, "下载的安装包不完整");
+                }
+                ok(buf, len, "下载完成", json!({"path": dst, "size": size}))
+            }
+            Err(e) => fail(buf, len, -3, &format!("调用 PowerShell 失败: {e}")),
+        }
+    })
+}
+
+// ================= 白名单 =================
+
+fn wl_path() -> PathBuf {
+    cfg_dir().join("whitelist.json")
+}
+
+fn load_wl() -> Vec<String> {
+    fs::read_to_string(wl_path())
+        .ok()
+        .and_then(|s| serde_json::from_str(&s).ok())
+        .unwrap_or_default()
+}
+
+fn save_wl(list: &[String]) {
+    let text = serde_json::to_string(list).unwrap_or_else(|_| "[]".into());
+    let _ = crate::write_atomic(&wl_path(), &text);
+    if let Some(l) = WL_CACHE.get() {
+        if let Ok(mut g) = l.write() {
+            *g = list.to_vec();
+        }
+    } else {
+        let _ = WL_CACHE.set(std::sync::RwLock::new(list.to_vec()));
+    }
+}
+
+// 白名单原来也是每扫一个文件读一次 JSON；改成内存缓存，增删时同步刷新。
+static WL_CACHE: std::sync::OnceLock<std::sync::RwLock<Vec<String>>> = std::sync::OnceLock::new();
+
+fn wl_cache() -> &'static std::sync::RwLock<Vec<String>> {
+    WL_CACHE.get_or_init(|| std::sync::RwLock::new(load_wl()))
+}
+
+pub fn is_whitelisted(path: &str) -> bool {
+    let p = path.replace('\\', "/").to_lowercase();
+    let Ok(list) = wl_cache().read() else {
+        return false;
+    };
+    list.iter().any(|w| {
+        let w = w.replace('\\', "/").to_lowercase();
+        p == w || p.starts_with(&format!("{w}/"))
+    })
+}
+
+#[no_mangle]
+pub extern "C" fn whitelist_add(path: *const c_char, buf: *mut u8, len: usize) -> i32 {
+    crate::ffi_guard!(buf, len, {
+        if let Err(e) = crate::security::require_admin("添加白名单") {
+            return fail(buf, len, -5, &e);
+        }
+        let Some(p) = cstr(path) else {
+            return fail(buf, len, -1, "参数为空");
+        };
+        // 白名单是前缀匹配：放进来一个 "C:/" 等于让所有扫描全部跳过
+        let root_only = Path::new(&p)
+            .components()
+            .all(|c| !matches!(c, std::path::Component::Normal(_)));
+        if root_only {
+            return fail(buf, len, -1, "不能把盘符根目录加入白名单");
+        }
+        let mut list = load_wl();
+        if !list.iter().any(|x| x.eq_ignore_ascii_case(&p)) {
+            list.push(p.clone());
+            save_wl(&list);
+        }
+        ok(
+            buf,
+            len,
+            "已加入白名单",
+            json!({"path": p, "count": list.len()}),
+        )
+    })
+}
+
+#[no_mangle]
+pub extern "C" fn whitelist_remove(path: *const c_char, buf: *mut u8, len: usize) -> i32 {
+    crate::ffi_guard!(buf, len, {
+        if let Err(e) = crate::security::require_admin("移除白名单") {
+            return fail(buf, len, -5, &e);
+        }
+        let Some(p) = cstr(path) else {
+            return fail(buf, len, -1, "参数为空");
+        };
+        let mut list = load_wl();
+        list.retain(|x| !x.eq_ignore_ascii_case(&p));
+        save_wl(&list);
+        ok(
+            buf,
+            len,
+            "已移出白名单",
+            json!({"path": p, "count": list.len()}),
+        )
+    })
+}
+
+#[no_mangle]
+pub extern "C" fn whitelist_list(buf: *mut u8, len: usize) -> i32 {
+    crate::ffi_guard!(buf, len, {
+        ok(buf, len, "白名单", json!({"items": load_wl()}))
+    })
+}
+
+// ================= 多线程扫描 =================
+
+/// 目标路径所在盘是不是机械盘（决定遍历要不要并行）
+/// 机械盘并发遍历会因寻道抖动变慢，NVMe 有多队列，并发才吃得满
+fn is_mechanical(path: &Path) -> bool {
+    use sysinfo::{DiskKind, Disks};
+    let disks = Disks::new_with_refreshed_list();
+    let mut best: Option<(&Path, DiskKind)> = None;
+    for d in disks.list() {
+        let mp = d.mount_point();
+        if path.starts_with(mp) {
+            let deeper = best
+                .map(|(m, _)| mp.as_os_str().len() > m.as_os_str().len())
+                .unwrap_or(true);
+            if deeper {
+                best = Some((mp, d.kind()));
+            }
+        }
+    }
+    matches!(best.map(|(_, k)| k), Some(DiskKind::HDD))
+}
+
+pub(crate) fn walk(p: &Path, out: &mut Vec<PathBuf>, depth: usize) {
+    if depth == 0 {
+        return;
+    }
+    // 逐层推进：同一层子目录并行读（NVMe 吃多队列）；机械盘或目录太少时串行
+    let mechanical = is_mechanical(p);
+    let mut frontier: Vec<PathBuf> = vec![p.to_path_buf()];
+    let mut level = 0usize;
+
+    while !frontier.is_empty() && level < depth {
+        if mechanical || frontier.len() < 4 {
+            let mut next = Vec::new();
+            for d in &frontier {
+                let Ok(rd) = fs::read_dir(d) else { continue };
+                for e in rd.flatten() {
+                    let path = e.path();
+                    let Ok(meta) = fs::symlink_metadata(&path) else {
+                        continue;
+                    };
+                    if meta.file_type().is_symlink() {
+                        continue;
+                    }
+                    if meta.is_file() {
+                        out.push(path);
+                    } else {
+                        next.push(path);
+                    }
+                }
+            }
+            frontier = next;
+        } else {
+            let batch: Vec<(Vec<PathBuf>, Vec<PathBuf>)> = frontier
+                .par_iter()
+                .map(|d| {
+                    let mut files = Vec::new();
+                    let mut dirs = Vec::new();
+                    let Ok(rd) = fs::read_dir(d) else {
+                        return (files, dirs);
+                    };
+                    for e in rd.flatten() {
+                        let path = e.path();
+                        let Ok(meta) = fs::symlink_metadata(&path) else {
+                            continue;
+                        };
+                        if meta.file_type().is_symlink() {
+                            continue;
+                        }
+                        if meta.is_file() {
+                            files.push(path);
+                        } else {
+                            dirs.push(path);
+                        }
+                    }
+                    (files, dirs)
+                })
+                .collect();
+            let mut next = Vec::new();
+            for (files, dirs) in batch {
+                out.extend(files);
+                next.extend(dirs);
+            }
+            frontier = next;
+        }
+        level += 1;
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn scan_dir_fast(dir: *const c_char, buf: *mut u8, len: usize) -> i32 {
+    crate::ffi_guard!(buf, len, {
+        let Some(dir) = cstr(dir) else {
+            return fail(buf, len, -1, "参数为空");
+        };
+        let root = Path::new(&dir);
+        if !root.exists() {
+            return fail(buf, len, -3, "目录不存在");
+        }
+        let t0 = std::time::Instant::now();
+        let mut files = Vec::new();
+        walk(root, &mut files, 12);
+        let total: u64 = files
+            .par_iter()
+            .map(|p| fs::metadata(p).map(|m| m.len()).unwrap_or(0))
+            .sum();
+        ok(
+            buf,
+            len,
+            "多线程统计完成",
+            json!({
+                "files": files.len(),
+                "bytes": total,
+                "elapsed_ms": t0.elapsed().as_millis(),
+                "threads": rayon::current_num_threads()
+            }),
+        )
+    })
+}
+
+// ================= CPU 画像（大小核提示） =================
+
+#[no_mangle]
+pub extern "C" fn cpu_profile(buf: *mut u8, len: usize) -> i32 {
+    crate::ffi_guard!(buf, len, {
+        use sysinfo::System;
+        let sys = System::new_all();
+        let brand = sys
+            .cpus()
+            .first()
+            .map(|c| c.brand().trim().to_string())
+            .unwrap_or_default();
+        let lower = brand.to_lowercase();
+        let hybrid = lower.contains("12th")
+            || lower.contains("13th")
+            || lower.contains("14th")
+            || lower.contains("core ultra")
+            || lower.contains("ryzen 7 7")
+            || lower.contains("ryzen 9 7");
+        ok(
+            buf,
+            len,
+            "CPU 画像",
+            json!({
+                "brand": brand,
+                "cores": sys.cpus().len(),
+                "hybrid": hybrid,
+                "can_schedule": cfg!(windows) && hybrid,
+                "note": if hybrid {
+                    "检测到混合架构；大小核调度需 Win11 + SetThreadInformation，默认交给系统调度"
+                } else {
+                    "未检测到混合架构，使用统一调度"
+                }
+            }),
+        )
+    })
+}
+
+// ================= 智能查杀（按显卡强弱选策略 + 多引擎并发） =================
+
+// ================= 查杀范围（快速 / 全盘 / 指定位置 / U 盘）=================
+
+/// 系统级垃圾目录，全盘扫描时一律跳过，扫进去纯属浪费
+fn skip_dir(name: &str) -> bool {
+    matches!(
+        name.to_lowercase().as_str(),
+        "winsxs"
+            | "$recycle.bin"
+            | "system volume information"
+            | "installer"
+            | "servicing"
+            | "package cache"
+            | "node_modules"
+            | ".git"
+            | ".svn"
+            | ".hg"
+            | "windows.old"
+            | "recovery"
+            | "msocache"
+            | "$windows.~bt"
+            | "$windows.~ws"
+            | "driverstore"
+            | "assembly"
+            | "softwaredistribution"
+            | "catroot"
+            | "catroot2"
+    )
+}
+
+/// 快速扫描：只打常见落地位置，命中率高、耗时短
+fn quick_dirs() -> Vec<PathBuf> {
+    let user = std::env::var("USERPROFILE").unwrap_or_default();
+    let appdata = std::env::var("APPDATA").unwrap_or_default();
+    let local = std::env::var("LOCALAPPDATA").unwrap_or_default();
+    let temp = std::env::var("TEMP").unwrap_or_default();
+    let _programdata =
+        std::env::var("ProgramData").unwrap_or_else(|_| "C:\\ProgramData".to_string());
+    let windir = std::env::var("WINDIR").unwrap_or_else(|_| "C:\\Windows".to_string());
+
+    // 快速扫描只该扫「病毒真正爱藏的地方」。
+    // 以前把整个 LocalAppData / AppData / ProgramData 全翻一遍，
+    // 那是几十万个文件（Chrome 缓存、node_modules…），单线程走半小时也走不完，
+    // 用户点了「快速查杀」等 15 分钟一个结果都看不到，问题就在这。
+    let candidates = vec![
+        temp.clone(),
+        format!("{}\\Temp", windir),
+        format!("{}\\Temp", local),
+        format!("{}\\Temp", appdata),
+        format!("{}\\Downloads", user),
+        format!("{}\\Desktop", user),
+        format!(
+            "{}\\Microsoft\\Windows\\Start Menu\\Programs\\Startup",
+            appdata
+        ),
+    ];
+    let mut out = Vec::new();
+    for c in candidates {
+        if c.is_empty() {
+            continue;
+        }
+        let p = PathBuf::from(&c);
+        if p.exists() {
+            out.push(p);
+        }
+    }
+    out
+}
+
+/// 按类型枚举盘符：fixed 固定盘 / removable 可移动盘（U 盘、移动硬盘）
+pub(crate) fn drives(kind: &str) -> Vec<PathBuf> {
+    let mut out: Vec<PathBuf> = Vec::new();
+    if cfg!(windows) {
+        let script = "Get-CimInstance Win32_LogicalDisk | Select-Object DeviceID,DriveType | ConvertTo-Json -Compress";
+        if let Ok(v) = crate::proc::ps_json(script) {
+            let list = match v {
+                Value::Array(a) => a,
+                other => vec![other],
+            };
+            for it in list {
+                let id = it.get("DeviceID").and_then(|x| x.as_str()).unwrap_or("");
+                let dt = it.get("DriveType").and_then(|x| x.as_u64()).unwrap_or(0);
+                let want = if kind == "removable" {
+                    dt == 2
+                } else {
+                    dt == 3
+                };
+                if want && !id.is_empty() {
+                    let root = format!("{}\\", id);
+                    if Path::new(&root).exists() {
+                        out.push(PathBuf::from(root));
+                    }
+                }
+            }
+        }
+    }
+    if out.is_empty() {
+        let p = PathBuf::from("/");
+        if p.exists() {
+            out.push(p);
+        }
+    }
+    out
+}
+
+/// 递归收集待扫文件；带上限、跳过超大文件、随时可取消
+#[allow(dead_code)]
+fn collect_files(roots: &[PathBuf], limit: usize, max_size: u64) -> Vec<PathBuf> {
+    let mut out: Vec<PathBuf> = Vec::new();
+    let mut stack: Vec<PathBuf> = roots.to_vec();
+    let mut dirs: u64 = 0;
+    while let Some(dir) = stack.pop() {
+        if SCAN_CANCEL.load(Ordering::Relaxed) {
+            break;
+        }
+        dirs += 1;
+        if dirs % 100 == 0 {
+            if let Ok(mut g) = SCAN_CUR.lock() {
+                *g = format!("正在枚举目录 · {}", dir.to_string_lossy());
+            }
+        }
+        let Ok(rd) = fs::read_dir(&dir) else { continue };
+        for e in rd.flatten() {
+            let Ok(md) = fs::symlink_metadata(&e.path()) else {
+                continue;
+            };
+            if md.file_type().is_symlink() || crate::util::is_reparse(&md) {
+                continue;
+            }
+            if md.is_dir() {
+                let n = e.file_name().to_string_lossy().to_string();
+                if skip_dir(&n) || n.starts_with('$') {
+                    continue;
+                }
+                stack.push(e.path());
+            } else if md.is_file() {
+                let sz = md.len();
+                if sz == 0 || sz > max_size {
+                    continue;
+                }
+                out.push(e.path());
+                if out.len() >= limit {
+                    return out;
+                }
+            }
+        }
+    }
+    out
+}
+
+/// 单个文件的快筛：两个纯 Rust 引擎（哈希库 + 启发式），命中就记账
+fn push_found(file: &str, engine: &str, th: &[String]) {
+    if let Ok(mut g) = SCAN_FOUND.lock() {
+        if g.len() < 60 {
+            g.push(json!({"file": file, "engine": engine, "threats": th}));
+        }
+    }
+}
+
+fn scan_one_file(
+    f: &Path,
+    suspects: &mut Vec<PathBuf>,
+    threats: &mut Vec<Value>,
+    sig_hits: &mut u64,
+    heu_hits: &mut u64,
+) {
+    let s = f.to_string_lossy().to_string();
+    if is_whitelisted(&s) {
+        return;
+    }
+    let (hit, th) = crate::engines::signature_scan(&s);
+    if hit {
+        *sig_hits += 1;
+        SCAN_HITS.fetch_add(1, Ordering::Relaxed);
+        push_found(&s, "signature", &th);
+        threats.push(json!({"file": s, "engine": "signature", "threats": th}));
+    }
+    let (heu, hth) = crate::engines::heuristic_scan(&s);
+    if heu {
+        *heu_hits += 1;
+        SCAN_HITS.fetch_add(1, Ordering::Relaxed);
+        push_found(&s, "heuristic", &hth);
+        threats.push(json!({"file": s, "engine": "heuristic", "threats": hth}));
+        if suspects.len() < 300 {
+            suspects.push(f.to_path_buf());
+        }
+    } else {
+        let low = s.to_lowercase();
+        if (low.ends_with(".exe") || low.ends_with(".dll") || low.ends_with(".sys"))
+            && suspects.len() < 300
+        {
+            suspects.push(f.to_path_buf());
+        }
+    }
+}
+
+/// 边遍历边扫：不预先收集文件列表，所以没有"文件数上限"这回事
+/// （360 / 火绒也是这么走的，文件来了就扫，扫完就丢）
+fn scan_roots(roots: Vec<PathBuf>, scope: String, buf: *mut u8, len: usize) -> i32 {
+    crate::engines::ensure_default_rules();
+
+    SCAN_CANCEL.store(false, Ordering::Relaxed);
+    SCAN_TOTAL.store(0, Ordering::Relaxed); // 0 表示总数未知，进度按已扫数递增
+    SCAN_DONE.store(0, Ordering::Relaxed);
+    SCAN_HITS.store(0, Ordering::Relaxed);
+    SCAN_RUNNING.store(true, Ordering::Relaxed);
+    if let Ok(mut g) = SCAN_FOUND.lock() {
+        g.clear();
+    }
+    if let Ok(mut g) = SCAN_SCOPE.lock() {
+        *g = scope.clone();
+    }
+
+    // 并行扫描：文件攒成批（1024 个一批），整批丢给 rayon 线程池同时算。
+    // 以前是 while 循环里「读一个、算完、再读一个」，纯单线程 ——
+    // C 盘几十万文件走 15 分钟都出不来。现在按逻辑核心数开线程，
+    // 并且把扫描线程优先级压到 BELOW_NORMAL：
+    //   大核照常跑扫描，小核留给系统/前台，
+    //   即使全线程拉满，鼠标、窗口动画也不会被挤到「未响应」。
+    // 不再设人为上限：线程数严格等于逻辑处理器数。
+    // 之前的 16 是对 24/32 线程机器留的保守护栏，在 20 线程的机器上
+    // 等于白白切掉 4 个核。线程数超过核心数并不会更快——一个核同一时刻
+    // 只跑一个线程，多出来的只会在「抢占-切换-缓存失效」之间空转。
+    let threads = std::thread::available_parallelism()
+        .map(|n| n.get())
+        .unwrap_or(4)
+        .max(1);
+    // 性能模式默认开启：用 NORMAL 优先级，大小核机器上不容易被调度到 E 核，
+    // 全盘扫描更快；用户可在设置里手动关掉，回到 BELOW_NORMAL 把核心让给前台。
+    // 每次扫描建局部线程池，而不是 build_global：全局池只会初始化一次，
+    // 设置改了也影响不到已经建好的线程。
+    let full_speed = load_config()
+        .get("scan_full_speed")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(true);
+    let pool = rayon::ThreadPoolBuilder::new()
+        .num_threads(threads)
+        .thread_name(|i| format!("qw-scan-{}", i))
+        .start_handler(move |_| {
+            #[cfg(windows)]
+            unsafe {
+                use windows::Win32::System::Threading::{
+                    GetCurrentThread, SetThreadPriority, THREAD_PRIORITY_BELOW_NORMAL,
+                    THREAD_PRIORITY_NORMAL,
+                };
+                let p = if full_speed {
+                    THREAD_PRIORITY_NORMAL
+                } else {
+                    THREAD_PRIORITY_BELOW_NORMAL
+                };
+                let _ = SetThreadPriority(GetCurrentThread(), p);
+            }
+            #[cfg(not(windows))]
+            let _ = full_speed;
+        })
+        .build()
+        .expect("扫描线程池创建失败");
+
+    let found: std::sync::Mutex<Vec<Value>> = std::sync::Mutex::new(Vec::new());
+    let suspect_pool: std::sync::Mutex<Vec<PathBuf>> = std::sync::Mutex::new(Vec::new());
+    let mut skipped: u64 = 0;
+    let mut batch: Vec<PathBuf> = Vec::with_capacity(1024);
+
+    macro_rules! flush_batch {
+        () => {{
+            if !batch.is_empty() {
+                pool.install(|| {
+                    batch.par_iter().for_each(|p| {
+                        if SCAN_CANCEL.load(Ordering::Relaxed) {
+                            return;
+                        }
+                        if let Ok(mut g) = SCAN_CUR.lock() {
+                            *g = p.to_string_lossy().to_string();
+                        }
+                        let mut t: Vec<Value> = Vec::new();
+                        let mut s: Vec<PathBuf> = Vec::new();
+                        let (mut sh, mut hh) = (0u64, 0u64);
+                        scan_one_file(p, &mut s, &mut t, &mut sh, &mut hh);
+                        if !t.is_empty() {
+                            if let Ok(mut g) = found.lock() {
+                                g.extend(t);
+                            }
+                        }
+                        if !s.is_empty() {
+                            if let Ok(mut g) = suspect_pool.lock() {
+                                let room = 300usize.saturating_sub(g.len());
+                                g.extend(s.into_iter().take(room));
+                            }
+                        }
+                        SCAN_DONE.fetch_add(1, Ordering::Relaxed);
+                    });
+                });
+                batch.clear();
+            }
+        }};
+    }
+
+    // 已访问目录集合：挡住硬链接/目录环，也挡住同一目录被多个根重复扫。
+    let mut visited: std::collections::HashSet<PathBuf> = std::collections::HashSet::new();
+    let mut stack: Vec<PathBuf> = roots;
+    while let Some(node) = stack.pop() {
+        if SCAN_CANCEL.load(Ordering::Relaxed) {
+            break;
+        }
+        let Ok(md) = fs::symlink_metadata(&node) else {
+            continue;
+        };
+        if md.file_type().is_symlink() || crate::util::is_reparse(&md) {
+            continue;
+        }
+        if md.is_file() {
+            if md.len() == 0 {
+                skipped += 1;
+            } else {
+                batch.push(node);
+            }
+            flush_batch!();
+            continue;
+        }
+        let canon = fs::canonicalize(&node).unwrap_or_else(|_| node.clone());
+        if !visited.insert(canon) {
+            continue;
+        }
+        let Ok(rd) = fs::read_dir(&node) else {
+            continue;
+        };
+        for e in rd.flatten() {
+            if SCAN_CANCEL.load(Ordering::Relaxed) {
+                break;
+            }
+            let Ok(md) = fs::symlink_metadata(e.path()) else {
+                continue;
+            };
+            if md.file_type().is_symlink() || crate::util::is_reparse(&md) {
+                continue;
+            }
+            if md.is_dir() {
+                let n = e.file_name().to_string_lossy().to_string();
+                if skip_dir(&n) || n.starts_with('$') {
+                    continue;
+                }
+                stack.push(e.path());
+            } else if md.is_file() {
+                if md.len() == 0 {
+                    skipped += 1;
+                } else {
+                    batch.push(e.path());
+                }
+            }
+        }
+        flush_batch!();
+    }
+    flush_batch!();
+
+    let mut threats = found.into_inner().unwrap_or_default();
+    let suspects = suspect_pool.into_inner().unwrap_or_default();
+    let done = SCAN_DONE.load(Ordering::Relaxed);
+
+    // 第二阶段：只对启发式判可疑的文件跑 YARA，最多 20 个。
+    // 原来这里是「300 个 YARA + 前 60 个 Defender」：YARA 每次起一个进程，
+    // Defender 的 MpCmdRun 单次 5~15 秒，60 个就是十分钟往上 ——
+    // 这就是「点了快速查杀 15 分钟还没结果」的真凶，而且全程界面显示 0。
+    let examined = suspects.len();
+    for f in suspects.iter() {
+        if SCAN_CANCEL.load(Ordering::Relaxed) {
+            break;
+        }
+        let s = f.to_string_lossy().to_string();
+        if let Ok(mut g) = SCAN_CUR.lock() {
+            *g = format!("深度复核 · {}", s);
+        }
+        if let Ok((hit, th)) = crate::run_engine("yara", &s) {
+            if hit {
+                SCAN_HITS.fetch_add(1, Ordering::Relaxed);
+                push_found(&s, "yara", &th);
+                threats.push(json!({"file": s, "engine": "yara", "threats": th}));
+            }
+        }
+    }
+
+    SCAN_RUNNING.store(false, Ordering::Relaxed);
+    let canceled = SCAN_CANCEL.load(Ordering::Relaxed);
+
+    let pick = |name: &str, src: &[Value]| -> Vec<String> {
+        src.iter()
+            .filter(|t| t.get("engine").and_then(|e| e.as_str()) == Some(name))
+            .filter_map(|t| {
+                let file = t
+                    .get("file")
+                    .and_then(|f| f.as_str())
+                    .unwrap_or("")
+                    .to_string();
+                let items: Vec<String> = t
+                    .get("threats")
+                    .and_then(|v| v.as_array())
+                    .map(|a| {
+                        a.iter()
+                            .filter_map(|x| x.as_str().map(|z| z.to_string()))
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                Some(format!("{} · {}", file, items.join(" / ")))
+            })
+            .collect()
+    };
+
+    let sig_hits_c = pick("signature", &threats).len() as u64;
+    let heu_hits_c = pick("heuristic", &threats).len() as u64;
+    let yara_hits_c = pick("yara", &threats).len() as u64;
+    let infected = !threats.is_empty();
+
+    ok(
+        buf,
+        len,
+        "查杀完成",
+        json!({
+            "target": scope,
+            "scope": scope,
+            "engine": "QW 安全电脑管家 · 查杀引擎",
+            "files": done,
+            "skipped": skipped,
+            "examined": examined,
+            "infected": infected,
+            "hits": SCAN_HITS.load(Ordering::Relaxed),
+            "canceled": canceled,
+            "threats": threats.clone(),
+            "engines": [
+                {"engine": "signature", "ok": true, "infected": sig_hits_c > 0,
+                 "threats": pick("signature", &threats),
+                 "message": format!("哈希库比对 {} 个文件，命中 {}", done, sig_hits_c)},
+                {"engine": "heuristic", "ok": true, "infected": heu_hits_c > 0,
+                 "threats": pick("heuristic", &threats),
+                 "message": format!("启发式解析 {} 个文件，可疑 {}", done, heu_hits_c)},
+                {"engine": "yara", "ok": true, "infected": yara_hits_c > 0,
+                 "threats": pick("yara", &threats),
+                 "message": format!("YARA 深度复核 {} 个可疑文件，命中 {}", examined, yara_hits_c)},
+                {"engine": "defender", "ok": false, "infected": false,
+                 "threats": Vec::<String>::new(),
+                 "skipped": true,
+                 "message": "已停用：MpCmdRun 单次调用 5~15 秒，放进自动扫描会把快速查杀拖成十几分钟"},
+            ]
+        }),
+    )
+}
+
+#[no_mangle]
+pub extern "C" fn scan_auto(target: *const c_char, buf: *mut u8, len: usize) -> i32 {
+    crate::ffi_guard!(buf, len, {
+        let Some(target) = cstr(target) else {
+            return fail(buf, len, -1, "参数为空");
+        };
+        let p = PathBuf::from(&target);
+        if !p.exists() {
+            return fail(buf, len, -3, "目标路径不存在");
+        }
+        if is_whitelisted(&target) {
+            return ok(
+                buf,
+                len,
+                "已跳过（白名单）",
+                json!({"skipped": true, "engines": []}),
+            );
+        }
+        scan_roots(vec![p], "指定位置扫描".to_string(), buf, len)
+    })
+}
+
+/// 四种扫描模式：quick 快速 / full 全盘 / usb U 盘 / custom 指定位置
+#[no_mangle]
+pub extern "C" fn scan_by_mode(
+    mode: *const c_char,
+    path: *const c_char,
+    buf: *mut u8,
+    len: usize,
+) -> i32 {
+    crate::ffi_guard!(buf, len, {
+        let Some(mode) = cstr(mode) else {
+            return fail(buf, len, -1, "模式为空");
+        };
+        let path = cstr(path).unwrap_or_default();
+
+        let (roots, label): (Vec<PathBuf>, String) = match mode.as_str() {
+            "quick" => (quick_dirs(), "快速扫描".to_string()),
+            "full" => (drives("fixed"), "全盘扫描".to_string()),
+            "usb" => (drives("removable"), "U 盘扫描".to_string()),
+            _ => {
+                let p = PathBuf::from(&path);
+                if !p.exists() {
+                    return fail(buf, len, -3, "路径不存在");
+                }
+                (vec![p], "指定位置扫描".to_string())
+            }
+        };
+
+        if roots.is_empty() {
+            return fail(buf, len, -3, "没有找到可扫描的磁盘");
+        }
+        if let Ok(mut g) = SCAN_CUR.lock() {
+            *g = "正在枚举文件".to_string();
+        }
+        scan_roots(roots, label, buf, len)
+    })
+}
+
+/// 停止扫描：遍历和逐文件循环都会看这个标志
+#[no_mangle]
+pub extern "C" fn scan_cancel(
+    _a: *const c_char,
+    _b: *const c_char,
+    buf: *mut u8,
+    len: usize,
+) -> i32 {
+    crate::ffi_guard!(buf, len, {
+        SCAN_CANCEL.store(true, Ordering::Relaxed);
+        EXT_CANCEL.store(true, Ordering::Relaxed);
+        ok(buf, len, "已请求停止", json!({"canceled": true}))
+    })
+}
+
+/// 查杀实时进度：前端每 200ms 拉一次，喂给扫描动效
+#[no_mangle]
+pub extern "C" fn scan_progress(buf: *mut u8, len: usize) -> i32 {
+    crate::ffi_guard!(buf, len, {
+        let total = SCAN_TOTAL.load(Ordering::Relaxed);
+        let done = SCAN_DONE.load(Ordering::Relaxed);
+        let cur = SCAN_CUR.lock().map(|s| s.clone()).unwrap_or_default();
+        let running = SCAN_RUNNING.load(Ordering::Relaxed);
+        let pct = if total > 0 {
+            (done as f64 / total as f64).clamp(0.0, 1.0)
+        } else {
+            0.0
+        };
+        ok(
+            buf,
+            len,
+            "查杀进度",
+            json!({
+                "running": running,
+                "total": total,
+                "done": done,
+                "hits": SCAN_HITS.load(Ordering::Relaxed),
+                "current": cur,
+                "scope": SCAN_SCOPE.lock().map(|s| s.clone()).unwrap_or_default(),
+                "found": SCAN_FOUND.lock().map(|s| s.clone()).unwrap_or_default(),
+                "progress": round1((pct * 100.0) as f32) / 100.0,
+            }),
+        )
+    })
+}
+
+// ================= 渲染显卡偏好（按厂商判定，写入系统 GPU 偏好） =================
+
+#[derive(Clone, Copy)]
+enum RenderTier {
+    High,
+    PowerSaving,
+}
+
+/// 把"本程序用哪块显卡渲染"写入 Windows 的 per-app GPU 偏好
+/// 路径：HKCU\Software\Microsoft\DirectX\UserGpuPreferences
+/// 值：GpuPreference=2; 高性能（独显） / GpuPreference=1; 省电（核显）
+/// 生效时机：下次启动本程序（系统在进程启动时读取）
+#[no_mangle]
+pub extern "C" fn apply_gpu_preference(mode: *const c_char, buf: *mut u8, len: usize) -> i32 {
+    crate::ffi_guard!(buf, len, {
+        if let Err(e) = crate::security::require_admin("应用显卡模式") {
+            return fail(buf, len, -5, &e);
+        }
+        let Some(mode) = cstr(mode) else {
+            return fail(buf, len, -1, "参数为空");
+        };
+
+        let gpus = detect_gpus();
+        if gpus.is_empty() {
+            return fail(buf, len, -3, "未检测到显卡");
+        }
+
+        let want = match mode.as_str() {
+            "auto" => recommend_gpu(&gpus),
+            "discrete" => "discrete".to_string(),
+            "integrated" => "integrated".to_string(),
+            _ => return fail(buf, len, -1, "未知模式"),
+        };
+
+        let chosen = gpus
+            .iter()
+            .filter(|g| g.kind == want)
+            .max_by_key(|g| g.score)
+            .cloned();
+
+        let Some(chosen) = chosen else {
+            return fail(
+                buf,
+                len,
+                -3,
+                &format!(
+                    "本机没有 {} 显卡，无法切换",
+                    if want == "discrete" {
+                        "独立"
+                    } else {
+                        "集成"
+                    }
+                ),
+            );
+        };
+
+        let tier = if want == "discrete" {
+            RenderTier::High
+        } else {
+            RenderTier::PowerSaving
+        };
+        let value = match tier {
+            RenderTier::High => "GpuPreference=2;",
+            RenderTier::PowerSaving => "GpuPreference=1;",
+        };
+
+        let exe = std::env::current_exe()
+            .map(|p| p.to_string_lossy().to_string())
+            .unwrap_or_default();
+
+        if cfg!(windows) {
+            let out = crate::proc::cmd("reg")
+                .args([
+                    "add",
+                    r"HKCU\Software\Microsoft\DirectX\UserGpuPreferences",
+                    "/v",
+                    &exe,
+                    "/t",
+                    "REG_SZ",
+                    "/d",
+                    value,
+                    "/f",
+                ])
+                .output();
+            match out {
+                Ok(o) if o.status.success() => ok(
+                    buf,
+                    len,
+                    "已写入系统 GPU 偏好",
+                    json!({
+                        "mode": mode,
+                        "applied": true,
+                        "tier": if matches!(tier, RenderTier::High) { "high" } else { "power_saving" },
+                        "gpu": chosen.name,
+                        "vendor": chosen.vendor,
+                        "kind": chosen.kind,
+                        "exe": exe,
+                        "note": "重启本程序后生效；若显卡驱动有自己的游戏/程序配置，以其为准"
+                    }),
+                ),
+                _ => fail(buf, len, -3, "写入注册表失败（可能需要权限）"),
+            }
+        } else {
+            ok(
+                buf,
+                len,
+                "非 Windows：仅返回建议，不写系统偏好",
+                json!({
+                    "mode": mode,
+                    "applied": false,
+                    "gpu": chosen.name,
+                    "vendor": chosen.vendor,
+                    "kind": chosen.kind,
+                    "note": "本机不是 Windows，无法设置 DXGI 偏好"
+                }),
+            )
+        }
+    })
+}
+
+// ================= 火绒 / PYAS 集成 =================
+
+fn tool_path(key: &str, candidates: &[&str]) -> Option<String> {
+    if let Some(p) = load_config().get(key).and_then(|v| v.as_str()) {
+        // 自定义路径必须是绝对路径、真实文件，且文件名和白名单候选一致：
+        // 否则配置里填个 C:\evil.exe 就成了「扫描时执行任意程序」。
+        let path = Path::new(p);
+        let allowed_name = path
+            .file_name()
+            .and_then(|s| s.to_str())
+            .map(|n| {
+                candidates.iter().any(|c| {
+                    Path::new(c)
+                        .file_name()
+                        .and_then(|s| s.to_str())
+                        .map(|cn| cn.eq_ignore_ascii_case(n))
+                        .unwrap_or(false)
+                })
+            })
+            .unwrap_or(false);
+        if !p.is_empty() && path.is_absolute() && path.is_file() && allowed_name {
+            return Some(p.to_string());
+        }
+    }
+    // 不再查「安装目录里自带的引擎」：那两个目录已经从包里删掉了。
+    // 第三方引擎只走它在系统里的标准安装路径（下面的 candidates），
+    // 用户机器上装了就用，没装就明确告诉用户去装 —— 不假装内置。
+    candidates
+        .iter()
+        .find(|p| Path::new(p).exists())
+        .map(|s| s.to_string())
+}
+
+fn looks_infected(text: &str) -> (bool, Vec<String>) {
+    let keys = [
+        "FOUND", "Detected", "infected", "病毒", "木马", "威胁", "恶意",
+    ];
+    // 反例："未发现病毒 / 无威胁 / 0 infected" 里也含关键词，必须先排掉，
+    // 否则一份干净的扫描报告会被我们判成"有威胁"。
+    let negs = [
+        "未发现",
+        "未检测",
+        "没有发现",
+        "无威胁",
+        "无病毒",
+        "no threat",
+        "not detected",
+        "0 infected",
+        "clean",
+    ];
+    let hits: Vec<String> = text
+        .lines()
+        .filter(|l| keys.iter().any(|k| l.contains(k)))
+        .filter(|l| {
+            let low = l.to_lowercase();
+            !negs.iter().any(|n| low.contains(&n.to_lowercase()))
+        })
+        .map(|l| l.trim().to_string())
+        .filter(|l| !l.is_empty())
+        .take(50)
+        .collect();
+    (!hits.is_empty(), hits)
+}
+
+/// 火绒 hrscan：有命令行就命令行扫描，没有则退回主程序启动
+#[no_mangle]
+pub extern "C" fn scan_huorong(target: *const c_char, buf: *mut u8, len: usize) -> i32 {
+    crate::ffi_guard!(buf, len, {
+        let Some(target) = cstr(target) else {
+            return fail(buf, len, -1, "参数为空");
+        };
+        if !Path::new(&target).exists() {
+            return fail(buf, len, -3, "目标路径不存在");
+        }
+        if is_whitelisted(&target) {
+            return ok(
+                buf,
+                len,
+                "已跳过（白名单）",
+                json!({"engine": "huorong", "skipped": true, "infected": false}),
+            );
+        }
+
+        let Some(exe) = tool_path(
+            "huorong_path",
+            &[
+                "C:\\Program Files\\Huorong\\Sysdiag\\bin\\hrscan.exe",
+                "C:\\Program Files (x86)\\Huorong\\Sysdiag\\bin\\hrscan.exe",
+                "C:\\Program Files\\Huorong\\Sysdiag\\bin\\HipsMain.exe",
+            ],
+        ) else {
+            return fail(
+                buf,
+                len,
+                -3,
+                "本机没有检测到火绒。先安装火绒，或在设置里手动指定 hrscan.exe 的路径。",
+            );
+        };
+
+        // 火绒多是 GUI 进程，output() 会一直阻塞把界面冻住 —— 改成非阻塞拉起，立刻回话
+        match crate::proc::cmd(&exe).arg(&target).spawn() {
+            Ok(mut child) => {
+                // 后台回收子进程，别留僵尸，也别挡住界面线程
+                std::thread::spawn(move || {
+                    let _ = child.wait();
+                });
+                ok(
+                    buf,
+                    len,
+                    "已拉起火绒扫描",
+                    json!({
+                        "engine": "huorong",
+                        "exe": exe,
+                        "mode": "launched",
+                        "infected": false,
+                        "threats": Vec::<String>::new(),
+                        "note": "已把目标路径交给火绒去扫，扫描进度和结论请以火绒界面为准"
+                    }),
+                )
+            }
+            Err(e) => fail(buf, len, -3, &format!("调用火绒失败: {e}")),
+        }
+    })
+}
+
+fn collect_logs(
+    dir: &Path,
+    since: std::time::SystemTime,
+    depth: usize,
+    out: &mut Vec<(std::time::SystemTime, std::path::PathBuf)>,
+) {
+    if depth == 0 {
+        return;
+    }
+    let Ok(rd) = fs::read_dir(dir) else { return };
+    for e in rd.flatten() {
+        let p = e.path();
+        let Ok(meta) = fs::symlink_metadata(&p) else {
+            continue;
+        };
+        if meta.is_dir() {
+            collect_logs(&p, since, depth - 1, out);
+        } else if meta.is_file() {
+            let ok_ext = p
+                .extension()
+                .map(|x| {
+                    let s = x.to_string_lossy().to_lowercase();
+                    s == "log" || s == "txt" || s == "json"
+                })
+                .unwrap_or(false);
+            if ok_ext {
+                if let Ok(m) = meta.modified() {
+                    if m >= since {
+                        out.push((m, p));
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// PYAS：没有命令行与 SDK，只能启动 + 尽量从日志里捞结果
+#[no_mangle]
+pub extern "C" fn scan_pyas(target: *const c_char, buf: *mut u8, len: usize) -> i32 {
+    crate::ffi_guard!(buf, len, {
+        let Some(target) = cstr(target) else {
+            return fail(buf, len, -1, "参数为空");
+        };
+        if !Path::new(&target).exists() {
+            return fail(buf, len, -3, "目标路径不存在");
+        }
+        if is_whitelisted(&target) {
+            return ok(
+                buf,
+                len,
+                "已跳过（白名单）",
+                json!({"engine": "pyas", "skipped": true, "infected": false}),
+            );
+        }
+
+        EXT_CANCEL.store(false, Ordering::Relaxed);
+        let Some(exe) = tool_path(
+            "pyas_path",
+            &[
+                "C:\\Program Files\\PYAS\\PYAS.exe",
+                "C:\\Program Files (x86)\\PYAS\\PYAS.exe",
+                "C:\\Program Files\\PYAS Security\\PYAS.exe",
+            ],
+        ) else {
+            return fail(
+                buf,
+                len,
+                -3,
+                "本机没有检测到 PYAS。先安装 PYAS，或在设置里手动指定它的路径。",
+            );
+        };
+
+        let start = std::time::SystemTime::now();
+        let spawned = crate::proc::cmd(&exe).arg(&target).spawn();
+
+        // 等待最多 12 秒，轮询日志
+        let mut dirs: Vec<std::path::PathBuf> = Vec::new();
+        for base in ["APPDATA", "LOCALAPPDATA"] {
+            if let Ok(v) = std::env::var(base) {
+                dirs.push(Path::new(&v).join("PYAS"));
+                dirs.push(Path::new(&v).join("PYAS Security"));
+            }
+        }
+        if let Some(parent) = Path::new(&exe).parent() {
+            dirs.push(parent.join("logs"));
+            dirs.push(parent.join("log"));
+        }
+
+        let mut newest: Option<(std::time::SystemTime, std::path::PathBuf)> = None;
+        for _ in 0..12 {
+            if EXT_CANCEL.load(Ordering::Relaxed) {
+                break;
+            }
+            let mut found = Vec::new();
+            for d in &dirs {
+                collect_logs(d, start, 2, &mut found);
+            }
+            if let Some(mx) = found.into_iter().max_by_key(|(t, _)| *t) {
+                newest = Some(mx);
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(500));
+        }
+
+        let launched_ok = spawned.is_ok();
+        let (infected, threats, log_path) = match newest {
+            Some((_, p)) => {
+                let text = fs::read_to_string(&p).unwrap_or_default();
+                let tail: String = text
+                    .lines()
+                    .rev()
+                    .take(300)
+                    .collect::<Vec<_>>()
+                    .into_iter()
+                    .rev()
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                let (i, t) = looks_infected(&tail);
+                (i, t, p.to_string_lossy().to_string())
+            }
+            None => (false, Vec::new(), String::new()),
+        };
+
+        ok(
+            buf,
+            len,
+            "PYAS 处理完成",
+            json!({
+                "engine": "pyas",
+                "exe": exe,
+                "mode": "best_effort",
+                "launched": launched_ok,
+                "infected": infected,
+                "threats": threats,
+                "log": log_path,
+                "note": if log_path.is_empty() {
+                    "PYAS 无命令行接口，已启动主程序；未找到可解析日志，结果请在 PYAS 界面查看"
+                } else {
+                    "结果来自 PYAS 新生成的日志，可能不完整"
+                }
+            }),
+        )
+    })
+}
